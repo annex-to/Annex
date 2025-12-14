@@ -29,6 +29,15 @@ export function detectRarArchive(directory: string): ArchiveInfo {
     return { hasArchive: false, archivePath: null, estimatedSize: 0 };
   }
 
+  // Check if path is a directory (single-file torrents have contentPath pointing to a file)
+  try {
+    if (!statSync(directory).isDirectory()) {
+      return { hasArchive: false, archivePath: null, estimatedSize: 0 };
+    }
+  } catch {
+    return { hasArchive: false, archivePath: null, estimatedSize: 0 };
+  }
+
   const files = readdirSync(directory);
 
   // Look for .rar file (the first part of the archive)
