@@ -61,6 +61,7 @@ export const DISCOVERY_MODES = [
   { value: "hidden_gems", label: "Hidden Gems", description: "Underrated favorites" },
   { value: "new_releases", label: "New Releases", description: "Recently released" },
   { value: "coming_soon", label: "Coming Soon", description: "Upcoming content" },
+  { value: "trakt_trending", label: "Trakt Trending", description: "Trending on Trakt.tv" },
   { value: "custom", label: "Custom", description: "Custom filters" },
 ] as const;
 

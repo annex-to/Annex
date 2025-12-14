@@ -158,11 +158,11 @@ export default function DiscoverPage() {
     [filters, page]
   );
 
-  // Use the new discover endpoint with all filters
+  // Use the discover endpoint for most modes
   const discoverQuery = trpc.discovery.discover.useQuery(
     {
       type: filters.type,
-      mode: filters.mode,
+      mode: filters.mode === "trakt_trending" ? "trending" : filters.mode,
       qualityTier: filters.qualityTier,
       page,
       query: filters.query || undefined,
@@ -179,8 +179,24 @@ export default function DiscoverPage() {
     },
     {
       keepPreviousData: true,
+      enabled: filters.mode !== "trakt_trending",
     }
   );
+
+  // Use Trakt trending endpoint when in trakt_trending mode
+  const traktTrendingQuery = trpc.discovery.traktTrending.useQuery(
+    {
+      type: filters.type,
+      page,
+    },
+    {
+      keepPreviousData: true,
+      enabled: filters.mode === "trakt_trending",
+    }
+  );
+
+  // Combined query state - use whichever query is active
+  const activeQuery = filters.mode === "trakt_trending" ? traktTrendingQuery : discoverQuery;
 
   // Build a list of items to check for library status
   const itemsToCheck = useMemo(() => {
@@ -211,8 +227,8 @@ export default function DiscoverPage() {
 
   // Accumulate results when new data arrives
   useEffect(() => {
-    const data = discoverQuery.data;
-    if (!data?.results || discoverQuery.isFetching) return;
+    const data = activeQuery.data;
+    if (!data?.results || activeQuery.isFetching) return;
 
     // Create a unique key for this data to avoid reprocessing
     const dataKey = `${queryKey}-${data.results.length}`;
@@ -237,7 +253,7 @@ export default function DiscoverPage() {
     }
 
     setHasMore(page < (data.totalPages ?? 1));
-  }, [discoverQuery.data, discoverQuery.isFetching, page, queryKey]);
+  }, [activeQuery.data, activeQuery.isFetching, page, queryKey]);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -271,10 +287,10 @@ export default function DiscoverPage() {
 
   // Load more function
   const loadMore = useCallback(() => {
-    if (!discoverQuery.isFetching && hasMore) {
+    if (!activeQuery.isFetching && hasMore) {
       setPage((p) => p + 1);
     }
-  }, [discoverQuery.isFetching, hasMore]);
+  }, [activeQuery.isFetching, hasMore]);
 
   // Intersection observer for infinite scroll
   useEffect(() => {
@@ -287,7 +303,7 @@ export default function DiscoverPage() {
         if (
           entry.isIntersecting &&
           hasMore &&
-          !discoverQuery.isFetching &&
+          !activeQuery.isFetching &&
           allResults.length > 0
         ) {
           loadMore();
@@ -301,10 +317,10 @@ export default function DiscoverPage() {
     return () => {
       observer.disconnect();
     };
-  }, [loadMore, hasMore, discoverQuery.isFetching, allResults.length]);
+  }, [loadMore, hasMore, activeQuery.isFetching, allResults.length]);
 
-  const isInitialLoading = discoverQuery.isLoading && allResults.length === 0;
-  const isLoadingMore = discoverQuery.isFetching && allResults.length > 0;
+  const isInitialLoading = activeQuery.isLoading && allResults.length === 0;
+  const isLoadingMore = activeQuery.isFetching && allResults.length > 0;
 
   // Build title based on active filters
   const resultsTitle = useMemo(() => {
@@ -459,8 +475,8 @@ export default function DiscoverPage() {
           />
         </div>
 
-        {/* Quality tier selector (shown for non-custom modes) */}
-        {filters.mode !== "custom" && filters.mode !== "coming_soon" && (
+        {/* Quality tier selector (shown for non-custom modes, not for trakt_trending/coming_soon) */}
+        {filters.mode !== "custom" && filters.mode !== "coming_soon" && filters.mode !== "trakt_trending" && (
           <QualityTierSelector
             tier={filters.qualityTier}
             onTierChange={setQualityTier}
@@ -518,11 +534,11 @@ export default function DiscoverPage() {
           </div>
 
           {/* Error state */}
-          {discoverQuery.error && (
+          {activeQuery.error && (
             <div className="text-center py-12 text-red-400">
               <p>Failed to load content.</p>
               <p className="text-sm mt-2 text-white/30">
-                {discoverQuery.error.message}
+                {activeQuery.error.message}
               </p>
             </div>
           )}
@@ -542,9 +558,9 @@ export default function DiscoverPage() {
 
           {/* Empty state */}
           {!isInitialLoading &&
-            !discoverQuery.isFetching &&
+            !activeQuery.isFetching &&
             allResults.length === 0 &&
-            discoverQuery.data && (
+            activeQuery.data && (
               <div className="text-center py-12 text-white/50">
                 {filters.query ? (
                   <>
@@ -615,7 +631,7 @@ export default function DiscoverPage() {
                   <Button
                     variant="secondary"
                     onClick={loadMore}
-                    disabled={discoverQuery.isFetching}
+                    disabled={activeQuery.isFetching}
                   >
                     Load More
                   </Button>

@@ -4,6 +4,7 @@ import { getTMDBService } from "../services/tmdb.js";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
 import { getTasteProfileService, type TasteProfile } from "../services/tasteProfile.js";
+import { getTraktService } from "../services/trakt.js";
 import type { TrendingResult } from "@annex/shared";
 import { Prisma } from "@prisma/client";
 
@@ -1509,5 +1510,128 @@ export const discoveryRouter = router({
         jobId: job.id,
         alreadyQueued: false,
       };
+    }),
+
+  /**
+   * Get trending movies/shows from Trakt
+   * Returns results in the same format as discover endpoint
+   * Items are enriched with local database info when available
+   */
+  traktTrending: publicProcedure
+    .input(
+      z.object({
+        type: z.enum(["movie", "tv"]),
+        page: z.number().min(1).default(1),
+      })
+    )
+    .query(async ({ input }) => {
+      const trakt = getTraktService();
+
+      if (!trakt.isConfigured()) {
+        return {
+          configured: false,
+          results: [],
+          page: input.page,
+          totalPages: 0,
+          totalResults: 0,
+          message: "Trakt API not configured. Set ANNEX_TRAKT_CLIENT_ID in your environment.",
+        };
+      }
+
+      try {
+        // Fetch trending from Trakt (they return ~10 items per page by default)
+        const traktItems = await trakt.getTrending(input.type, input.page, ITEMS_PER_PAGE);
+
+        if (traktItems.length === 0) {
+          return {
+            configured: true,
+            results: [],
+            page: input.page,
+            totalPages: 0,
+            totalResults: 0,
+            message: null,
+          };
+        }
+
+        // Batch fetch from our database to enrich with posters and ratings
+        const mediaItemIds = traktItems.map(
+          (item) => `tmdb-${item.type}-${item.tmdbId}`
+        );
+
+        const localItems = await prisma.mediaItem.findMany({
+          where: { id: { in: mediaItemIds } },
+          select: {
+            id: true,
+            tmdbId: true,
+            type: true,
+            title: true,
+            posterPath: true,
+            backdropPath: true,
+            year: true,
+            overview: true,
+            videos: true,
+            ratings: true,
+          },
+        });
+
+        // Create lookup map
+        const localMap = new Map(localItems.map((item) => [item.id, item]));
+
+        // Build results, enriching with local data when available
+        const results: TrendingResult[] = traktItems.map((traktItem) => {
+          const localId = `tmdb-${traktItem.type}-${traktItem.tmdbId}`;
+          const local = localMap.get(localId);
+
+          if (local) {
+            // Use local data (has poster, ratings, etc.)
+            return mediaItemToTrendingResult(local);
+          }
+
+          // Fall back to basic Trakt data (no poster/ratings)
+          return {
+            type: traktItem.type,
+            tmdbId: traktItem.tmdbId,
+            title: traktItem.title,
+            posterPath: null,
+            backdropPath: null,
+            year: traktItem.year,
+            voteAverage: 0,
+            overview: "",
+            ratings: undefined,
+            trailerKey: null,
+          };
+        });
+
+        // Queue background hydration for items not in our database
+        const itemsToHydrate = traktItems
+          .filter((item) => !localMap.has(`tmdb-${item.type}-${item.tmdbId}`))
+          .map((item) => ({ tmdbId: item.tmdbId, type: item.type }));
+
+        if (itemsToHydrate.length > 0) {
+          queueBatchRefreshIfStale(itemsToHydrate).catch(console.error);
+        }
+
+        // Trakt doesn't give us total count, estimate based on whether we got a full page
+        const hasMore = traktItems.length === ITEMS_PER_PAGE;
+
+        return {
+          configured: true,
+          results,
+          page: input.page,
+          totalPages: hasMore ? input.page + 1 : input.page,
+          totalResults: hasMore ? (input.page + 1) * ITEMS_PER_PAGE : input.page * traktItems.length,
+          message: null,
+        };
+      } catch (error) {
+        console.error("[Trakt] Error fetching trending:", error);
+        return {
+          configured: true,
+          results: [],
+          page: input.page,
+          totalPages: 0,
+          totalResults: 0,
+          message: error instanceof Error ? error.message : "Failed to fetch Trakt trending",
+        };
+      }
     }),
 });
