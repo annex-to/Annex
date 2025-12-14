@@ -1,0 +1,20 @@
+{
+  "name": "annex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unified media acquisition, processing, and delivery platform",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "build": "pnpm run -r build",
+    "start": "pnpm run --filter @annex/server start",
+    "lint": "pnpm run -r lint",
+    "typecheck": "pnpm run -r typecheck",
+    "clean": "pnpm run -r clean && rm -rf node_modules"
+  },
+  "keywords": ["media", "plex", "emby", "av1", "encoding"],
+  "license": "MIT",
+  "packageManager": "pnpm@9.14.2",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

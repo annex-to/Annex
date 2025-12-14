@@ -1,0 +1,1016 @@
+// Annex Database Schema
+// PostgreSQL with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Users & Authentication
+// =============================================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  username  String
+  avatar    String?
+  isAdmin   Boolean  @default(false)
+  enabled   Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  plexAccount  PlexAccount?
+  embyAccount  EmbyAccount?
+  sessions     Session[]
+  requests     MediaRequest[]
+}
+
+model PlexAccount {
+  id                String   @id @default(cuid())
+  plexId            String   @unique  // Plex user ID
+  plexUsername      String
+  plexEmail         String?
+  plexThumb         String?           // Avatar URL
+  plexToken         String?           // Encrypted Plex access token
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String   @unique
+}
+
+model EmbyAccount {
+  id                String   @id @default(cuid())
+  embyId            String   @unique  // Emby user ID
+  embyUsername      String
+  embyServerId      String?           // Connected Emby server ID
+  embyToken         String?           // Encrypted Emby access token
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String   @unique
+}
+
+model Session {
+  id            String    @id @default(cuid())
+  token         String    @unique  // Session token (hashed)
+  expiresAt     DateTime
+  userAgent     String?
+  ipAddress     String?
+  lastActiveAt  DateTime  @default(now())
+
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// =============================================================================
+// Storage Servers
+// =============================================================================
+
+model StorageServer {
+  id                    String   @id @default(cuid())
+  name                  String
+  host                  String
+  port                  Int
+  protocol              Protocol
+  username              String
+  encryptedPassword     String?
+  encryptedPrivateKey   String?
+  pathMovies            String
+  pathTv                String
+  maxResolution         Resolution
+  maxFileSize           BigInt?  // bytes, null = unlimited
+  preferredCodec        Codec
+  maxBitrate            Int?     // kbps
+
+  // Media Server Integration
+  mediaServerType       MediaServerType @default(NONE)
+  mediaServerUrl        String?
+  mediaServerApiKey     String?
+  mediaServerLibraryMovies String[] // Library IDs
+  mediaServerLibraryTv     String[] // Library IDs
+
+  // Library Sync Settings
+  librarySyncEnabled    Boolean  @default(true)
+  librarySyncInterval   Int      @default(5) // minutes
+
+  enabled               Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  encodingProfile       EncodingProfile? @relation(fields: [encodingProfileId], references: [id])
+  encodingProfileId     String?
+  libraryItems          LibraryItem[]
+  episodeLibraryItems   EpisodeLibraryItem[]
+}
+
+enum Protocol {
+  LOCAL
+  SFTP
+  RSYNC
+  SMB
+}
+
+enum Resolution {
+  RES_4K    @map("4K")
+  RES_2K    @map("2K")
+  RES_1080P @map("1080p")
+  RES_720P  @map("720p")
+  RES_480P  @map("480p")
+}
+
+enum Codec {
+  AV1
+  HEVC
+  H264
+}
+
+enum MediaServerType {
+  PLEX
+  EMBY
+  NONE
+}
+
+// =============================================================================
+// Indexers
+// =============================================================================
+
+model Indexer {
+  id               String      @id @default(cuid())
+  name             String
+  type             IndexerType
+  url              String
+  apiKey           String
+  categoriesMovies Int[]       // Torznab category IDs
+  categoriesTv     Int[]       // Torznab category IDs
+  priority         Int         @default(50)
+  enabled          Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+enum IndexerType {
+  TORZNAB
+  NEWZNAB
+  RSS
+  TORRENTLEECH
+}
+
+// =============================================================================
+// Encoding Profiles
+// =============================================================================
+
+model EncodingProfile {
+  id                   String     @id @default(cuid())
+  name                 String
+  description          String?
+
+  // Video encoder (e.g., "av1_qsv", "libsvtav1", "hevc_nvenc", "libx265")
+  videoEncoder         String     @default("libsvtav1")
+
+  // Primary quality control (CRF for software, global_quality for QSV, etc.)
+  videoQuality         Int        @default(25)
+
+  // Maximum output resolution
+  videoMaxResolution   Resolution @default(RES_1080P)
+
+  // Optional bitrate cap (kbps)
+  videoMaxBitrate      Int?
+
+  // Hardware acceleration settings
+  hwAccel              HwAccel    @default(NONE)
+  hwDevice             String?    // e.g., "/dev/dri/renderD129" for VAAPI/QSV
+
+  // Encoder-specific flags as JSON object
+  // e.g., {"preset": "slow", "look_ahead": 1, "tune": "film"}
+  videoFlags           Json       @default("{}")
+
+  // Audio encoder (e.g., "copy", "aac", "libopus", "ac3")
+  audioEncoder         String     @default("copy")
+
+  // Audio encoder flags as JSON object
+  // e.g., {"b": "192k", "ac": 2}
+  audioFlags           Json       @default("{}")
+
+  // Subtitle handling
+  subtitlesMode        SubtitlesMode @default(COPY)
+
+  // Output container format
+  container            Container  @default(MKV)
+
+  isDefault            Boolean    @default(false)
+
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Relations
+  servers              StorageServer[]
+  encodingJobs         EncodingJob[]
+}
+
+enum HwAccel {
+  NONE
+  QSV     // Intel Quick Sync Video
+  NVENC   // NVIDIA NVENC
+  VAAPI   // Video Acceleration API (Linux)
+  AMF     // AMD Advanced Media Framework
+  VIDEOTOOLBOX // macOS VideoToolbox
+}
+
+enum SubtitlesMode {
+  COPY        // Copy all subtitles as-is
+  COPY_TEXT   // Copy only text-based subtitles (SRT, ASS)
+  EXTRACT     // Extract to separate files
+  NONE        // No subtitles
+}
+
+enum Container {
+  MKV
+  MP4
+  WEBM
+}
+
+// =============================================================================
+// Media Requests
+// =============================================================================
+
+model MediaRequest {
+  id               String        @id @default(cuid())
+  type             MediaType
+  tmdbId           Int
+  title            String
+  year             Int
+  requestedSeasons Int[]         // For TV shows (empty = all seasons)
+  requestedEpisodes Json?        // For specific episodes: [{season: 1, episode: 1}]
+
+  // Target servers with optional per-server encoding profile overrides
+  // Format: [{serverId: "...", encodingProfileId?: "..."}]
+  // If encodingProfileId is omitted, uses server's default profile
+  targets          Json          @default("[]")
+
+  status           RequestStatus @default(PENDING)
+  progress         Float         @default(0)
+  currentStep      String?
+  error            String?
+
+  // Pipeline state - allows resuming from where we left off
+  selectedRelease  Json?         // The release selected from indexer search
+  torrentHash      String?       // qBittorrent torrent hash (deprecated - use Download model)
+  sourceFilePath   String?       // Path to downloaded source file
+  encodedFiles     Json?         // [{profileId, path, targetServerIds}] - encoded files ready for delivery
+
+  // Quality requirements (derived from target servers)
+  requiredResolution  String?    // e.g., "2160p", "1080p" - minimum required resolution
+  availableReleases   Json?      // Lower-quality alternatives when quality unavailable
+  qualitySearchedAt   DateTime?  // When we last searched for quality releases
+
+  // TV monitoring - for automatically downloading new episodes
+  monitoring       Boolean       @default(false)  // Keep watching for new episodes
+  lastCheckedAt    DateTime?     // Last time we checked for new episodes
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  completedAt      DateTime?
+
+  // Relations
+  user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId           String?
+  encodingJobs     EncodingJob[]
+  activityLog      ActivityLog[]
+  tvEpisodes       TvEpisode[]   // Track individual episode status for TV shows
+  downloads        Download[]    // All downloads associated with this request
+  jobs             Job[]         // All jobs associated with this request
+
+  @@index([userId])
+  @@index([monitoring, type])  // For finding monitored TV shows
+}
+
+// =============================================================================
+// Downloads - Central download tracking for both Movies and TV
+// =============================================================================
+
+model Download {
+  id              String         @id @default(cuid())
+  requestId       String
+  request         MediaRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  // qBittorrent tracking
+  torrentHash     String         @unique  // qBittorrent identifier
+  torrentName     String                  // Original torrent name
+  magnetUri       String?                 // Magnet link used to add (for recovery)
+
+  // Paths
+  savePath        String?                 // qBittorrent save_path
+  contentPath     String?                 // qBittorrent content_path
+
+  // Status & Progress
+  status          DownloadStatus @default(PENDING)
+  progress        Float          @default(0)  // 0-100
+  size            BigInt?                     // Total size in bytes
+  error           String?
+  failureReason   String?                     // Why last attempt failed
+
+  // Type info - determines how to process
+  mediaType       MediaType                   // MOVIE or TV
+  isSeasonPack    Boolean        @default(false)
+  season          Int?                        // For TV season packs
+
+  // Retry tracking
+  attemptCount          Int        @default(1)
+  lastAttemptAt         DateTime?
+  alternativeReleases   Json?                  // Array of backup releases to try
+
+  // Health tracking
+  lastProgressAt        DateTime?              // Last time progress increased
+  seedCount             Int?                   // Current seed count
+  peerCount             Int?                   // Current peer count
+
+  // Timestamps
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relations
+  tvEpisodes      TvEpisode[]    // For TV: episodes this download provides
+  events          DownloadEvent[]
+
+  @@index([requestId])
+  @@index([status])
+  @@index([mediaType, status])
+}
+
+enum DownloadStatus {
+  PENDING       // Queued, not yet started
+  DOWNLOADING   // Active in qBittorrent
+  COMPLETED     // Download finished, ready for processing
+  IMPORTING     // File mapping / import in progress
+  PROCESSED     // All files encoded and delivered
+  CLEANED       // Torrent removed, source files deleted
+  FAILED        // Error occurred
+  CANCELLED     // User cancelled
+  STALLED       // No progress, awaiting recovery
+}
+
+// Download event log for audit trail
+model DownloadEvent {
+  id          String   @id @default(cuid())
+  downloadId  String
+  download    Download @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+
+  event       String   // "started", "progress", "completed", "failed", "retried", "cleaned"
+  details     Json?    // Event-specific data
+
+  createdAt   DateTime @default(now())
+
+  @@index([downloadId])
+  @@index([event, createdAt])
+}
+
+// =============================================================================
+// TV Episodes - Track individual episode status
+// =============================================================================
+
+model TvEpisode {
+  id              String              @id @default(cuid())
+  requestId       String
+  request         MediaRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  // Episode identity
+  season          Int
+  episode         Int
+  title           String?             // Episode title from TMDB
+  airDate         DateTime?           // When episode airs
+
+  // Link to download (set when download is created/assigned)
+  downloadId      String?
+  download        Download?           @relation(fields: [downloadId], references: [id], onDelete: SetNull)
+
+  // File mapping (set when download completes)
+  sourceFilePath  String?             // Specific file within the download for this episode
+
+  // Processing status
+  status          TvEpisodeStatus     @default(PENDING)
+  progress        Float               @default(0)  // 0-100 encoding progress
+  error           String?
+
+  // Quality tracking per episode
+  qualityMet          Boolean         @default(false)  // Did we find matching quality?
+  availableReleases   Json?           // Lower-quality alternatives for this episode
+
+  // Timestamps
+  downloadedAt    DateTime?           // When source file became available
+  encodedAt       DateTime?           // When encoding completed
+  deliveredAt     DateTime?           // When delivered to all targets
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([requestId, season, episode])
+  @@index([requestId, status])
+  @@index([downloadId])
+}
+
+enum TvEpisodeStatus {
+  PENDING               // Not yet started
+  AWAITING              // Not aired yet / no release found
+  QUALITY_UNAVAILABLE   // Releases found but none meet quality requirements
+  SEARCHING             // Looking for release
+  DOWNLOADING           // Download in progress (linked to Download)
+  DOWNLOADED            // File available, awaiting encoding
+  ENCODING              // Encoding in progress
+  ENCODED               // Encoding done, awaiting delivery
+  DELIVERING            // Transfer in progress
+  COMPLETED             // Done
+  FAILED                // Error occurred
+  SKIPPED               // Already in library
+}
+
+// =============================================================================
+// Quality Profiles - Define release preferences
+// =============================================================================
+
+model QualityProfile {
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+
+  // Resolution preferences (in order)
+  preferredResolutions  String[] // ["2160p", "1080p", "720p"]
+  minResolution         String   @default("720p")
+
+  // Source preferences (in order)
+  preferredSources      String[] // ["BluRay", "WEB-DL", "WEBRip", "HDTV"]
+
+  // Codec preferences
+  preferredCodecs       String[] // ["x265", "x264", "AV1"]
+
+  // Size limits
+  minSizeGB             Float?   // Reject if smaller (likely bad quality)
+  maxSizeGB             Float?   // Reject if larger
+
+  // Release group preferences
+  preferredGroups       String[] // Trusted release groups
+  bannedGroups          String[] // Known bad groups
+
+  // Upgrade settings
+  allowUpgrades         Boolean  @default(true)
+  upgradeUntilResolution String? // Stop upgrading once we have this
+
+  isDefault             Boolean  @default(false)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// =============================================================================
+// Bad Releases - Blacklist for known bad releases
+// =============================================================================
+
+model BadRelease {
+  id          String   @id @default(cuid())
+  torrentHash String?  @unique // If we know the hash
+  title       String?          // Release title pattern
+  indexer     String?          // Which indexer it came from
+  reason      String           // Why it's bad (content_mismatch, corrupt, etc.)
+
+  createdAt   DateTime @default(now())
+
+  @@index([title])
+}
+
+enum MediaType {
+  MOVIE
+  TV
+}
+
+enum RequestStatus {
+  PENDING
+  SEARCHING
+  AWAITING              // No releases found, waiting for availability
+  QUALITY_UNAVAILABLE   // Releases found but none meet quality requirements
+  DOWNLOADING
+  ENCODING
+  DELIVERING
+  COMPLETED
+  FAILED
+}
+
+// =============================================================================
+// Encoding Jobs
+// =============================================================================
+
+model EncodingJob {
+  id            String          @id @default(cuid())
+  sourceFile    String
+  outputFile    String?
+
+  status        EncodingStatus  @default(QUEUED)
+  progress      Float           @default(0)
+  error         String?
+
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+
+  // Relations
+  request       MediaRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestId     String
+  profile       EncodingProfile @relation(fields: [profileId], references: [id])
+  profileId     String
+}
+
+enum EncodingStatus {
+  QUEUED
+  ENCODING
+  COMPLETED
+  FAILED
+}
+
+// =============================================================================
+// Sync State (persistent progress for crash recovery)
+// =============================================================================
+
+model SyncState {
+  id            String    @id @default("default")  // Single row, use fixed ID
+
+  // MDBList sync state (fullSync)
+  mdblistJobId          String?   // Current job ID if running
+  mdblistMovieExportUrl String?   // TMDB export URL being used
+  mdblistTvExportUrl    String?   // TMDB export URL being used
+  mdblistLastMovieId    Int?      // Last processed TMDB movie ID (descending order)
+  mdblistLastTvId       Int?      // Last processed TMDB TV ID (descending order)
+  mdblistMovieTotal     Int?      // Total movies to process
+  mdblistTvTotal        Int?      // Total TV shows to process
+  mdblistStartedAt      DateTime? // When sync started
+
+  // TMDB sync state (fullTMDBSync)
+  tmdbJobId             String?   // Current job ID if running
+  tmdbLastMovieId       Int?      // Last processed TMDB movie ID
+  tmdbLastTvId          Int?      // Last processed TMDB TV ID
+  tmdbMovieTotal        Int?      // Total movies to process
+  tmdbTvTotal           Int?      // Total TV shows to process
+  tmdbStartedAt         DateTime? // When sync started
+
+  updatedAt     DateTime  @updatedAt
+}
+
+// =============================================================================
+// Job Queue (Database-backed, replaces Redis/BullMQ)
+// =============================================================================
+
+model Job {
+  id            String      @id @default(cuid())
+  type          String      // Job type identifier
+  payload       Json        // Job data
+  dedupeKey     String?     // Optional key for deduplication (e.g., "tv:encode:episodeId")
+
+  status        JobStatus   @default(PENDING)
+  priority      Int         @default(0)
+  attempts      Int         @default(0)
+  maxAttempts   Int         @default(3)
+
+  // Progress tracking
+  progress      Float       @default(0)  // 0-100 percentage
+  progressTotal Int?        // Total items to process
+  progressCurrent Int?      // Current item index
+  estimatedEnd  DateTime?   // Calculated ETA
+
+  error         String?
+  result        Json?
+
+  lockedAt      DateTime?   // When a worker picked up the job
+  lockedBy      String?     // Worker identifier
+
+  // Worker & heartbeat tracking (crash resilience)
+  workerId      String?     // Which worker instance owns this job
+  heartbeatAt   DateTime?   // Last heartbeat from worker
+
+  // Job hierarchy for complex workflows
+  parentJobId   String?
+  parentJob     Job?        @relation("JobHierarchy", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs     Job[]       @relation("JobHierarchy")
+
+  // Request linkage for traceability
+  requestId     String?
+  request       MediaRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  // Cancellation tracking (persisted, not in-memory)
+  cancelRequested Boolean   @default(false)
+
+  scheduledFor  DateTime    @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Remote encoder assignment (if using distributed encoding)
+  encoderAssignment  EncoderAssignment?
+
+  @@index([status, scheduledFor])
+  @@index([type, status])
+  @@index([dedupeKey, status])
+  @@index([workerId, status])
+  @@index([parentJobId])
+  @@index([requestId])
+  @@index([heartbeatAt])
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// =============================================================================
+// Worker Registration (For multi-instance deployments & crash detection)
+// =============================================================================
+
+model Worker {
+  id            String        @id @default(cuid())
+  workerId      String        @unique  // hostname:pid:timestamp
+  hostname      String
+  nodePid       Int           // Node.js process PID
+
+  status        WorkerStatus  @default(ACTIVE)
+  startedAt     DateTime      @default(now())
+  lastHeartbeat DateTime      @default(now())
+
+  @@index([status, lastHeartbeat])
+}
+
+enum WorkerStatus {
+  ACTIVE
+  STOPPED
+  DEAD
+}
+
+// =============================================================================
+// Activity Log
+// =============================================================================
+
+model ActivityLog {
+  id        String       @id @default(cuid())
+  type      ActivityType
+  message   String
+  details   Json?
+  timestamp DateTime     @default(now())
+
+  // Relations
+  request   MediaRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  requestId String?
+
+  @@index([timestamp])
+  @@index([requestId])
+}
+
+enum ActivityType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+}
+
+// =============================================================================
+// Library Items (Cached from Plex/Emby)
+// =============================================================================
+
+model LibraryItem {
+  id        String   @id @default(cuid())
+  tmdbId    Int
+  type      MediaType
+  quality   String?
+  addedAt   DateTime?
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  server    StorageServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId  String
+
+  @@unique([tmdbId, type, serverId])
+  @@index([tmdbId, type])
+}
+
+// Episode-level library tracking for TV shows
+model EpisodeLibraryItem {
+  id            String   @id @default(cuid())
+  tmdbId        Int      // Show TMDB ID
+  season        Int
+  episode       Int
+  quality       String?
+  addedAt       DateTime?
+  syncedAt      DateTime @default(now())
+
+  // Relations
+  server        StorageServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId      String
+
+  @@unique([tmdbId, season, episode, serverId])
+  @@index([tmdbId, serverId])
+}
+
+// =============================================================================
+// Media Items (Movies & TV Shows)
+// =============================================================================
+
+model MediaItem {
+  id            String    @id // Format: tmdb-movie-12345 or tmdb-tv-67890
+  tmdbId        Int
+  imdbId        String?
+  traktId       Int?
+  tvdbId        Int?
+  malId         Int?      // MyAnimeList ID
+  type          MediaType
+
+  // Basic metadata
+  title         String
+  originalTitle String?
+  year          Int?
+  releaseDate   String?   // YYYY-MM-DD format
+  overview      String?
+  tagline       String?
+
+  // Images
+  posterPath    String?
+  backdropPath  String?
+
+  // Classification
+  genres        String[]
+  keywords      String[]
+  certification String?   // PG-13, R, TV-MA, etc.
+
+  // Details
+  runtime       Int?      // minutes
+  status        String?   // Released, In Production, Ended, etc.
+  language      String?   // Original language (ISO 639-1 code)
+  country       String?   // Production country
+
+  // Extended language/region info
+  spokenLanguages    String[]  // ISO 639-1 codes of all spoken languages
+  productionCountries String[] // ISO 3166-1 country codes
+
+  // TV-specific
+  numberOfSeasons  Int?
+  numberOfEpisodes Int?
+  networks         Json?     // Array of {id, name, logoPath, originCountry}
+  createdBy        String[]  // Creator names
+
+  // Movie-specific
+  director         String?   // Primary director name
+  budget           BigInt?
+  revenue          BigInt?
+
+  // Credits (stored as JSON arrays)
+  cast             Json?     // Array of {id, name, character, profilePath, order}
+  crew             Json?     // Array of {id, name, job, department, profilePath}
+
+  // Videos/Trailers (stored as JSON array)
+  videos           Json?     // Array of {id, key, name, site, type, official}
+
+  // Production
+  productionCompanies Json?  // Array of {id, name, logoPath, originCountry}
+
+  // Streaming availability (JSON array of provider objects)
+  watchProviders Json?
+
+  // Timestamps
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  tmdbUpdatedAt    DateTime? // Last time we fetched full details from TMDB
+  mdblistUpdatedAt DateTime? // Last time we fetched from MDBList
+
+  // Relations
+  ratings       MediaRatings?
+  seasons       Season[]
+
+  @@index([tmdbId, type])
+  @@index([imdbId])
+  @@index([traktId])
+  @@index([releaseDate])
+  @@index([tmdbUpdatedAt])
+  @@index([mdblistUpdatedAt])
+  @@index([language])
+  @@index([spokenLanguages])
+}
+
+// =============================================================================
+// TV Seasons & Episodes
+// =============================================================================
+
+model Season {
+  id            String    @id @default(cuid())
+  seasonNumber  Int
+  name          String
+  overview      String?
+  posterPath    String?
+  airDate       String?   // YYYY-MM-DD format
+  episodeCount  Int       @default(0)
+
+  // Relations
+  mediaItem     MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  mediaItemId   String
+  episodes      Episode[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([mediaItemId, seasonNumber])
+  @@index([mediaItemId])
+}
+
+model Episode {
+  id            String    @id @default(cuid())
+  episodeNumber Int
+  seasonNumber  Int
+  name          String
+  overview      String?
+  stillPath     String?
+  airDate       String?   // YYYY-MM-DD format
+  runtime       Int?      // minutes
+
+  // Relations
+  season        Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  seasonId      String
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([seasonId, episodeNumber])
+  @@index([seasonId])
+}
+
+// =============================================================================
+// Media Ratings (Multi-source aggregated ratings)
+// =============================================================================
+
+model MediaRatings {
+  id                    String   @id @default(cuid())
+
+  // TMDB
+  tmdbScore             Float?   // 0-10
+  tmdbVotes             Int?
+  tmdbPopularity        Float?
+
+  // IMDB
+  imdbScore             Float?   // 0-10
+  imdbVotes             Int?
+
+  // Rotten Tomatoes
+  rtCriticScore         Int?     // 0-100 (Tomatometer)
+  rtAudienceScore       Int?     // 0-100
+
+  // Metacritic
+  metacriticScore       Int?     // 0-100
+  metacriticUserScore   Float?   // 0-10
+
+  // Trakt
+  traktScore            Int?     // 0-100
+  traktVotes            Int?
+
+  // Letterboxd
+  letterboxdScore       Int?     // 0-100 (converted from 0-5)
+
+  // Roger Ebert
+  rogerebtScore         Float?   // 0-4 stars
+
+  // MyAnimeList
+  malScore              Float?   // 0-10
+
+  // MDBList aggregate score
+  mdblistScore          Int?     // 0-100
+  mdblistRank           Int?     // Overall rank
+
+  // Our computed aggregates
+  aggregateScore        Float?   // Weighted average of all sources
+  popularityScore       Float?   // Based on votes/plays/watchers
+
+  // Relations
+  media                 MediaItem @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId               String    @unique
+
+  @@index([aggregateScore])
+  @@index([popularityScore])
+  @@index([mdblistScore])
+}
+
+// =============================================================================
+// Remote Encoders (Distributed encoding VMs)
+// =============================================================================
+
+model RemoteEncoder {
+  id              String           @id @default(cuid())
+  encoderId       String           @unique  // Unique identifier e.g., "encoder-vm-1"
+  name            String?                   // Human-readable name
+
+  // Capabilities
+  gpuDevice       String                    // e.g., "/dev/dri/renderD128"
+  maxConcurrent   Int              @default(1)
+
+  // State
+  status          EncoderStatus    @default(OFFLINE)
+  currentJobs     Int              @default(0)
+  lastHeartbeat   DateTime?
+
+  // Statistics
+  totalJobsCompleted Int           @default(0)
+  totalJobsFailed    Int           @default(0)
+  avgEncodingSpeed   Float?        // x realtime
+
+  // Connection info (for debugging)
+  hostname        String?
+  version         String?
+
+  // Relations
+  assignments     EncoderAssignment[]
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status, currentJobs])
+}
+
+enum EncoderStatus {
+  OFFLINE
+  IDLE
+  ENCODING
+  ERROR
+}
+
+model EncoderAssignment {
+  id              String           @id @default(cuid())
+
+  // Job reference
+  jobId           String           @unique
+  job             Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Encoder reference (uses encoderId string, not the cuid id)
+  encoderId       String
+  encoder         RemoteEncoder    @relation(fields: [encoderId], references: [encoderId], onDelete: Cascade)
+
+  // Encode details (copied from job for resilience)
+  inputPath       String
+  outputPath      String
+  profileId       String
+
+  // State
+  status          AssignmentStatus @default(PENDING)
+  attempt         Int              @default(1)
+  maxAttempts     Int              @default(10)
+  error           String?
+
+  // Progress
+  progress        Float            @default(0)  // 0-100
+  fps             Float?
+  speed           Float?           // x realtime
+  eta             Int?             // seconds remaining
+
+  // Result (set on completion)
+  outputSize      BigInt?          // bytes
+  compressionRatio Float?
+  encodeDuration  Float?           // seconds to encode
+
+  assignedAt      DateTime         @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  @@index([status])
+  @@index([encoderId, status])
+}
+
+enum AssignmentStatus {
+  PENDING      // Waiting for encoder to pick up
+  ENCODING     // Encoder is processing
+  COMPLETED    // Successfully finished
+  FAILED       // Failed (may retry)
+  CANCELLED    // Cancelled by user
+}
+
+// =============================================================================
+// Settings (Key-Value Store)
+// =============================================================================
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

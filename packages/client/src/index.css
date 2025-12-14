@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #292524; /* surface-800 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #44403c; /* surface-700 */
+}
+
+/* Base styles */
+body {
+  @apply antialiased bg-black text-white;
+}
+
+/* Focus styles */
+:focus-visible {
+  @apply outline-none ring-2 ring-annex-500 ring-offset-2 ring-offset-black;
+}
+
+/* Cinema glow effects */
+.glow-red {
+  box-shadow: 0 0 30px rgba(220, 38, 38, 0.4), 0 0 60px rgba(220, 38, 38, 0.2);
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(234, 179, 8, 0.3), 0 0 40px rgba(234, 179, 8, 0.1);
+}
+
+/* Ambient red glow from top */
+.ambient-glow-top {
+  background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(185, 28, 28, 0.15) 0%, transparent 60%);
+}
+
+/* Ambient red glow from corners */
+.ambient-glow-corners {
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(185, 28, 28, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 0%, rgba(185, 28, 28, 0.08) 0%, transparent 50%);
+}
+
+/* Combined ambient effect */
+.ambient-glow {
+  background:
+    radial-gradient(ellipse 100% 40% at 50% 0%, rgba(185, 28, 28, 0.18) 0%, transparent 70%),
+    radial-gradient(ellipse at 0% 30%, rgba(127, 29, 29, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 60%, rgba(127, 29, 29, 0.08) 0%, transparent 50%);
+}
+
+/* Button hover glow */
+.btn-glow:hover {
+  box-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
+}
+
+/* Gold accent text */
+.text-accent {
+  @apply text-gold-500;
+}
+
+/* Card/panel with subtle glow */
+.panel-glow {
+  box-shadow: 0 0 40px rgba(185, 28, 28, 0.1);
+}
+

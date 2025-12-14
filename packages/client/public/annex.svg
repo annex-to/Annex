@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background -->
+  <rect width="100" height="100" rx="20" fill="#1c1917"/>
+
+  <!-- Popcorn bucket -->
+  <path d="M25 40 L30 85 L70 85 L75 40 Z" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+
+  <!-- Bucket stripes -->
+  <path d="M28 50 L72 50" stroke="#fef2f2" stroke-width="3" opacity="0.3"/>
+  <path d="M27 62 L73 62" stroke="#fef2f2" stroke-width="3" opacity="0.3"/>
+  <path d="M29 74 L71 74" stroke="#fef2f2" stroke-width="3" opacity="0.3"/>
+
+  <!-- Popcorn kernels -->
+  <circle cx="38" cy="30" r="10" fill="#fde047"/>
+  <circle cx="55" cy="28" r="11" fill="#facc15"/>
+  <circle cx="68" cy="35" r="9" fill="#fef08a"/>
+  <circle cx="32" cy="38" r="8" fill="#fef9c3"/>
+  <circle cx="50" cy="38" r="9" fill="#fde047"/>
+  <circle cx="45" cy="22" r="8" fill="#facc15"/>
+  <circle cx="62" cy="25" r="7" fill="#fef08a"/>
+</svg>

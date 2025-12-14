@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "TvEpisode" ADD COLUMN     "progress" DOUBLE PRECISION NOT NULL DEFAULT 0;

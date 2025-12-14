@@ -1,0 +1,49 @@
+{
+  "name": "@annex/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./routers": {
+      "types": "./src/routers/index.ts",
+      "default": "./src/routers/index.ts"
+    }
+  },
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts,json --exec 'tsx --env-file=.env src/index.ts' --legacy-watch",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:prod": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@annex/shared": "workspace:*",
+    "@prisma/client": "^6.1.0",
+    "@trpc/server": "^10.45.2",
+    "fast-xml-parser": "^5.3.2",
+    "irc-framework": "^4.14.0",
+    "parse-torrent-title": "^2.1.0",
+    "ssh2-sftp-client": "^12.0.1",
+    "superjson": "^2.2.2",
+    "uuid": "^13.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/ssh2-sftp-client": "^9.0.6",
+    "@types/uuid": "^11.0.0",
+    "@types/ws": "^8.5.13",
+    "nodemon": "^3.1.11",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
