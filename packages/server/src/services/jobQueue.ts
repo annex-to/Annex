@@ -241,7 +241,10 @@ class JobQueueService {
     // 1. Register this worker in the database
     await this.registerWorker();
 
-    // 2. Find all pending and running jobs from database
+    // 2. Clean up stale workers (heartbeat older than 10 minutes)
+    await this.cleanupStaleWorkers();
+
+    // 3. Find all pending and running jobs from database
     const jobs = await prisma.job.findMany({
       where: {
         status: { in: ["PENDING", "RUNNING"] },
@@ -301,6 +304,24 @@ class JobQueueService {
       },
     });
     console.log(`[JobQueue] Worker registered: ${this.workerId}`);
+  }
+
+  /**
+   * Clean up stale workers (heartbeat older than threshold)
+   */
+  private async cleanupStaleWorkers(): Promise<void> {
+    const threshold = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes
+
+    const result = await prisma.worker.deleteMany({
+      where: {
+        lastHeartbeat: { lt: threshold },
+        workerId: { not: this.workerId }, // Don't delete self
+      },
+    });
+
+    if (result.count > 0) {
+      console.log(`[JobQueue] Cleaned up ${result.count} stale workers`);
+    }
   }
 
   /**

@@ -2481,6 +2481,12 @@ function JobsSettings() {
     enabled: activeTab === "workers",
   });
 
+  const cleanupWorkers = trpc.system.workers.cleanup.useMutation({
+    onSuccess: () => {
+      utils.system.workers.list.invalidate();
+    },
+  });
+
   // Mutations
   const cancelJob = trpc.system.jobs.cancel.useMutation({
     onSuccess: () => {
@@ -2898,7 +2904,19 @@ function JobsSettings() {
           )}
 
           {/* All Workers */}
-          <h3 className="text-lg font-medium">All Workers</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium">All Workers</h3>
+            {workers.data && workers.data.length > 1 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => cleanupWorkers.mutate({ olderThanMinutes: 5 })}
+                disabled={cleanupWorkers.isPending}
+              >
+                {cleanupWorkers.isPending ? "Cleaning..." : "Clean Stale"}
+              </Button>
+            )}
+          </div>
           {workers.isLoading && (
             <div className="space-y-3">
               {Array.from({ length: 2 }).map((_, i) => (

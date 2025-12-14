@@ -505,5 +505,46 @@ export const systemRouter = router({
         runningJobIds,
       };
     }),
+
+    /**
+     * Clean up stale workers
+     * Removes workers with heartbeats older than the threshold
+     */
+    cleanup: publicProcedure
+      .input(
+        z.object({
+          olderThanMinutes: z.number().min(1).default(60),
+        }).default({})
+      )
+      .mutation(async ({ input }) => {
+        const threshold = new Date(Date.now() - input.olderThanMinutes * 60 * 1000);
+
+        const result = await prisma.worker.deleteMany({
+          where: {
+            lastHeartbeat: { lt: threshold },
+          },
+        });
+
+        return {
+          deleted: result.count,
+          message: `Removed ${result.count} stale workers`,
+        };
+      }),
+
+    /**
+     * Delete a specific worker by ID
+     */
+    delete: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          await prisma.worker.delete({
+            where: { id: input.id },
+          });
+          return { success: true };
+        } catch {
+          return { success: false, error: "Worker not found" };
+        }
+      }),
   }),
 });
