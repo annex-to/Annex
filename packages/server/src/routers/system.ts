@@ -191,7 +191,7 @@ export const systemRouter = router({
     list: publicProcedure
       .input(
         z.object({
-          status: z.enum(["pending", "running", "completed", "failed", "cancelled", "all"]).default("all"),
+          status: z.enum(["pending", "running", "paused", "completed", "failed", "cancelled", "all"]).default("all"),
           type: z.string().optional(),
           limit: z.number().min(1).max(100).default(50),
           offset: z.number().min(0).default(0),
@@ -316,6 +316,30 @@ export const systemRouter = router({
       .mutation(async ({ input }) => {
         const jobQueue = getJobQueueService();
         const success = await jobQueue.requestCancellation(input.id);
+        return { success };
+      }),
+
+    /**
+     * Pause a pending or running job
+     * The job will stop at the next checkpoint and can be resumed later
+     */
+    pause: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        const jobQueue = getJobQueueService();
+        const success = await jobQueue.pauseJob(input.id);
+        return { success };
+      }),
+
+    /**
+     * Resume a paused job
+     * The job will be re-queued and continue from where it left off
+     */
+    resume: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        const jobQueue = getJobQueueService();
+        const success = await jobQueue.resumeJob(input.id);
         return { success };
       }),
 

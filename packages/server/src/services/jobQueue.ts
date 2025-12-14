@@ -730,19 +730,35 @@ class JobQueueService {
 
       const result = await handler(job.payload as JobPayload, job.id);
 
-      // Check if job was cancelled during execution
+      // Check if job was cancelled or paused during execution
       if (this.cancelledJobs.has(job.id)) {
-        const cancelledJob = await prisma.job.update({
+        // Check actual database status - might be PAUSED instead of cancelled
+        const currentStatus = await prisma.job.findUnique({
           where: { id: job.id },
-          data: {
-            status: "CANCELLED",
-            completedAt: new Date(),
-            error: "Cancelled by user",
-          },
+          select: { status: true },
         });
-        // Emit cancelled event
-        this.emitJobEvent("cancelled", cancelledJob);
-        console.log(`[JobQueue] Job ${job.id} cancelled`);
+
+        if (currentStatus?.status === "PAUSED") {
+          // Job was paused, don't change status - just log and emit event
+          const pausedJob = await prisma.job.findUnique({ where: { id: job.id } });
+          if (pausedJob) {
+            this.emitJobEvent("progress", pausedJob);
+            console.log(`[JobQueue] Job ${job.id} paused`);
+          }
+        } else {
+          // Job was cancelled
+          const cancelledJob = await prisma.job.update({
+            where: { id: job.id },
+            data: {
+              status: "CANCELLED",
+              completedAt: new Date(),
+              error: "Cancelled by user",
+            },
+          });
+          // Emit cancelled event
+          this.emitJobEvent("cancelled", cancelledJob);
+          console.log(`[JobQueue] Job ${job.id} cancelled`);
+        }
       } else {
         // Mark completed
         const completedJob = await prisma.job.update({
@@ -803,19 +819,21 @@ class JobQueueService {
   async getStats(): Promise<{
     pending: number;
     running: number;
+    paused: number;
     completed: number;
     failed: number;
     activeInMemory: number;
     byType: Record<string, number>;
   }> {
-    const [pending, running, completed, failed, byTypeRaw] = await Promise.all([
+    const [pending, running, paused, completed, failed, byTypeRaw] = await Promise.all([
       prisma.job.count({ where: { status: "PENDING" } }),
       prisma.job.count({ where: { status: "RUNNING" } }),
+      prisma.job.count({ where: { status: "PAUSED" } }),
       prisma.job.count({ where: { status: "COMPLETED" } }),
       prisma.job.count({ where: { status: "FAILED" } }),
       prisma.job.groupBy({
         by: ["type"],
-        where: { status: "PENDING" },
+        where: { status: { in: ["PENDING", "PAUSED"] } },
         _count: true,
       }),
     ]);
@@ -828,6 +846,7 @@ class JobQueueService {
     return {
       pending,
       running,
+      paused,
       completed,
       failed,
       activeInMemory: this.runningJobs.size,
@@ -867,6 +886,84 @@ class JobQueueService {
     });
 
     return result.count > 0;
+  }
+
+  /**
+   * Pause a pending or running job
+   * Running jobs will be marked as paused and the handler should check isPaused()
+   */
+  async pauseJob(jobId: string): Promise<boolean> {
+    // Check if job exists and is in a pausable state
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+
+    if (!job || !["PENDING", "RUNNING"].includes(job.status)) {
+      return false;
+    }
+
+    // Mark as paused in database
+    const result = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: "PAUSED",
+      },
+    });
+
+    // If was running, also track in memory for handler to detect
+    if (job.status === "RUNNING" && this.runningJobs.has(jobId)) {
+      this.cancelledJobs.add(jobId); // Reuse cancellation mechanism to signal pause
+    }
+
+    console.log(`[JobQueue] Job ${jobId} paused`);
+    this.emitJobEvent("progress", result); // Emit to update UI
+
+    return true;
+  }
+
+  /**
+   * Resume a paused job
+   * The job will be set back to PENDING and picked up by the queue
+   */
+  async resumeJob(jobId: string): Promise<boolean> {
+    const result = await prisma.job.updateMany({
+      where: {
+        id: jobId,
+        status: "PAUSED",
+      },
+      data: {
+        status: "PENDING",
+        startedAt: null,
+        heartbeatAt: null,
+        workerId: null,
+      },
+    });
+
+    if (result.count > 0) {
+      console.log(`[JobQueue] Job ${jobId} resumed`);
+
+      // Get the job and schedule it for processing
+      const job = await prisma.job.findUnique({ where: { id: jobId } });
+      if (job) {
+        this.emitJobEvent("progress", job); // Emit to update UI
+        this.scheduleJob(job);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a job is paused
+   */
+  async isPaused(jobId: string): Promise<boolean> {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+    return job?.status === "PAUSED";
   }
 
   /**

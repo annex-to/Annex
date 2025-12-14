@@ -2348,7 +2348,7 @@ function SyncSettings() {
         <div>
           <h3 className="text-lg font-medium mb-4">Job Queue Status</h3>
           <Card className="p-5">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 text-center">
               <div>
                 <div className="text-xl font-bold text-yellow-400">{queue.pending}</div>
                 <div className="text-xs text-white/50">Pending</div>
@@ -2356,6 +2356,10 @@ function SyncSettings() {
               <div>
                 <div className="text-xl font-bold text-blue-400">{queue.running}</div>
                 <div className="text-xs text-white/50">Running</div>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-orange-400">{queue.paused ?? 0}</div>
+                <div className="text-xs text-white/50">Paused</div>
               </div>
               <div>
                 <div className="text-xl font-bold text-green-400">{queue.completed}</div>
@@ -2389,11 +2393,12 @@ function SyncSettings() {
   );
 }
 
-type JobStatusFilter = "all" | "pending" | "running" | "completed" | "failed" | "cancelled";
+type JobStatusFilter = "all" | "pending" | "running" | "paused" | "completed" | "failed" | "cancelled";
 
 const statusFilterOptions = [
   { value: "all", label: "All" },
   { value: "running", label: "Running" },
+  { value: "paused", label: "Paused" },
   { value: "pending", label: "Pending" },
   { value: "completed", label: "Completed" },
   { value: "failed", label: "Failed" },
@@ -2491,6 +2496,20 @@ function JobsSettings() {
     },
   });
 
+  const pauseJob = trpc.system.jobs.pause.useMutation({
+    onSuccess: () => {
+      utils.system.jobs.list.invalidate();
+      utils.system.jobs.stats.invalidate();
+    },
+  });
+
+  const resumeJob = trpc.system.jobs.resume.useMutation({
+    onSuccess: () => {
+      utils.system.jobs.list.invalidate();
+      utils.system.jobs.stats.invalidate();
+    },
+  });
+
   const retryJob = trpc.system.jobs.retry.useMutation({
     onSuccess: () => {
       utils.system.jobs.list.invalidate();
@@ -2509,6 +2528,8 @@ function JobsSettings() {
     switch (status) {
       case "running":
         return <Badge variant="info">Running</Badge>;
+      case "paused":
+        return <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">Paused</Badge>;
       case "pending":
         return <Badge variant="warning">Pending</Badge>;
       case "completed":
@@ -2550,12 +2571,18 @@ function JobsSettings() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <Card className="p-4 text-center">
           <div className="text-3xl font-bold text-blue-400">
             {stats.data?.running ?? 0}
           </div>
           <div className="text-sm text-white/50 mt-1">Running</div>
+        </Card>
+        <Card className="p-4 text-center">
+          <div className="text-3xl font-bold text-orange-400">
+            {stats.data?.paused ?? 0}
+          </div>
+          <div className="text-sm text-white/50 mt-1">Paused</div>
         </Card>
         <Card className="p-4 text-center">
           <div className="text-3xl font-bold text-yellow-400">
@@ -2685,6 +2712,30 @@ function JobsSettings() {
                             Created {formatTimeAgo(job.createdAt)}
                           </div>
                         )}
+
+                        {job.status === "paused" && (
+                          <>
+                            <div className="text-orange-400/70">
+                              Paused {formatTimeAgo(job.updatedAt)}
+                            </div>
+                            {job.progressTotal && job.progressTotal > 0 && (
+                              <div className="mt-2">
+                                <div className="flex items-center justify-between text-xs text-white/50 mb-1">
+                                  <span>Progress (paused)</span>
+                                  <span>
+                                    {job.progressCurrent?.toLocaleString() ?? 0} / {job.progressTotal.toLocaleString()} ({job.progress?.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div className="h-2 bg-white/10 rounded overflow-hidden">
+                                  <div
+                                    className="h-full bg-orange-500 transition-all duration-300"
+                                    style={{ width: `${job.progress ?? 0}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
 
                       {job.type === "sync:full" && job.payload && (
@@ -2702,24 +2753,64 @@ function JobsSettings() {
 
                     <div className="flex flex-col gap-2">
                       {job.status === "pending" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => cancelJob.mutate({ id: job.id })}
-                          disabled={cancelJob.isPending}
-                        >
-                          Cancel
-                        </Button>
+                        <>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => pauseJob.mutate({ id: job.id })}
+                            disabled={pauseJob.isPending}
+                          >
+                            Pause
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => cancelJob.mutate({ id: job.id })}
+                            disabled={cancelJob.isPending}
+                          >
+                            Cancel
+                          </Button>
+                        </>
                       )}
                       {job.status === "running" && (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => requestCancellation.mutate({ id: job.id })}
-                          disabled={requestCancellation.isPending}
-                        >
-                          {requestCancellation.isPending ? "Stopping..." : "Stop"}
-                        </Button>
+                        <>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => pauseJob.mutate({ id: job.id })}
+                            disabled={pauseJob.isPending}
+                          >
+                            {pauseJob.isPending ? "Pausing..." : "Pause"}
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => requestCancellation.mutate({ id: job.id })}
+                            disabled={requestCancellation.isPending}
+                          >
+                            {requestCancellation.isPending ? "Stopping..." : "Stop"}
+                          </Button>
+                        </>
+                      )}
+                      {job.status === "paused" && (
+                        <>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => resumeJob.mutate({ id: job.id })}
+                            disabled={resumeJob.isPending}
+                          >
+                            {resumeJob.isPending ? "Resuming..." : "Resume"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => cancelJob.mutate({ id: job.id })}
+                            disabled={cancelJob.isPending}
+                          >
+                            Cancel
+                          </Button>
+                        </>
                       )}
                       {job.status === "failed" && (
                         <Button
