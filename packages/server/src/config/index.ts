@@ -46,5 +46,6 @@ export type {
   DownloadsConfig,
   LoggingConfig,
   IrcConfig,
+  SchedulerConfig,
 } from "./schema.js";
 export { loadConfig, validateConfig } from "./loader.js";

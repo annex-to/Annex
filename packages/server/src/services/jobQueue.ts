@@ -12,6 +12,7 @@ import { getSyncService } from "./sync.js";
 import { getTMDBService } from "./tmdb.js";
 import { syncAllLibraries, syncServerLibrary } from "./librarySync.js";
 import { getJobEventService, type JobEventData, type JobUpdateType } from "./jobEvents.js";
+import { getSchedulerService } from "./scheduler.js";
 import { hostname } from "os";
 import type { Job } from "@prisma/client";
 
@@ -112,9 +113,7 @@ class JobQueueService {
   private handlers: Map<JobType, JobHandler> = new Map();
   private runningJobs: Map<string, Job> = new Map(); // jobId -> Job
   private cancelledJobs: Set<string> = new Set(); // Jobs requested for cancellation (in-memory cache)
-  private serverSyncIntervals: Map<string, NodeJS.Timeout> = new Map(); // serverId -> interval
-  private awaitingRetryInterval: NodeJS.Timeout | null = null; // Interval for retrying awaiting requests
-  private heartbeatInterval: NodeJS.Timeout | null = null; // Interval for job heartbeats
+  private registeredServerSyncs: Set<string> = new Set(); // Tracks which server sync tasks are registered
   private concurrency: number;
   private isStarted = false;
 
@@ -270,17 +269,13 @@ class JobQueueService {
       }
     }
 
-    // 5. Queue all jobs for processing
-    for (const job of jobs) {
-      this.scheduleJob(job);
-    }
-
     this.isStarted = true;
 
-    // 6. Start heartbeat loop for running jobs
-    this.startHeartbeat();
+    // 5. Register scheduler tasks
+    this.registerHeartbeatTask();
+    this.registerJobProcessTask();
 
-    // 7. Start scheduled jobs
+    // 6. Start scheduled jobs (library sync, awaiting retries)
     this.startScheduledJobs();
 
     console.log(`[JobQueue] Crash recovery complete, queue started`);
@@ -325,19 +320,19 @@ class JobQueueService {
   }
 
   /**
-   * Start heartbeat loop - updates heartbeatAt for all running jobs
+   * Register heartbeat task with scheduler
    */
-  private startHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-    }
+  private registerHeartbeatTask(): void {
+    const scheduler = getSchedulerService();
 
-    // Update heartbeat every 30 seconds
-    this.heartbeatInterval = setInterval(async () => {
-      const runningJobIds = Array.from(this.runningJobs.keys());
-      if (runningJobIds.length === 0) return;
+    scheduler.register(
+      "job-heartbeat",
+      "Job Heartbeat",
+      30_000, // 30 seconds
+      async () => {
+        const runningJobIds = Array.from(this.runningJobs.keys());
+        if (runningJobIds.length === 0) return;
 
-      try {
         // Update heartbeat for all running jobs
         await prisma.job.updateMany({
           where: {
@@ -345,12 +340,6 @@ class JobQueueService {
             status: "RUNNING",
           },
           data: { heartbeatAt: new Date() },
-        });
-
-        // Also update worker heartbeat
-        await prisma.worker.update({
-          where: { workerId: this.workerId },
-          data: { lastHeartbeat: new Date() },
         });
 
         // Sync cancellation state from database to in-memory cache
@@ -368,22 +357,102 @@ class JobQueueService {
             console.log(`[JobQueue] Synced cancellation from DB for job ${job.id}`);
           }
         }
-      } catch (error) {
-        console.error(`[JobQueue] Heartbeat update failed:`, error);
       }
-    }, 30000);
+    );
 
-    console.log(`[JobQueue] Heartbeat loop started (30s interval)`);
+    scheduler.register(
+      "worker-heartbeat",
+      "Worker Heartbeat",
+      30_000, // 30 seconds
+      async () => {
+        await prisma.worker.update({
+          where: { workerId: this.workerId },
+          data: { lastHeartbeat: new Date() },
+        });
+      }
+    );
+
+    scheduler.register(
+      "stale-worker-cleanup",
+      "Stale Worker Cleanup",
+      10 * 60 * 1000, // 10 minutes
+      async () => {
+        await this.cleanupStaleWorkers();
+      }
+    );
   }
 
   /**
-   * Stop heartbeat loop
+   * Unregister heartbeat tasks from scheduler
    */
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-      console.log(`[JobQueue] Heartbeat loop stopped`);
+  private unregisterHeartbeatTask(): void {
+    const scheduler = getSchedulerService();
+    scheduler.unregister("job-heartbeat");
+    scheduler.unregister("worker-heartbeat");
+    scheduler.unregister("stale-worker-cleanup");
+  }
+
+  /**
+   * Register job processing task with scheduler
+   * This polls for pending jobs and processes them up to concurrency limit
+   */
+  private registerJobProcessTask(): void {
+    const config = getConfig();
+    const pollInterval = config.jobs.pollInterval;
+
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "job-process",
+      "Job Processing",
+      pollInterval,
+      async () => {
+        await this.pollAndProcessJobs();
+      }
+    );
+
+    console.log(`[JobQueue] Registered job process task (${pollInterval}ms interval)`);
+  }
+
+  /**
+   * Poll for pending jobs and process up to concurrency limit
+   */
+  private async pollAndProcessJobs(): Promise<void> {
+    // Calculate how many jobs we can start
+    const available = this.concurrency - this.runningJobs.size;
+    if (available <= 0) {
+      return;
+    }
+
+    // Find pending jobs, ordered by priority and creation time
+    const pendingJobs = await prisma.job.findMany({
+      where: {
+        status: "PENDING",
+        scheduledFor: { lte: new Date() },
+      },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      take: available,
+    });
+
+    if (pendingJobs.length === 0) {
+      return;
+    }
+
+    // Start processing each job (fire and forget - non-blocking)
+    for (const job of pendingJobs) {
+      // Double-check we still have capacity
+      if (this.runningJobs.size >= this.concurrency) {
+        break;
+      }
+
+      // Skip if job is already being processed (race condition protection)
+      if (this.runningJobs.has(job.id)) {
+        continue;
+      }
+
+      // Process job (non-blocking)
+      this.processJob(job).catch((error) => {
+        console.error(`[JobQueue] Error processing job ${job.id}:`, error);
+      });
     }
   }
 
@@ -417,39 +486,43 @@ class JobQueueService {
   }
 
   /**
-   * Start the scheduler for retrying awaiting requests
+   * Register the awaiting retry task with scheduler
    */
   async startAwaitingRetryScheduler(): Promise<void> {
-    // Clear existing interval if any
-    this.stopAwaitingRetryScheduler();
-
+    const scheduler = getSchedulerService();
     const intervalHours = await this.getAwaitingRetryIntervalHours();
     const intervalMs = intervalHours * 60 * 60 * 1000;
 
-    console.log(`[JobQueue] Scheduling awaiting request retries every ${intervalHours} hours`);
+    scheduler.register(
+      "awaiting-retry",
+      "Awaiting Request Retry",
+      intervalMs,
+      async () => {
+        await this.queueAwaitingRetries();
+      }
+    );
 
-    // Run at the configured interval (don't run immediately on startup)
-    this.awaitingRetryInterval = setInterval(() => {
-      this.queueAwaitingRetries();
-    }, intervalMs);
+    console.log(`[JobQueue] Registered awaiting retry task (${intervalHours}h interval)`);
   }
 
   /**
-   * Stop the awaiting retry scheduler
+   * Unregister the awaiting retry task from scheduler
    */
   stopAwaitingRetryScheduler(): void {
-    if (this.awaitingRetryInterval) {
-      clearInterval(this.awaitingRetryInterval);
-      this.awaitingRetryInterval = null;
-      console.log("[JobQueue] Stopped awaiting retry scheduler");
-    }
+    const scheduler = getSchedulerService();
+    scheduler.unregister("awaiting-retry");
+    console.log("[JobQueue] Unregistered awaiting retry task");
   }
 
   /**
    * Update the awaiting retry scheduler with new interval
    */
   async updateAwaitingRetryScheduler(): Promise<void> {
-    await this.startAwaitingRetryScheduler();
+    const scheduler = getSchedulerService();
+    const intervalHours = await this.getAwaitingRetryIntervalHours();
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    scheduler.updateInterval("awaiting-retry", intervalMs);
+    console.log(`[JobQueue] Updated awaiting retry interval to ${intervalHours}h`);
   }
 
   /**
@@ -485,35 +558,42 @@ class JobQueueService {
   }
 
   /**
-   * Start sync scheduler for a specific server
+   * Register sync task for a specific server with scheduler
    */
   startServerSyncScheduler(serverId: string, serverName: string, intervalMinutes: number): void {
-    // Clear existing interval if any
+    // Unregister existing task if any
     this.stopServerSyncScheduler(serverId);
 
+    const scheduler = getSchedulerService();
+    const taskId = `library-sync-${serverId}`;
     const intervalMs = intervalMinutes * 60 * 1000;
-    console.log(`[JobQueue] Scheduling library sync for "${serverName}" every ${intervalMinutes} minutes`);
+
+    scheduler.register(
+      taskId,
+      `Library Sync: ${serverName}`,
+      intervalMs,
+      async () => {
+        await this.queueServerLibrarySync(serverId);
+      }
+    );
+
+    this.registeredServerSyncs.add(serverId);
+    console.log(`[JobQueue] Registered library sync task for "${serverName}" (${intervalMinutes}m interval)`);
 
     // Run immediately on startup
     this.queueServerLibrarySync(serverId);
-
-    // Then run at the configured interval
-    const interval = setInterval(() => {
-      this.queueServerLibrarySync(serverId);
-    }, intervalMs);
-
-    this.serverSyncIntervals.set(serverId, interval);
   }
 
   /**
-   * Stop sync scheduler for a specific server
+   * Unregister sync task for a specific server
    */
   stopServerSyncScheduler(serverId: string): void {
-    const interval = this.serverSyncIntervals.get(serverId);
-    if (interval) {
-      clearInterval(interval);
-      this.serverSyncIntervals.delete(serverId);
-      console.log(`[JobQueue] Stopped library sync scheduler for server ${serverId}`);
+    if (this.registeredServerSyncs.has(serverId)) {
+      const scheduler = getSchedulerService();
+      const taskId = `library-sync-${serverId}`;
+      scheduler.unregister(taskId);
+      this.registeredServerSyncs.delete(serverId);
+      console.log(`[JobQueue] Unregistered library sync task for server ${serverId}`);
     }
   }
 
@@ -558,18 +638,23 @@ class JobQueueService {
   async stop(): Promise<void> {
     this.isStarted = false;
 
-    // Clear all server sync intervals
-    for (const [serverId, interval] of this.serverSyncIntervals) {
-      clearInterval(interval);
-      console.log(`[JobQueue] Stopped sync scheduler for server ${serverId}`);
+    // Unregister all server sync tasks
+    for (const serverId of this.registeredServerSyncs) {
+      const scheduler = getSchedulerService();
+      scheduler.unregister(`library-sync-${serverId}`);
+      console.log(`[JobQueue] Unregistered sync task for server ${serverId}`);
     }
-    this.serverSyncIntervals.clear();
+    this.registeredServerSyncs.clear();
 
     // Stop awaiting retry scheduler
     this.stopAwaitingRetryScheduler();
 
-    // Stop heartbeat loop
-    this.stopHeartbeat();
+    // Unregister heartbeat tasks
+    this.unregisterHeartbeatTask();
+
+    // Unregister job processing task
+    const scheduler = getSchedulerService();
+    scheduler.unregister("job-process");
 
     // Mark worker as stopped
     try {
@@ -689,35 +774,19 @@ class JobQueueService {
   }
 
   /**
-   * Schedule a job for processing (respects concurrency)
+   * Schedule a job for processing
+   * Note: With the scheduler-based polling, this is mostly a no-op.
+   * The scheduler's job-process task polls for pending jobs.
+   * This method is kept for immediate processing when capacity is available.
    */
   private scheduleJob(job: Job): void {
-    // Use setImmediate to avoid blocking
-    setImmediate(() => this.tryProcessNext(job));
-  }
-
-  /**
-   * Try to process a job if we have capacity
-   */
-  private async tryProcessNext(job: Job): Promise<void> {
-    // Check concurrency
-    if (this.runningJobs.size >= this.concurrency) {
-      // Re-schedule to try again later
-      setTimeout(() => this.scheduleJob(job), 1000);
-      return;
+    // If we have capacity, process immediately (don't wait for next poll)
+    if (this.runningJobs.size < this.concurrency && !this.runningJobs.has(job.id)) {
+      this.processJob(job).catch((error) => {
+        console.error(`[JobQueue] Error processing job ${job.id}:`, error);
+      });
     }
-
-    // Check if job is still pending in database (might have been cancelled)
-    const currentJob = await prisma.job.findUnique({
-      where: { id: job.id },
-    });
-
-    if (!currentJob || currentJob.status !== "PENDING") {
-      return;
-    }
-
-    // Process the job
-    await this.processJob(currentJob);
+    // Otherwise, the scheduler's polling task will pick it up
   }
 
   /**
@@ -1136,7 +1205,7 @@ class JobQueueService {
    * Check if a server's sync scheduler is running
    */
   isServerSyncSchedulerRunning(serverId: string): boolean {
-    return this.serverSyncIntervals.has(serverId);
+    return this.registeredServerSyncs.has(serverId);
   }
 
   /**
@@ -1155,7 +1224,7 @@ class JobQueueService {
    * Get all server IDs with active sync schedulers
    */
   getActiveServerSyncSchedulers(): string[] {
-    return Array.from(this.serverSyncIntervals.keys());
+    return Array.from(this.registeredServerSyncs);
   }
 }
 

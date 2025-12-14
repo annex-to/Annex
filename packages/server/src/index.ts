@@ -9,12 +9,14 @@ import { appRouter } from "./routers/index.js";
 import type { Context } from "./trpc.js";
 import { initConfig } from "./config/index.js";
 import { getJobQueueService } from "./services/jobQueue.js";
-import { verifySession } from "./services/auth.js";
+import { verifySession, registerAuthTasks } from "./services/auth.js";
 import { registerPipelineHandlers } from "./services/pipeline.js";
 import { registerTvPipelineHandlers } from "./services/tvPipeline.js";
 import { getIrcAnnounceMonitor } from "./services/ircAnnounce.js";
 import { getRssAnnounceMonitor } from "./services/rssAnnounce.js";
 import { getEncoderDispatchService } from "./services/encoderDispatch.js";
+import { getSchedulerService } from "./services/scheduler.js";
+import { getTasteProfileService } from "./services/tasteProfile.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +26,9 @@ const config = initConfig();
 
 // Initialize job queue (will be started after server is ready)
 const jobQueue = getJobQueueService();
+
+// Initialize scheduler (will be started after server is ready)
+const scheduler = getSchedulerService();
 
 // Register pipeline handlers for request processing
 registerPipelineHandlers();
@@ -374,6 +379,13 @@ Encoder Deployment:
 Log level: ${config.logging.level}
 `);
 
+// Start the scheduler (main process loop)
+scheduler.start();
+
+// Register misc cleanup tasks with scheduler
+registerAuthTasks();
+getTasteProfileService().registerTasks();
+
 // Start the job queue worker (recovers any stuck jobs from previous run)
 jobQueue.start().catch((error) => {
   console.error("[JobQueue] Failed to start:", error);
@@ -398,6 +410,7 @@ process.on("SIGINT", async () => {
   wss.close();
   encoderWss.close();
   encoderDispatch.shutdown();
+  await scheduler.stop();
   await jobQueue.stop();
   ircMonitor.stop();
   rssMonitor.stop();
@@ -411,6 +424,7 @@ process.on("SIGTERM", async () => {
   wss.close();
   encoderWss.close();
   encoderDispatch.shutdown();
+  await scheduler.stop();
   await jobQueue.stop();
   ircMonitor.stop();
   rssMonitor.stop();

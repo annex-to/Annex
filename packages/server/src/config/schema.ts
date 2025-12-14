@@ -167,6 +167,13 @@ const rssSchema = z
   })
   .default({});
 
+// Scheduler configuration
+const schedulerSchema = z
+  .object({
+    intervalMs: z.coerce.number().int().min(100).max(10000).default(1000), // Main loop interval
+  })
+  .default({});
+
 // Full configuration schema
 export const configSchema = z.object({
   server: serverSchema.default({}),
@@ -185,6 +192,7 @@ export const configSchema = z.object({
   emby: embySchema,
   irc: ircSchema,
   rss: rssSchema,
+  scheduler: schedulerSchema,
 });
 
 // Export the inferred type
@@ -207,3 +215,4 @@ export type PlexConfig = z.infer<typeof plexSchema>;
 export type EmbyConfig = z.infer<typeof embySchema>;
 export type IrcConfig = z.infer<typeof ircSchema>;
 export type RssConfig = z.infer<typeof rssSchema>;
+export type SchedulerConfig = z.infer<typeof schedulerSchema>;

@@ -11,6 +11,7 @@ const settingsNavItems = [
   { to: "/settings/encoding", label: "Encoding" },
   { to: "/settings/encoders", label: "Remote Encoders" },
   { to: "/settings/jobs", label: "Jobs" },
+  { to: "/settings/scheduler", label: "Scheduler" },
 ];
 
 function GeneralSettings() {
@@ -3356,6 +3357,158 @@ function EncodersSettings() {
   );
 }
 
+function SchedulerSettings() {
+  const healthQuery = trpc.system.scheduler.health.useQuery(undefined, {
+    refetchInterval: 2000, // Refresh every 2 seconds
+  });
+
+  const toggleTaskMutation = trpc.system.scheduler.toggleTask.useMutation({
+    onSuccess: () => {
+      healthQuery.refetch();
+    },
+  });
+
+  const health = healthQuery.data;
+
+  if (healthQuery.isLoading) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-semibold">Scheduler</h2>
+        <Card className="p-8 text-center text-white/50">Loading...</Card>
+      </div>
+    );
+  }
+
+  if (!health) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-semibold">Scheduler</h2>
+        <Card className="p-8 text-center text-white/50">Unable to load scheduler health</Card>
+      </div>
+    );
+  }
+
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms.toFixed(0)}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    if (ms < 3600000) return `${(ms / 60000).toFixed(1)}m`;
+    return `${(ms / 3600000).toFixed(1)}h`;
+  };
+
+  const formatInterval = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(0)}s`;
+    if (ms < 3600000) return `${(ms / 60000).toFixed(0)}m`;
+    return `${(ms / 3600000).toFixed(1)}h`;
+  };
+
+  const formatLastRun = (date: Date | null) => {
+    if (!date) return "Never";
+    const d = new Date(date);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    return d.toLocaleTimeString();
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-semibold">Scheduler</h2>
+
+      {/* Health Overview */}
+      <Card className="space-y-4">
+        <h3 className="text-lg font-medium">Health Overview</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white/5 rounded p-3">
+            <div className="text-xs text-white/50 uppercase">Status</div>
+            <div className={`text-lg font-medium ${health.isRunning ? "text-green-400" : "text-red-400"}`}>
+              {health.isRunning ? "Running" : "Stopped"}
+            </div>
+          </div>
+          <div className="bg-white/5 rounded p-3">
+            <div className="text-xs text-white/50 uppercase">Loop Interval</div>
+            <div className="text-lg font-medium">{formatInterval(health.loopIntervalMs)}</div>
+          </div>
+          <div className="bg-white/5 rounded p-3">
+            <div className="text-xs text-white/50 uppercase">Avg Loop Duration</div>
+            <div className="text-lg font-medium">{formatDuration(health.avgLoopDurationMs)}</div>
+          </div>
+          <div className="bg-white/5 rounded p-3">
+            <div className="text-xs text-white/50 uppercase">Loop Delay</div>
+            <div className={`text-lg font-medium ${health.loopDelayMs > 100 ? "text-yellow-400" : ""}`}>
+              {formatDuration(health.loopDelayMs)}
+            </div>
+          </div>
+        </div>
+        <div className="text-xs text-white/40 flex gap-4">
+          <span>Last tick: {formatLastRun(health.lastLoopTime)}</span>
+          <span>Max loop: {formatDuration(health.maxLoopDurationMs)}</span>
+          <span>Pending one-offs: {health.pendingOneOffs}</span>
+        </div>
+      </Card>
+
+      {/* Tasks */}
+      <Card className="space-y-4">
+        <h3 className="text-lg font-medium">Recurring Tasks</h3>
+        {health.recurringTasks.length === 0 ? (
+          <div className="text-white/50 text-center py-4">No tasks registered</div>
+        ) : (
+          <div className="space-y-2">
+            {health.recurringTasks.map((task) => (
+              <div
+                key={task.id}
+                className={`bg-white/5 rounded p-3 flex items-center gap-4 ${!task.enabled ? "opacity-50" : ""}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{task.name}</span>
+                    {task.isRunning && (
+                      <Badge variant="info" className="text-xs">Running</Badge>
+                    )}
+                    {task.lastError && (
+                      <Badge variant="danger" className="text-xs">Error</Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-white/50 flex gap-3 mt-1">
+                    <span>Every {formatInterval(task.intervalMs)}</span>
+                    <span>Last: {formatLastRun(task.lastRun)}</span>
+                    {task.lastDurationMs !== null && (
+                      <span>Took: {formatDuration(task.lastDurationMs)}</span>
+                    )}
+                    <span>Runs: {task.runCount}</span>
+                    {task.errorCount > 0 && (
+                      <span className="text-red-400">Errors: {task.errorCount}</span>
+                    )}
+                  </div>
+                  {task.lastError && (
+                    <div className="text-xs text-red-400 mt-1 truncate">{task.lastError}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {task.nextRunIn !== null && task.enabled && !task.isRunning && (
+                    <span className="text-xs text-white/40">
+                      Next: {formatDuration(task.nextRunIn)}
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant={task.enabled ? "secondary" : "primary"}
+                    onClick={() => toggleTaskMutation.mutate({ taskId: task.id, enabled: !task.enabled })}
+                    disabled={toggleTaskMutation.isLoading}
+                  >
+                    {task.enabled ? "Disable" : "Enable"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="flex gap-8">
@@ -3369,6 +3522,7 @@ export default function SettingsPage() {
           <Route path="encoding" element={<EncodingSettings />} />
           <Route path="encoders" element={<EncodersSettings />} />
           <Route path="jobs" element={<JobsSettings />} />
+          <Route path="scheduler" element={<SchedulerSettings />} />
         </Routes>
       </div>
     </div>

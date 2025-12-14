@@ -122,6 +122,10 @@ const ENV_MAPPING: Record<string, string> = {
   ANNEX_RSS_ENABLED: "rss.enabled",
   RSS_POLL_INTERVAL: "rss.pollInterval",
   ANNEX_RSS_POLL_INTERVAL: "rss.pollInterval",
+
+  // Scheduler
+  SCHEDULER_INTERVAL_MS: "scheduler.intervalMs",
+  ANNEX_SCHEDULER_INTERVAL_MS: "scheduler.intervalMs",
 };
 
 /**

@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import { createHash } from "crypto";
 import { prisma } from "../db/client.js";
 import { getConfig } from "../config/index.js";
+import { getSchedulerService } from "./scheduler.js";
 import type { User, PlexAccount, EmbyAccount, Session } from "@prisma/client";
 
 // Plex API endpoints
@@ -48,15 +49,33 @@ const pendingPins = new Map<
   }
 >();
 
-// Clean up expired PINs every 5 minutes
-setInterval(() => {
+/**
+ * Clean up expired PINs from the in-memory store
+ */
+function cleanupExpiredPins(): void {
   const now = new Date();
   for (const [key, pin] of pendingPins.entries()) {
     if (pin.expiresAt < now) {
       pendingPins.delete(key);
     }
   }
-}, 5 * 60 * 1000);
+}
+
+/**
+ * Register auth cleanup tasks with the scheduler
+ * Called once during server startup
+ */
+export function registerAuthTasks(): void {
+  const scheduler = getSchedulerService();
+  scheduler.register(
+    "auth-pin-cleanup",
+    "Auth PIN Cleanup",
+    5 * 60 * 1000, // 5 minutes
+    async () => {
+      cleanupExpiredPins();
+    }
+  );
+}
 
 /**
  * Get Plex request headers with client identifier

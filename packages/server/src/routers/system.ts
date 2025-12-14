@@ -3,6 +3,7 @@ import { router, publicProcedure } from "../trpc.js";
 import { prisma } from "../db/client.js";
 import { RequestStatus, ActivityType, JobStatus } from "@prisma/client";
 import { getJobQueueService } from "../services/jobQueue.js";
+import { getSchedulerService } from "../services/scheduler.js";
 
 function fromActivityType(value: ActivityType): string {
   return value.toLowerCase();
@@ -545,6 +546,39 @@ export const systemRouter = router({
         } catch {
           return { success: false, error: "Worker not found" };
         }
+      }),
+  }),
+
+  /**
+   * Scheduler management and health monitoring
+   */
+  scheduler: router({
+    /**
+     * Get scheduler health metrics
+     */
+    health: publicProcedure.query(() => {
+      const scheduler = getSchedulerService();
+      return scheduler.getHealth();
+    }),
+
+    /**
+     * Get list of recurring tasks
+     */
+    tasks: publicProcedure.query(() => {
+      const scheduler = getSchedulerService();
+      const health = scheduler.getHealth();
+      return health.recurringTasks;
+    }),
+
+    /**
+     * Toggle a task on/off (for debugging)
+     */
+    toggleTask: publicProcedure
+      .input(z.object({ taskId: z.string(), enabled: z.boolean() }))
+      .mutation(({ input }) => {
+        const scheduler = getSchedulerService();
+        const success = scheduler.setTaskEnabled(input.taskId, input.enabled);
+        return { success };
       }),
   }),
 });

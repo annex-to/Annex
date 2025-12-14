@@ -9,6 +9,7 @@ import { prisma } from "../db/client.js";
 import { getConfig } from "../config/index.js";
 import { RequestStatus, MediaType, TvEpisodeStatus, Prisma } from "@prisma/client";
 import { getJobQueueService } from "./jobQueue.js";
+import { getSchedulerService } from "./scheduler.js";
 import { XMLParser } from "fast-xml-parser";
 import type { Release } from "./indexer.js";
 import { resolutionMeetsRequirement } from "./qualityService.js";
@@ -75,10 +76,10 @@ const QUALITY_SCORES = {
 // =============================================================================
 
 class RssAnnounceMonitor {
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private rssKey: string | null = null;
   private lastSeenGuids: Set<string> = new Set();
   private isPolling = false;
+  private isStarted = false;
   private xmlParser: XMLParser;
 
   constructor() {
@@ -124,22 +125,31 @@ class RssAnnounceMonitor {
       return;
     }
 
-    // Start polling interval (first poll after initial delay)
-    console.log(`[RSS] Starting monitor (polling every ${config.rss.pollInterval / 1000}s, first poll in ${config.rss.pollInterval / 1000}s)`);
-    this.pollTimer = setInterval(() => {
-      this.poll().catch((err) => {
-        console.error("[RSS] Poll error:", err.message);
-      });
-    }, config.rss.pollInterval);
+    // Register polling task with scheduler
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "rss-poll",
+      "RSS Feed Poll",
+      config.rss.pollInterval,
+      async () => {
+        await this.poll().catch((err) => {
+          console.error("[RSS] Poll error:", err.message);
+        });
+      }
+    );
+
+    this.isStarted = true;
+    console.log(`[RSS] Started monitor (polling every ${config.rss.pollInterval / 1000}s)`);
   }
 
   /**
    * Stop the RSS monitor
    */
   stop(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
+    if (this.isStarted) {
+      const scheduler = getSchedulerService();
+      scheduler.unregister("rss-poll");
+      this.isStarted = false;
     }
     console.log("[RSS] Monitor stopped");
   }

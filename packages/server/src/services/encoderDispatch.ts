@@ -10,6 +10,7 @@ import type { Server as HttpServer } from "http";
 import { existsSync } from "fs";
 import { prisma } from "../db/client.js";
 import { getJobEventService } from "./jobEvents.js";
+import { getSchedulerService } from "./scheduler.js";
 import type {
   EncoderMessage,
   ServerMessage,
@@ -99,8 +100,6 @@ export interface QueueEncodingJobResult {
 class EncoderDispatchService {
   private wss: WebSocketServer | null = null;
   private encoders: Map<string, ConnectedEncoder> = new Map();
-  private healthCheckInterval: NodeJS.Timeout | null = null;
-  private progressFlushInterval: NodeJS.Timeout | null = null;
   private jobCompletionCallbacks: Map<string, {
     resolve: (assignment: EncoderAssignment) => void;
     reject: (error: Error) => void;
@@ -876,26 +875,32 @@ class EncoderDispatchService {
   // ==========================================================================
 
   private startHealthCheck(): void {
-    this.healthCheckInterval = setInterval(async () => {
-      const now = new Date();
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "encoder-health",
+      "Encoder Health Check",
+      this.healthCheckIntervalMs,
+      async () => {
+        const now = new Date();
 
-      // Check encoder heartbeats
-      for (const [encoderId, encoder] of this.encoders) {
-        const elapsed = now.getTime() - encoder.lastHeartbeat.getTime();
+        // Check encoder heartbeats
+        for (const [encoderId, encoder] of this.encoders) {
+          const elapsed = now.getTime() - encoder.lastHeartbeat.getTime();
 
-        if (elapsed > this.heartbeatTimeout) {
-          console.warn(`[EncoderDispatch] Encoder ${encoderId} health check failed (${elapsed}ms since last heartbeat)`);
-          encoder.ws.terminate();
-          this.handleDisconnect(encoderId);
+          if (elapsed > this.heartbeatTimeout) {
+            console.warn(`[EncoderDispatch] Encoder ${encoderId} health check failed (${elapsed}ms since last heartbeat)`);
+            encoder.ws.terminate();
+            this.handleDisconnect(encoderId);
+          }
         }
+
+        // Check for stalled jobs (no progress updates for too long)
+        await this.checkStalledJobs();
+
+        // Try to assign any pending jobs that might be waiting
+        await this.tryAssignPendingJobs();
       }
-
-      // Check for stalled jobs (no progress updates for too long)
-      await this.checkStalledJobs();
-
-      // Try to assign any pending jobs that might be waiting
-      await this.tryAssignPendingJobs();
-    }, this.healthCheckIntervalMs);
+    );
   }
 
   /**
@@ -1046,9 +1051,15 @@ class EncoderDispatchService {
    * Start periodic progress flush to ensure dirty progress gets written to DB
    */
   private startProgressFlush(): void {
-    this.progressFlushInterval = setInterval(async () => {
-      await this.flushProgressUpdates();
-    }, this.progressFlushIntervalMs);
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "encoder-progress-flush",
+      "Encoder Progress Flush",
+      this.progressFlushIntervalMs,
+      async () => {
+        await this.flushProgressUpdates();
+      }
+    );
   }
 
   /**
@@ -1171,15 +1182,10 @@ class EncoderDispatchService {
   shutdown(): void {
     console.log("[EncoderDispatch] Shutting down...");
 
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
-
-    if (this.progressFlushInterval) {
-      clearInterval(this.progressFlushInterval);
-      this.progressFlushInterval = null;
-    }
+    // Unregister scheduler tasks
+    const scheduler = getSchedulerService();
+    scheduler.unregister("encoder-health");
+    scheduler.unregister("encoder-progress-flush");
 
     // Final flush of progress updates
     this.flushProgressUpdates().catch(console.error);

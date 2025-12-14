@@ -9,6 +9,7 @@ import { prisma } from "../db/client.js";
 import { getConfig } from "../config/index.js";
 import { fetchPlexWatchedItems, type PlexWatchedItem } from "./plex.js";
 import { fetchEmbyWatchedItems, type EmbyWatchedItem } from "./emby.js";
+import { getSchedulerService } from "./scheduler.js";
 
 // =============================================================================
 // Types
@@ -58,9 +59,20 @@ class TasteProfileService {
   private cache: Map<string, CachedProfile> = new Map();
   private readonly TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-  constructor() {
-    // Cleanup expired cache entries every minute
-    setInterval(() => this.cleanupExpiredEntries(), 60 * 1000);
+  /**
+   * Register cleanup task with the scheduler
+   * Called once during server startup
+   */
+  registerTasks(): void {
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "taste-cache-cleanup",
+      "Taste Cache Cleanup",
+      60 * 1000, // 1 minute
+      async () => {
+        this.cleanupExpiredEntries();
+      }
+    );
   }
 
   /**
