@@ -542,7 +542,7 @@ class SyncService {
     const mdblist = getMDBListService();
 
     let updated = 0;
-    let added = 0;
+    const added = 0;
 
     // Get changes from TMDB for the last 24 hours
     // Note: TMDB changes API returns items changed in the last 24 hours

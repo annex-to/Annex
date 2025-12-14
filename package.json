@@ -2,12 +2,16 @@
   "name": "annex",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Unified media acquisition, processing, and delivery platform",
   "scripts": {
     "dev": "pnpm run --parallel dev",
     "build": "pnpm run -r build",
     "start": "pnpm run --filter @annex/server start",
-    "lint": "pnpm run -r lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "pnpm run -r typecheck",
     "clean": "pnpm run -r clean && rm -rf node_modules"
   },
@@ -16,5 +20,14 @@
   "packageManager": "pnpm@9.14.2",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript-eslint": "^8.18.1"
   }
 }

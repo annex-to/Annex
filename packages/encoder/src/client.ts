@@ -17,13 +17,12 @@ import type {
   RegisterMessage,
   HeartbeatMessage,
   JobAcceptedMessage,
-  JobProgressMessage,
   JobCompleteMessage,
   JobFailedMessage,
   JobAssignMessage,
 } from "@annex/shared";
 import { getConfig, type EncoderConfig } from "./config.js";
-import { encode, type EncodeResult } from "./encoder.js";
+import { encode } from "./encoder.js";
 
 interface ActiveJob {
   jobId: string;
@@ -252,7 +251,7 @@ Server: ${this.config.serverUrl}
     let msg: ServerMessage;
     try {
       msg = JSON.parse(data) as ServerMessage;
-    } catch (e) {
+    } catch {
       console.error("[Client] Invalid message:", data);
       return;
     }

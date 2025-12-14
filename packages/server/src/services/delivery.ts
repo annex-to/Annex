@@ -473,7 +473,7 @@ class DeliveryService {
       }
 
       let bytesTransferred = 0;
-      let lastProgressTime = Date.now();
+      const lastProgressTime = Date.now();
 
       // Parse rsync progress output
       process.stdout?.on("data", (data) => {

@@ -152,7 +152,7 @@ function buildFfmpegArgs(
 function buildVideoArgs(
   profile: EncodingProfileData,
   mediaInfo: MediaInfo,
-  gpuDevice: string
+  _gpuDevice: string
 ): string[] {
   const args: string[] = [];
   const hwAccel = profile.hwAccel?.toUpperCase();
@@ -347,7 +347,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   return new Promise((resolve, reject) => {
     const ffmpeg: ChildProcess = spawn("ffmpeg", args);
 
-    let progressState: {
+    const progressState: {
       frame: number;
       fps: number;
       bitrate: number;

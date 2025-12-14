@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Generated files
+packages/server/prisma/migrations/
+
+# Package manager
+pnpm-lock.yaml
+
+# Documentation that shouldn't be reformatted
+*.md

@@ -401,7 +401,7 @@ export function FilterPanel({
             <div className="space-y-5 px-2">
               {RATING_SOURCES.map((source) => {
                 const range = getRangeForSource(source.id);
-                const isActive = isRatingFilterActive(source.id, filters.ratingFilters[source.id]);
+                const _isActive = isRatingFilterActive(source.id, filters.ratingFilters[source.id]);
 
                 // Extract the bg color class for the slider
                 const colorMatch = source.color.match(/bg-(\w+)-500/);
@@ -476,7 +476,7 @@ export function FilterBar({
   onSetLanguage,
   onSetReleasedOnly,
   onSetHideUnrated,
-  onSetSortBy,
+  onSetSortBy: _onSetSortBy,
   onClearFilters,
   onExpandFilters,
 }: Omit<FilterPanelProps, "onSetYearRange" | "onSetRatingRange"> & { onExpandFilters: () => void }) {

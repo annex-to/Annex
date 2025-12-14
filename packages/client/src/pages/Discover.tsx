@@ -4,13 +4,9 @@ import { Input, ToggleGroup, MediaCard, Button, FilterPanel, LibraryInfo } from 
 import {
   useDiscoverFilters,
   SORT_OPTIONS,
-  RATING_SOURCES,
   DEFAULT_SORT,
   countActiveRatingFilters,
 } from "../hooks/useDiscoverFilters";
-
-// Type for library status map
-type LibraryStatusMap = Record<string, { servers: Array<{ id: string; name: string; type: string; quality?: string }> }>;
 
 const mediaTypeOptions = [
   { value: "movie" as const, label: "Movies" },

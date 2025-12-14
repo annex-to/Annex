@@ -19,7 +19,7 @@ interface LibraryCardProps extends HTMLAttributes<HTMLDivElement> {
 const LibraryCard = forwardRef<HTMLDivElement, LibraryCardProps>(
   (
     {
-      id,
+      id: _id,
       title,
       type,
       year,

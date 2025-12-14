@@ -60,7 +60,7 @@ export function RangeSlider({
   );
 
   const handleTouchStart = useCallback(
-    (thumb: "min" | "max") => (e: React.TouchEvent) => {
+    (thumb: "min" | "max") => (_e: React.TouchEvent) => {
       if (disabled) return;
       setIsDragging(thumb);
     },

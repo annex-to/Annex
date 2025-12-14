@@ -7,7 +7,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { appRouter } from "./routers/index.js";
 import type { Context } from "./trpc.js";
-import { initConfig, getConfig } from "./config/index.js";
+import { initConfig } from "./config/index.js";
 import { getJobQueueService } from "./services/jobQueue.js";
 import { verifySession } from "./services/auth.js";
 import { registerPipelineHandlers } from "./services/pipeline.js";

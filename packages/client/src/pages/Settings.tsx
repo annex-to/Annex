@@ -973,7 +973,7 @@ function IndexerForm({
     try {
       // For new indexers, we need to test with the form data directly
       // This is a simplified test - the full test requires creating the indexer first
-      const response = await fetch("/api/trpc/indexers.test", {
+      const _response = await fetch("/api/trpc/indexers.test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ json: { id: "test" } }),
