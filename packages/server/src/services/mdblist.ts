@@ -10,6 +10,7 @@
 import { getConfig } from "../config/index.js";
 import { prisma } from "../db/client.js";
 import { MediaType, Prisma } from "@prisma/client";
+import { calculateAggregateScore } from "./ratingAggregator.js";
 
 const MDBLIST_BASE_URL = "https://api.mdblist.com";
 
@@ -285,6 +286,9 @@ class MDBListService {
     // Extract ratings from the ratings array
     const ratings = this.extractRatings(data.ratings || []);
 
+    // Calculate aggregate score from all rating sources
+    const aggregate = calculateAggregateScore(ratings);
+
     try {
       await prisma.mediaItem.upsert({
         where: { id },
@@ -320,6 +324,11 @@ class MDBListService {
             create: {
               ...ratings,
               mdblistScore: data.score || null,
+              aggregateScore: aggregate.aggregateScore,
+              sourceCount: aggregate.sourceCount,
+              confidenceScore: aggregate.confidenceScore,
+              isTrusted: aggregate.isTrusted,
+              aggregatedAt: aggregate.aggregatedAt,
             },
           },
         },
@@ -353,10 +362,20 @@ class MDBListService {
               create: {
                 ...ratings,
                 mdblistScore: data.score || null,
+                aggregateScore: aggregate.aggregateScore,
+                sourceCount: aggregate.sourceCount,
+                confidenceScore: aggregate.confidenceScore,
+                isTrusted: aggregate.isTrusted,
+                aggregatedAt: aggregate.aggregatedAt,
               },
               update: {
                 ...ratings,
                 mdblistScore: data.score || undefined,
+                aggregateScore: aggregate.aggregateScore,
+                sourceCount: aggregate.sourceCount,
+                confidenceScore: aggregate.confidenceScore,
+                isTrusted: aggregate.isTrusted,
+                aggregatedAt: aggregate.aggregatedAt,
               },
             },
           },
@@ -457,6 +476,9 @@ class MDBListService {
     const prismaType = type === "movie" ? MediaType.MOVIE : MediaType.TV;
     const ratings = this.extractRatings(data.ratings || []);
 
+    // Calculate aggregate score from all rating sources
+    const aggregate = calculateAggregateScore(ratings);
+
     try {
       await prisma.mediaItem.upsert({
         where: { id },
@@ -492,6 +514,11 @@ class MDBListService {
             create: {
               ...ratings,
               mdblistScore: data.score || null,
+              aggregateScore: aggregate.aggregateScore,
+              sourceCount: aggregate.sourceCount,
+              confidenceScore: aggregate.confidenceScore,
+              isTrusted: aggregate.isTrusted,
+              aggregatedAt: aggregate.aggregatedAt,
             },
           },
         },
@@ -525,10 +552,20 @@ class MDBListService {
               create: {
                 ...ratings,
                 mdblistScore: data.score || null,
+                aggregateScore: aggregate.aggregateScore,
+                sourceCount: aggregate.sourceCount,
+                confidenceScore: aggregate.confidenceScore,
+                isTrusted: aggregate.isTrusted,
+                aggregatedAt: aggregate.aggregatedAt,
               },
               update: {
                 ...ratings,
                 mdblistScore: data.score || undefined,
+                aggregateScore: aggregate.aggregateScore,
+                sourceCount: aggregate.sourceCount,
+                confidenceScore: aggregate.confidenceScore,
+                isTrusted: aggregate.isTrusted,
+                aggregatedAt: aggregate.aggregatedAt,
               },
             },
           },

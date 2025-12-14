@@ -140,7 +140,20 @@ export interface MediaRatings {
   letterboxdScore: number | null;
   mdblistScore: number | null;
   aggregateScore: number | null;
+  sourceCount?: number | null;
 }
+
+// Discovery mode presets
+export type DiscoveryMode =
+  | "for_you"
+  | "trending"
+  | "hidden_gems"
+  | "new_releases"
+  | "coming_soon"
+  | "custom";
+
+// Quality tier filters
+export type QualityTier = "any" | "good" | "great" | "excellent";
 
 export interface TrendingResult {
   type: MediaType;

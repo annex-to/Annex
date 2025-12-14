@@ -901,8 +901,12 @@ model MediaRatings {
   mdblistRank           Int?     // Overall rank
 
   // Our computed aggregates
-  aggregateScore        Float?   // Weighted average of all sources
+  aggregateScore        Float?   // Weighted average of all sources (0-100)
   popularityScore       Float?   // Based on votes/plays/watchers
+  sourceCount           Int?     // Number of rating sources with data (0-8)
+  confidenceScore       Float?   // Weighted confidence based on vote counts (0-1)
+  isTrusted             Boolean  @default(false)  // Has 2+ sources with good data
+  aggregatedAt          DateTime? // When aggregate was last calculated
 
   // Relations
   media                 MediaItem @relation(fields: [mediaId], references: [id], onDelete: Cascade)
@@ -911,6 +915,8 @@ model MediaRatings {
   @@index([aggregateScore])
   @@index([popularityScore])
   @@index([mdblistScore])
+  @@index([isTrusted, aggregateScore])
+  @@index([sourceCount])
 }
 
 // =============================================================================

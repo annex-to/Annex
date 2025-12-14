@@ -3,7 +3,7 @@ import { router, publicProcedure } from "../trpc.js";
 import { getTMDBService } from "../services/tmdb.js";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
-import type { TrendingResult, MediaRatings } from "@annex/shared";
+import type { TrendingResult } from "@annex/shared";
 import { Prisma } from "@prisma/client";
 
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -56,6 +56,10 @@ function getSortOrder(sortBy: string): PrismaOrderBy {
       return [{ ratings: { tmdbScore: "desc" } }, { tmdbId: "desc" }];
     case "vote_average.asc":
       return [{ ratings: { tmdbScore: "asc" } }, { tmdbId: "asc" }];
+    case "aggregate.desc":
+      return [{ ratings: { aggregateScore: "desc" } }, { ratings: { confidenceScore: "desc" } }, { tmdbId: "desc" }];
+    case "aggregate.asc":
+      return [{ ratings: { aggregateScore: "asc" } }, { tmdbId: "asc" }];
     case "primary_release_date.desc":
     case "first_air_date.desc":
       return [{ releaseDate: "desc" }, { tmdbId: "desc" }];
@@ -71,6 +75,37 @@ function getSortOrder(sortBy: string): PrismaOrderBy {
   }
 }
 
+// Discovery mode types
+type DiscoveryMode = "for_you" | "trending" | "hidden_gems" | "new_releases" | "coming_soon" | "custom";
+type QualityTier = "any" | "good" | "great" | "excellent";
+
+// Get sort order based on discovery mode
+function getSortOrderForMode(mode: DiscoveryMode, customSort?: string): PrismaOrderBy {
+  switch (mode) {
+    case "for_you":
+      return [{ ratings: { aggregateScore: "desc" } }, { ratings: { confidenceScore: "desc" } }, { tmdbId: "desc" }];
+    case "trending":
+      return [{ ratings: { tmdbPopularity: "desc" } }, { ratings: { aggregateScore: "desc" } }, { tmdbId: "desc" }];
+    case "hidden_gems":
+      return [{ ratings: { aggregateScore: "desc" } }, { ratings: { tmdbPopularity: "asc" } }, { tmdbId: "desc" }];
+    case "new_releases":
+      return [{ releaseDate: "desc" }, { ratings: { aggregateScore: "desc" } }, { tmdbId: "desc" }];
+    case "coming_soon":
+      return [{ releaseDate: "asc" }, { ratings: { tmdbPopularity: "desc" } }, { tmdbId: "desc" }];
+    case "custom":
+    default:
+      return getSortOrder(customSort || "aggregate.desc");
+  }
+}
+
+// Quality tier thresholds (aggregate score is 0-100)
+const QUALITY_TIER_THRESHOLDS: Record<QualityTier, number> = {
+  any: 0,
+  good: 70,
+  great: 80,
+  excellent: 85,
+};
+
 /**
  * Queue a background refresh job for a media item if it's stale
  * Returns immediately without waiting for the refresh
@@ -79,7 +114,6 @@ async function queueRefreshIfStale(
   tmdbId: number,
   type: "movie" | "tv"
 ): Promise<void> {
-  const prismaType = type === "movie" ? "MOVIE" : "TV";
   const id = `tmdb-${type}-${tmdbId}`;
 
   const item = await prisma.mediaItem.findUnique({
@@ -216,6 +250,7 @@ function mediaItemToTrendingResult(
       letterboxdScore: number | null;
       mdblistScore: number | null;
       aggregateScore: number | null;
+      sourceCount: number | null;
       tmdbPopularity: number | null;
     } | null;
   }
@@ -244,6 +279,7 @@ function mediaItemToTrendingResult(
       letterboxdScore: item.ratings.letterboxdScore,
       mdblistScore: item.ratings.mdblistScore,
       aggregateScore: item.ratings.aggregateScore,
+      sourceCount: item.ratings.sourceCount,
     } : undefined,
     trailerKey,
   };
@@ -665,11 +701,15 @@ export const discoveryRouter = router({
       z.object({
         type: z.enum(["movie", "tv"]),
         page: z.number().min(1).default(1),
+        // Discovery mode - presets for different use cases
+        mode: z.enum(["for_you", "trending", "hidden_gems", "new_releases", "coming_soon", "custom"]).default("for_you"),
+        // Quality tier - simplified rating filter
+        qualityTier: z.enum(["any", "good", "great", "excellent"]).default("any"),
         query: z.string().optional(),
         genres: z.array(z.number()).optional(),
         yearFrom: z.number().optional(),
         yearTo: z.number().optional(),
-        // Multiple rating filters - each source can have min/max
+        // Multiple rating filters - each source can have min/max (used in custom mode)
         ratingFilters: z.record(
           z.enum([
             "imdb", "tmdb", "rt_critic", "rt_audience",
@@ -683,14 +723,16 @@ export const discoveryRouter = router({
         language: z.string().optional(), // ISO 639-1 language code (e.g., "en", "ja")
         releasedOnly: z.boolean().optional(), // Filter to only show released content
         hideUnrated: z.boolean().default(true), // Hide media without any ratings (default: true)
-        sortBy: z.string().default("popularity.desc"),
+        sortBy: z.string().default("aggregate.desc"),
       })
     )
     .query(async ({ input }) => {
       const prismaType = input.type === "movie" ? "MOVIE" : "TV";
       const skip = (input.page - 1) * ITEMS_PER_PAGE;
+      const today = new Date().toISOString().split("T")[0];
+      const currentYear = new Date().getFullYear();
 
-      // Build where clause
+      // Build base where clause
       const where: Prisma.MediaItemWhereInput = {
         type: prismaType,
         ratings: { isNot: null },
@@ -701,7 +743,91 @@ export const discoveryRouter = router({
         year: { not: null },
       };
 
-      // Search query filter (title search)
+      // Apply mode-specific filters
+      const mode = input.mode as DiscoveryMode;
+      const qualityTier = input.qualityTier as QualityTier;
+
+      switch (mode) {
+        case "for_you":
+          // Smart curated: released, trusted ratings (2+ sources), minimum quality
+          where.status = { in: ["Released", "released", "Ended", "Returning Series", "Canceled", "Cancelled"] };
+          where.releaseDate = { lte: today };
+          where.ratings = {
+            is: {
+              isTrusted: true,
+              aggregateScore: { gte: 65 },
+            },
+          };
+          break;
+
+        case "trending":
+          // Recent popular with quality filtering
+          where.status = { in: ["Released", "released", "Ended", "Returning Series", "Canceled", "Cancelled"] };
+          where.releaseDate = { lte: today };
+          where.year = { gte: currentYear - 2, not: null };
+          where.ratings = {
+            is: {
+              tmdbPopularity: { gte: 10 },
+              sourceCount: { gte: 1 },
+            },
+          };
+          break;
+
+        case "hidden_gems":
+          // High ratings, lower popularity
+          where.status = { in: ["Released", "released", "Ended", "Returning Series", "Canceled", "Cancelled"] };
+          where.releaseDate = { lte: today };
+          where.ratings = {
+            is: {
+              isTrusted: true,
+              aggregateScore: { gte: 75 },
+              tmdbPopularity: { lt: 50 },
+            },
+          };
+          break;
+
+        case "new_releases":
+          // Recently released with ratings
+          where.status = { in: ["Released", "released", "Ended", "Returning Series", "Canceled", "Cancelled"] };
+          where.releaseDate = {
+            gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+            lte: today,
+          };
+          where.ratings = {
+            is: {
+              sourceCount: { gte: 1 },
+            },
+          };
+          break;
+
+        case "coming_soon":
+          // Unreleased, sorted by anticipation
+          where.OR = [
+            { releaseDate: { gt: today } },
+            { status: { in: ["In Production", "Planned", "Post Production"] } },
+          ];
+          break;
+
+        case "custom":
+        default:
+          // Apply manual filters for custom mode
+          break;
+      }
+
+      // Apply quality tier filter (except for coming_soon mode)
+      if (mode !== "coming_soon" && qualityTier !== "any") {
+        const minScore = QUALITY_TIER_THRESHOLDS[qualityTier];
+        const existingRatingsIs = (where.ratings as { is?: Prisma.MediaRatingsWhereInput })?.is || {};
+        where.ratings = {
+          is: {
+            ...existingRatingsIs,
+            isTrusted: true,
+            aggregateScore: { gte: minScore },
+          },
+        };
+      }
+
+      // Search query filter (title search) - applies to all modes
       if (input.query && input.query.trim()) {
         where.title = {
           contains: input.query.trim(),
@@ -724,8 +850,8 @@ export const discoveryRouter = router({
         }
       }
 
-      // Year range filter
-      if (input.yearFrom !== undefined || input.yearTo !== undefined) {
+      // Year range filter (only in custom mode to avoid conflicts)
+      if (mode === "custom" && (input.yearFrom !== undefined || input.yearTo !== undefined)) {
         where.year = {
           ...(input.yearFrom !== undefined ? { gte: input.yearFrom } : {}),
           ...(input.yearTo !== undefined ? { lte: input.yearTo } : {}),
@@ -733,9 +859,9 @@ export const discoveryRouter = router({
         };
       }
 
-      // Multi-source rating filters with min/max ranges
+      // Multi-source rating filters with min/max ranges (only in custom mode)
       // Maps rating source IDs to their Prisma field names
-      if (input.ratingFilters && Object.keys(input.ratingFilters).length > 0) {
+      if (mode === "custom" && input.ratingFilters && Object.keys(input.ratingFilters).length > 0) {
         const ratingFieldMap: Record<string, string> = {
           imdb: "imdbScore",
           tmdb: "tmdbScore",
@@ -785,8 +911,12 @@ export const discoveryRouter = router({
         }
 
         if (Object.keys(ratingConditions).length > 0) {
+          const existingRatingsIs = (where.ratings as { is?: Prisma.MediaRatingsWhereInput })?.is || {};
           where.ratings = {
-            is: ratingConditions,
+            is: {
+              ...existingRatingsIs,
+              ...ratingConditions,
+            },
           };
         }
       }
@@ -796,13 +926,13 @@ export const discoveryRouter = router({
         where.language = input.language;
       }
 
-      // Released only filter
-      // Matches status values like "Released", "released", "Ended", "Returning Series"
-      // Excludes "In Production", "Planned", "Post Production", "Rumored"
-      if (input.releasedOnly) {
+      // Released only filter (only applies in custom mode)
+      // Now also checks releaseDate to ensure content is actually released
+      if (mode === "custom" && input.releasedOnly) {
         where.status = {
           in: ["Released", "released", "Ended", "Returning Series", "Canceled", "Cancelled"],
         };
+        where.releaseDate = { lte: today };
       }
 
       // Hide unrated filter - requires at least one non-zero rating score to be present
@@ -828,8 +958,8 @@ export const discoveryRouter = router({
         };
       }
 
-      // Get sort order
-      const orderBy = getSortOrder(input.sortBy);
+      // Get sort order based on mode (or custom sort for custom mode)
+      const orderBy = getSortOrderForMode(mode, input.sortBy);
 
       // Query local database
       const [items, totalCount] = await Promise.all([

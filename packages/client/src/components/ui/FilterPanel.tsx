@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "./Button";
 import { RangeSlider } from "./RangeSlider";
 import {
@@ -15,10 +15,12 @@ import {
   type DiscoverFilters,
   type RatingRange,
   type RatingSourceId,
+  type DiscoveryMode,
 } from "../../hooks/useDiscoverFilters";
 
 interface FilterPanelProps {
   filters: DiscoverFilters;
+  mode: DiscoveryMode;
   hasActiveFilters: boolean;
   onToggleGenre: (genreId: number) => void;
   onSetYearRange: (yearFrom: number | null, yearTo: number | null) => void;
@@ -89,6 +91,7 @@ function FilterSection({
 
 export function FilterPanel({
   filters,
+  mode,
   hasActiveFilters,
   onToggleGenre,
   onSetYearRange,
@@ -100,13 +103,20 @@ export function FilterPanel({
   onSetSortBy,
   onClearFilters,
 }: FilterPanelProps) {
+  const isCustomMode = mode === "custom";
+
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     genres: true,
     year: false,
     language: false,
-    rating: false,
+    advanced: isCustomMode, // Only open by default in custom mode
     sort: false,
   });
+
+  // Auto-expand/collapse advanced section when mode changes
+  useEffect(() => {
+    setOpenSections((prev) => ({ ...prev, advanced: isCustomMode }));
+  }, [isCustomMode]);
 
   const toggleSection = useCallback((section: string) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -154,64 +164,66 @@ export function FilterPanel({
       </div>
 
       <div className="px-4">
-        {/* Quick toggles at top */}
-        <div className="py-3 space-y-3 border-b border-white/10">
-          {/* Hide unrated toggle - ON by default */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className={`text-sm font-medium ${filters.hideUnrated ? "text-white/90" : "text-white/70"}`}>
-                Hide unrated
-              </span>
-              <p className="text-xs text-white/40">Only show rated media</p>
-            </div>
-            <button
-              onClick={() => onSetHideUnrated(!filters.hideUnrated)}
-              className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-                filters.hideUnrated
-                  ? "bg-annex-500"
-                  : "bg-white/10 hover:bg-white/15"
-              }`}
-              role="switch"
-              aria-checked={filters.hideUnrated}
-            >
-              <span
-                className={`absolute top-1 left-1 w-4 h-4 rounded-full shadow-sm transition-all duration-200 ${
+        {/* Quick toggles - only show in custom mode */}
+        {isCustomMode && (
+          <div className="py-3 space-y-3 border-b border-white/10">
+            {/* Hide unrated toggle - ON by default */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className={`text-sm font-medium ${filters.hideUnrated ? "text-white/90" : "text-white/70"}`}>
+                  Hide unrated
+                </span>
+                <p className="text-xs text-white/40">Only show rated media</p>
+              </div>
+              <button
+                onClick={() => onSetHideUnrated(!filters.hideUnrated)}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
                   filters.hideUnrated
-                    ? "translate-x-5 bg-white"
-                    : "translate-x-0 bg-white/70"
+                    ? "bg-annex-500"
+                    : "bg-white/10 hover:bg-white/15"
                 }`}
-              />
-            </button>
-          </div>
-
-          {/* Released only toggle */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className={`text-sm font-medium ${filters.releasedOnly ? "text-white/90" : "text-white/70"}`}>
-                Released only
-              </span>
-              <p className="text-xs text-white/40">Hide upcoming content</p>
+                role="switch"
+                aria-checked={filters.hideUnrated}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-4 h-4 rounded-full shadow-sm transition-all duration-200 ${
+                    filters.hideUnrated
+                      ? "translate-x-5 bg-white"
+                      : "translate-x-0 bg-white/70"
+                  }`}
+                />
+              </button>
             </div>
-            <button
-              onClick={() => onSetReleasedOnly(!filters.releasedOnly)}
-              className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-                filters.releasedOnly
-                  ? "bg-annex-500"
-                  : "bg-white/10 hover:bg-white/15"
-              }`}
-              role="switch"
-              aria-checked={filters.releasedOnly}
-            >
-              <span
-                className={`absolute top-1 left-1 w-4 h-4 rounded-full shadow-sm transition-all duration-200 ${
+
+            {/* Released only toggle */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className={`text-sm font-medium ${filters.releasedOnly ? "text-white/90" : "text-white/70"}`}>
+                  Released only
+                </span>
+                <p className="text-xs text-white/40">Hide upcoming content</p>
+              </div>
+              <button
+                onClick={() => onSetReleasedOnly(!filters.releasedOnly)}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
                   filters.releasedOnly
-                    ? "translate-x-5 bg-white"
-                    : "translate-x-0 bg-white/70"
+                    ? "bg-annex-500"
+                    : "bg-white/10 hover:bg-white/15"
                 }`}
-              />
-            </button>
+                role="switch"
+                aria-checked={filters.releasedOnly}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-4 h-4 rounded-full shadow-sm transition-all duration-200 ${
+                    filters.releasedOnly
+                      ? "translate-x-5 bg-white"
+                      : "translate-x-0 bg-white/70"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Genres */}
         <FilterSection
@@ -384,84 +396,88 @@ export function FilterPanel({
           </div>
         </FilterSection>
 
-        {/* Rating Filters */}
-        <FilterSection
-          title="Ratings"
-          isOpen={openSections.rating}
-          onToggle={() => toggleSection("rating")}
-          badge={activeRatingCount > 0 ? activeRatingCount : undefined}
-        >
-          <div className="space-y-4">
-            {/* Info text */}
-            <p className="text-xs text-white/40">
-              Drag sliders to filter by rating range. Multiple filters combine with AND logic.
-            </p>
+        {/* Advanced Filters - Only show in custom mode */}
+        {isCustomMode && (
+          <FilterSection
+            title="Advanced Filters"
+            isOpen={openSections.advanced}
+            onToggle={() => toggleSection("advanced")}
+            badge={activeRatingCount > 0 ? activeRatingCount : undefined}
+          >
+            <div className="space-y-4">
+              {/* Info text */}
+              <p className="text-xs text-white/40">
+                Fine-tune by individual rating sources. Multiple filters combine with AND logic.
+              </p>
 
-            {/* Rating sliders - px-2 gives room for slider handles at edges */}
-            <div className="space-y-5 px-2">
-              {RATING_SOURCES.map((source) => {
-                const range = getRangeForSource(source.id);
-                const _isActive = isRatingFilterActive(source.id, filters.ratingFilters[source.id]);
+              {/* Rating sliders - px-2 gives room for slider handles at edges */}
+              <div className="space-y-5 px-2">
+                {RATING_SOURCES.map((source) => {
+                  const range = getRangeForSource(source.id);
+                  const _isActive = isRatingFilterActive(source.id, filters.ratingFilters[source.id]);
 
-                // Extract the bg color class for the slider
-                const colorMatch = source.color.match(/bg-(\w+)-500/);
-                const sliderColor = colorMatch ? `bg-${colorMatch[1]}-500` : "bg-annex-500";
+                  // Extract the bg color class for the slider
+                  const colorMatch = source.color.match(/bg-(\w+)-500/);
+                  const sliderColor = colorMatch ? `bg-${colorMatch[1]}-500` : "bg-annex-500";
 
-                return (
-                  <RangeSlider
-                    key={source.id}
-                    min={source.min}
-                    max={source.max}
-                    step={source.step}
-                    value={range}
-                    onChange={handleRatingChange(source.id)}
-                    formatValue={source.format}
-                    label={source.name}
-                    color={sliderColor}
-                  />
-                );
-              })}
+                  return (
+                    <RangeSlider
+                      key={source.id}
+                      min={source.min}
+                      max={source.max}
+                      step={source.step}
+                      value={range}
+                      onChange={handleRatingChange(source.id)}
+                      formatValue={source.format}
+                      label={source.name}
+                      color={sliderColor}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Clear ratings button */}
+              {activeRatingCount > 0 && (
+                <button
+                  onClick={onClearRatingFilters}
+                  className="w-full px-3 py-1.5 text-xs text-white/50 hover:text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 rounded transition-colors"
+                >
+                  Clear all rating filters
+                </button>
+              )}
             </div>
+          </FilterSection>
+        )}
 
-            {/* Clear ratings button */}
-            {activeRatingCount > 0 && (
-              <button
-                onClick={onClearRatingFilters}
-                className="w-full px-3 py-1.5 text-xs text-white/50 hover:text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 rounded transition-colors"
-              >
-                Clear all rating filters
-              </button>
-            )}
-          </div>
-        </FilterSection>
-
-        {/* Sort By */}
-        <FilterSection
-          title="Sort"
-          isOpen={openSections.sort}
-          onToggle={() => toggleSection("sort")}
-          badge={
-            filters.sortBy !== DEFAULT_SORT
-              ? SORT_OPTIONS.find((o) => o.value === filters.sortBy)?.label
-              : undefined
-          }
-        >
-          <div className="grid grid-cols-2 gap-1.5">
-            {SORT_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => onSetSortBy(option.value)}
-                className={`px-2.5 py-1.5 text-xs rounded text-left transition-all duration-150 ${
-                  filters.sortBy === option.value
-                    ? "bg-annex-500/30 text-annex-300 border border-annex-500/50"
-                    : "bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/80"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </FilterSection>
+        {/* Sort By - Only show in custom mode */}
+        {isCustomMode && (
+          <FilterSection
+            title="Sort"
+            isOpen={openSections.sort}
+            onToggle={() => toggleSection("sort")}
+            badge={
+              filters.sortBy !== DEFAULT_SORT
+                ? SORT_OPTIONS.find((o) => o.value === filters.sortBy)?.label
+                : undefined
+            }
+          >
+            <div className="grid grid-cols-2 gap-1.5">
+              {SORT_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => onSetSortBy(option.value)}
+                  className={`px-2.5 py-1.5 text-xs rounded text-left transition-all duration-150 ${
+                    filters.sortBy === option.value
+                      ? "bg-annex-500/30 text-annex-300 border border-annex-500/50"
+                      : "bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/80"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </FilterSection>
+        )}
       </div>
     </div>
   );
@@ -470,6 +486,7 @@ export function FilterPanel({
 // Compact filter bar for mobile/collapsed view
 export function FilterBar({
   filters,
+  mode,
   hasActiveFilters,
   onToggleGenre,
   onClearRatingFilters,
@@ -482,6 +499,7 @@ export function FilterBar({
 }: Omit<FilterPanelProps, "onSetYearRange" | "onSetRatingRange"> & { onExpandFilters: () => void }) {
   const genres = filters.type === "movie" ? MOVIE_GENRES : TV_GENRES;
   const activeRatingCount = countActiveRatingFilters(filters.ratingFilters);
+  const isCustomMode = mode === "custom";
 
   return (
     <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-white/10">
@@ -533,8 +551,8 @@ export function FilterBar({
         );
       })}
 
-      {/* Rating filters summary pill */}
-      {activeRatingCount > 0 && (
+      {/* Rating filters summary pill - only in custom mode */}
+      {isCustomMode && activeRatingCount > 0 && (
         <button
           onClick={onClearRatingFilters}
           className="shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs bg-annex-500/20 text-annex-300 rounded border border-annex-500/30 hover:bg-annex-500/30 transition-colors"
@@ -568,8 +586,8 @@ export function FilterBar({
         </button>
       )}
 
-      {/* Released only pill */}
-      {filters.releasedOnly && (
+      {/* Released only pill - only in custom mode */}
+      {isCustomMode && filters.releasedOnly && (
         <button
           onClick={() => onSetReleasedOnly(false)}
           className="shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs bg-annex-500/20 text-annex-300 rounded border border-annex-500/30 hover:bg-annex-500/30 transition-colors"
@@ -581,8 +599,8 @@ export function FilterBar({
         </button>
       )}
 
-      {/* Show unrated pill (when hideUnrated is off) */}
-      {!filters.hideUnrated && (
+      {/* Show unrated pill (when hideUnrated is off) - only in custom mode */}
+      {isCustomMode && !filters.hideUnrated && (
         <button
           onClick={() => onSetHideUnrated(true)}
           className="shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs bg-annex-500/20 text-annex-300 rounded border border-annex-500/30 hover:bg-annex-500/30 transition-colors"

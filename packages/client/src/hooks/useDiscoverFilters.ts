@@ -44,15 +44,37 @@ export const TV_GENRES = [
 ] as const;
 
 export const SORT_OPTIONS = [
+  { value: "aggregate.desc", label: "Best Rated" },
+  { value: "aggregate.asc", label: "Lowest Rated" },
   { value: "primary_release_date.desc", label: "Newest" },
   { value: "primary_release_date.asc", label: "Oldest" },
   { value: "popularity.desc", label: "Most Popular" },
   { value: "popularity.asc", label: "Least Popular" },
-  { value: "vote_average.desc", label: "Highest Rated" },
-  { value: "vote_average.asc", label: "Lowest Rated" },
   { value: "title.asc", label: "Title A-Z" },
   { value: "title.desc", label: "Title Z-A" },
 ] as const;
+
+// Discovery modes - preset filters for different use cases
+export const DISCOVERY_MODES = [
+  { value: "for_you", label: "For You", description: "Quality curated picks" },
+  { value: "trending", label: "Trending", description: "Popular right now" },
+  { value: "hidden_gems", label: "Hidden Gems", description: "Underrated favorites" },
+  { value: "new_releases", label: "New Releases", description: "Recently released" },
+  { value: "coming_soon", label: "Coming Soon", description: "Upcoming content" },
+  { value: "custom", label: "Custom", description: "Custom filters" },
+] as const;
+
+export type DiscoveryMode = typeof DISCOVERY_MODES[number]["value"];
+
+// Quality tiers - simplified rating filter
+export const QUALITY_TIERS = [
+  { value: "any", label: "Any", minScore: 0 },
+  { value: "good", label: "Good 7+", minScore: 70 },
+  { value: "great", label: "Great 8+", minScore: 80 },
+  { value: "excellent", label: "Excellent 8.5+", minScore: 85 },
+] as const;
+
+export type QualityTier = typeof QUALITY_TIERS[number]["value"];
 
 // Common languages for filtering (ISO 639-1 codes)
 export const LANGUAGES = [
@@ -221,6 +243,8 @@ export interface RatingFilter {
 
 export interface DiscoverFilters {
   type: "movie" | "tv";
+  mode: DiscoveryMode;
+  qualityTier: QualityTier;
   query: string;
   genres: number[];
   yearFrom: number | null;
@@ -234,11 +258,15 @@ export interface DiscoverFilters {
   ratingFilter?: RatingFilter | null;
 }
 
-export const DEFAULT_SORT = "primary_release_date.desc";
+export const DEFAULT_MODE: DiscoveryMode = "for_you";
+export const DEFAULT_QUALITY_TIER: QualityTier = "any";
+export const DEFAULT_SORT = "aggregate.desc";
 export const DEFAULT_LANGUAGE = "en"; // Default to English
 
 const DEFAULT_FILTERS: DiscoverFilters = {
   type: "movie",
+  mode: DEFAULT_MODE,
+  qualityTier: DEFAULT_QUALITY_TIER,
   query: "",
   genres: [],
   yearFrom: null,
@@ -338,6 +366,18 @@ export function useDiscoverFilters() {
     const yearTo = searchParams.get("yearTo");
     const sortBy = searchParams.get("sort");
 
+    // Discovery mode - defaults to "for_you"
+    const modeParam = searchParams.get("mode") as DiscoveryMode | null;
+    const mode = modeParam && DISCOVERY_MODES.some(m => m.value === modeParam)
+      ? modeParam
+      : DEFAULT_MODE;
+
+    // Quality tier - defaults to "any"
+    const qualityParam = searchParams.get("quality") as QualityTier | null;
+    const qualityTier = qualityParam && QUALITY_TIERS.some(t => t.value === qualityParam)
+      ? qualityParam
+      : DEFAULT_QUALITY_TIER;
+
     // Parse new rating filters format
     const ratingsParam = searchParams.get("ratings");
     const ratingFilters = parseRatingFilters(ratingsParam);
@@ -368,6 +408,8 @@ export function useDiscoverFilters() {
 
     return {
       type: type === "tv" ? "tv" : "movie",
+      mode,
+      qualityTier,
       query,
       genres: genresParam
         ? genresParam.split(",").map(Number).filter(Boolean)
@@ -385,6 +427,8 @@ export function useDiscoverFilters() {
   // Check if any filters are active (beyond defaults)
   const hasActiveFilters = useMemo(() => {
     return (
+      filters.mode !== DEFAULT_MODE ||
+      filters.qualityTier !== DEFAULT_QUALITY_TIER ||
       filters.genres.length > 0 ||
       filters.yearFrom !== null ||
       filters.yearTo !== null ||
@@ -409,6 +453,20 @@ export function useDiscoverFilters() {
             newParams.set("type", newFilters.type);
           } else {
             newParams.delete("type");
+          }
+
+          // Mode
+          if (newFilters.mode !== DEFAULT_MODE) {
+            newParams.set("mode", newFilters.mode);
+          } else {
+            newParams.delete("mode");
+          }
+
+          // Quality tier
+          if (newFilters.qualityTier !== DEFAULT_QUALITY_TIER) {
+            newParams.set("quality", newFilters.qualityTier);
+          } else {
+            newParams.delete("quality");
           }
 
           // Query
@@ -496,6 +554,30 @@ export function useDiscoverFilters() {
     [setFilters]
   );
 
+  const setMode = useCallback(
+    (mode: DiscoveryMode) => {
+      // When switching modes (except to custom), reset filters that conflict with the mode
+      if (mode !== "custom") {
+        setFilters({
+          mode,
+          // Reset custom filters when using preset modes
+          ratingFilters: {},
+          releasedOnly: false,
+          yearFrom: null,
+          yearTo: null,
+        });
+      } else {
+        setFilters({ mode });
+      }
+    },
+    [setFilters]
+  );
+
+  const setQualityTier = useCallback(
+    (qualityTier: QualityTier) => setFilters({ qualityTier }),
+    [setFilters]
+  );
+
   const setQuery = useCallback(
     (query: string) => setFilters({ query }),
     [setFilters]
@@ -569,6 +651,8 @@ export function useDiscoverFilters() {
 
   const clearFilters = useCallback(() => {
     setFilters({
+      mode: DEFAULT_MODE,
+      qualityTier: DEFAULT_QUALITY_TIER,
       genres: [],
       yearFrom: null,
       yearTo: null,
@@ -655,6 +739,8 @@ export function useDiscoverFilters() {
     hasActiveFilters,
     availableGenres,
     setType,
+    setMode,
+    setQualityTier,
     setQuery,
     setGenres,
     toggleGenre,

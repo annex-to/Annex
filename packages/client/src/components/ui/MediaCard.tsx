@@ -30,6 +30,8 @@ interface MediaCardProps extends HTMLAttributes<HTMLDivElement> {
     traktScore?: number | null;
     letterboxdScore?: number | null;
     mdblistScore?: number | null;
+    aggregateScore?: number | null;
+    sourceCount?: number | null;
   };
   /** YouTube trailer key - if provided, shows trailer button; if null/undefined, hides it */
   trailerKey?: string | null;
@@ -211,6 +213,26 @@ const MediaCard = forwardRef<HTMLDivElement, MediaCardProps>(
                       />
                     </svg>
                     <span className="font-medium">In Library</span>
+                  </div>
+                </div>
+              </Tooltip>
+            )}
+
+            {/* Aggregate score badge - top right corner */}
+            {ratings?.aggregateScore && ratings.aggregateScore > 0 && ratings.sourceCount && ratings.sourceCount >= 2 && (
+              <Tooltip content={`Aggregate score from ${ratings.sourceCount} sources`}>
+                <div className="absolute top-2 right-2 z-10">
+                  <div
+                    className={`text-white text-xs px-1.5 py-0.5 rounded flex items-center gap-1 shadow-lg font-semibold ${
+                      ratings.aggregateScore >= 80
+                        ? "bg-green-500/90"
+                        : ratings.aggregateScore >= 70
+                          ? "bg-yellow-500/90"
+                          : "bg-white/30"
+                    }`}
+                  >
+                    <span>{Math.round(ratings.aggregateScore)}</span>
+                    <span className="opacity-70 text-[10px]">({ratings.sourceCount})</span>
                   </div>
                 </div>
               </Tooltip>

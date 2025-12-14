@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "../trpc";
-import { Button, Badge, Input, Select, AlternativesModal } from "../components/ui";
+import { Button, Input, Select, AlternativesModal } from "../components/ui";
 
 type RequestStatus =
   | "pending"
@@ -716,7 +716,7 @@ export default function RequestsPage() {
       case "progress":
         sorted.sort((a, b) => b.progress - a.progress);
         break;
-      case "status":
+      case "status": {
         const statusOrder: Record<string, number> = {
           downloading: 0,
           encoding: 1,
@@ -730,6 +730,7 @@ export default function RequestsPage() {
         };
         sorted.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
         break;
+      }
     }
 
     return sorted;

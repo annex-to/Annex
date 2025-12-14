@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { trpc } from "../trpc";
 import { Input, ToggleGroup, MediaCard, Button, FilterPanel, LibraryInfo } from "../components/ui";
+import { DiscoveryModeTabs } from "../components/ui/DiscoveryModeTabs";
+import { QualityTierSelector } from "../components/ui/QualityTierSelector";
 import {
   useDiscoverFilters,
   SORT_OPTIONS,
   DEFAULT_SORT,
+  DISCOVERY_MODES,
   countActiveRatingFilters,
 } from "../hooks/useDiscoverFilters";
 
@@ -41,6 +44,8 @@ interface DisplayMediaItem {
     traktScore?: number | null;
     letterboxdScore?: number | null;
     mdblistScore?: number | null;
+    aggregateScore?: number | null;
+    sourceCount?: number | null;
   };
   trailerKey?: string | null;
 }
@@ -61,6 +66,8 @@ function transformResult(item: {
     traktScore?: number | null;
     letterboxdScore?: number | null;
     mdblistScore?: number | null;
+    aggregateScore?: number | null;
+    sourceCount?: number | null;
   } | null;
   trailerKey?: string | null;
 }): DisplayMediaItem {
@@ -79,6 +86,8 @@ function transformResult(item: {
       traktScore: item.ratings.traktScore,
       letterboxdScore: item.ratings.letterboxdScore,
       mdblistScore: item.ratings.mdblistScore,
+      aggregateScore: item.ratings.aggregateScore,
+      sourceCount: item.ratings.sourceCount,
     } : undefined,
     trailerKey: item.trailerKey,
   };
@@ -89,6 +98,8 @@ export default function DiscoverPage() {
     filters,
     hasActiveFilters,
     setType,
+    setMode,
+    setQualityTier,
     setQuery,
     toggleGenre,
     setYearRange,
@@ -131,6 +142,8 @@ export default function DiscoverPage() {
     () =>
       JSON.stringify({
         type: filters.type,
+        mode: filters.mode,
+        qualityTier: filters.qualityTier,
         query: filters.query,
         genres: filters.genres,
         yearFrom: filters.yearFrom,
@@ -149,6 +162,8 @@ export default function DiscoverPage() {
   const discoverQuery = trpc.discovery.discover.useQuery(
     {
       type: filters.type,
+      mode: filters.mode,
+      qualityTier: filters.qualityTier,
       page,
       query: filters.query || undefined,
       genres: filters.genres.length > 0 ? filters.genres : undefined,
@@ -233,6 +248,8 @@ export default function DiscoverPage() {
     processedDataRef.current = "";
   }, [
     filters.type,
+    filters.mode,
+    filters.qualityTier,
     filters.query,
     filters.genres,
     filters.yearFrom,
@@ -294,6 +311,17 @@ export default function DiscoverPage() {
     if (filters.query) {
       return `Search Results for "${filters.query}"`;
     }
+
+    // Get mode label
+    const modeLabel = DISCOVERY_MODES.find((m) => m.value === filters.mode)?.label || "Discover";
+    const prefix = filters.type === "movie" ? "Movies" : "TV Shows";
+
+    // For preset modes, just show mode name + type
+    if (filters.mode !== "custom") {
+      return `${modeLabel} ${prefix}`;
+    }
+
+    // For custom mode, show filter details
     const parts: string[] = [];
 
     // Show active rating filters count
@@ -311,8 +339,7 @@ export default function DiscoverPage() {
     if (sortLabel && filters.sortBy !== DEFAULT_SORT) {
       parts.push(`sorted by ${sortLabel.toLowerCase()}`);
     }
-    const prefix = filters.type === "movie" ? "Movies" : "TV Shows";
-    return parts.length > 0 ? `${prefix} (${parts.join(", ")})` : `Trending ${prefix}`;
+    return parts.length > 0 ? `${prefix} (${parts.join(", ")})` : `Custom ${prefix}`;
   }, [filters]);
 
   return (
@@ -322,6 +349,7 @@ export default function DiscoverPage() {
         <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
           <FilterPanel
             filters={filters}
+            mode={filters.mode}
             hasActiveFilters={hasActiveFilters}
             onToggleGenre={toggleGenre}
             onSetYearRange={setYearRange}
@@ -368,6 +396,7 @@ export default function DiscoverPage() {
             <div className="p-4">
               <FilterPanel
                 filters={filters}
+                mode={filters.mode}
                 hasActiveFilters={hasActiveFilters}
                 onToggleGenre={toggleGenre}
                 onSetYearRange={setYearRange}
@@ -385,7 +414,10 @@ export default function DiscoverPage() {
       )}
 
       {/* Main content */}
-      <main className="flex-1 min-w-0 space-y-6">
+      <main className="flex-1 min-w-0 space-y-4">
+        {/* Discovery mode tabs */}
+        <DiscoveryModeTabs mode={filters.mode} onModeChange={setMode} />
+
         {/* Search bar and type toggle */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 flex gap-2">
@@ -426,6 +458,14 @@ export default function DiscoverPage() {
             onChange={handleMediaTypeChange}
           />
         </div>
+
+        {/* Quality tier selector (shown for non-custom modes) */}
+        {filters.mode !== "custom" && filters.mode !== "coming_soon" && (
+          <QualityTierSelector
+            tier={filters.qualityTier}
+            onTierChange={setQualityTier}
+          />
+        )}
 
         {/* Active filters pills (mobile) */}
         {hasActiveFilters && (
