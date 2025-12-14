@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "../trpc";
-import { Button, Badge, AlternativesModal } from "../components/ui";
+import { Button, Badge, Input, Select, AlternativesModal } from "../components/ui";
 
 type RequestStatus =
   | "pending"
@@ -15,92 +15,147 @@ type RequestStatus =
 
 type EpisodeStatus = RequestStatus | "available";
 
-const statusColors: Record<RequestStatus, string> = {
+type SortOption = "newest" | "oldest" | "title" | "progress" | "status";
+type FilterStatus = "all" | "active" | "completed" | "failed" | "awaiting";
+type FilterType = "all" | "movie" | "tv";
+
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
+
+const statusConfig: Record<RequestStatus, { label: string; color: string; bgColor: string; variant: "default" | "success" | "warning" | "danger" | "info" }> = {
+  pending: { label: "Pending", color: "text-yellow-400", bgColor: "bg-yellow-500/20", variant: "warning" },
+  searching: { label: "Searching", color: "text-blue-400", bgColor: "bg-blue-500/20", variant: "info" },
+  awaiting: { label: "Awaiting", color: "text-amber-400", bgColor: "bg-amber-500/20", variant: "warning" },
+  quality_unavailable: { label: "Quality N/A", color: "text-orange-400", bgColor: "bg-orange-500/20", variant: "warning" },
+  downloading: { label: "Downloading", color: "text-purple-400", bgColor: "bg-purple-500/20", variant: "info" },
+  encoding: { label: "Encoding", color: "text-cyan-400", bgColor: "bg-cyan-500/20", variant: "info" },
+  delivering: { label: "Delivering", color: "text-teal-400", bgColor: "bg-teal-500/20", variant: "info" },
+  completed: { label: "Completed", color: "text-green-400", bgColor: "bg-green-500/20", variant: "success" },
+  failed: { label: "Failed", color: "text-red-400", bgColor: "bg-red-500/20", variant: "danger" },
+};
+
+const episodeStatusColors: Record<EpisodeStatus, string> = {
   pending: "bg-yellow-500/20 text-yellow-400",
   searching: "bg-blue-500/20 text-blue-400",
   awaiting: "bg-amber-500/20 text-amber-400",
   quality_unavailable: "bg-orange-500/20 text-orange-400",
   downloading: "bg-purple-500/20 text-purple-400",
-  encoding: "bg-orange-500/20 text-orange-400",
-  delivering: "bg-cyan-500/20 text-cyan-400",
+  encoding: "bg-cyan-500/20 text-cyan-400",
+  delivering: "bg-teal-500/20 text-teal-400",
   completed: "bg-green-500/20 text-green-400",
   failed: "bg-red-500/20 text-red-400",
-};
-
-const episodeStatusColors: Record<EpisodeStatus, string> = {
-  ...statusColors,
   available: "bg-emerald-500/20 text-emerald-400",
 };
 
-// Episode status icons
-function EpisodeStatusIcon({ status }: { status: EpisodeStatus }) {
-  switch (status) {
-    case "available":
-      // Library icon for episodes already in library
-      return (
-        <svg className="w-4 h-4 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M4 3a2 2 0 012-2h8a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V3zm6 6a2 2 0 100-4 2 2 0 000 4zm0 2c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z" />
-        </svg>
-      );
-    case "completed":
-      return (
-        <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-        </svg>
-      );
-    case "failed":
-      return (
-        <svg className="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-        </svg>
-      );
-    case "downloading":
-    case "encoding":
-    case "delivering":
-      return (
-        <svg className="w-4 h-4 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-        </svg>
-      );
-    case "awaiting":
-      return (
-        <svg className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-        </svg>
-      );
-    case "quality_unavailable":
-      return (
-        <svg className="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-        </svg>
-      );
-    default:
-      return (
-        <div className="w-4 h-4 rounded-full border-2 border-surface-500" />
-      );
-  }
+function ProgressRing({ progress, size = 40, strokeWidth = 3 }: { progress: number; size?: number; strokeWidth?: number }) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (progress / 100) * circumference;
+
+  return (
+    <svg width={size} height={size} className="transform -rotate-90">
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        className="text-white/10"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        className="text-annex-500 transition-all duration-300"
+      />
+    </svg>
+  );
 }
 
-const statusVariants: Record<RequestStatus, "default" | "success" | "warning" | "danger" | "info"> = {
-  pending: "warning",
-  searching: "info",
-  awaiting: "warning",
-  quality_unavailable: "warning",
-  downloading: "info",
-  encoding: "warning",
-  delivering: "info",
-  completed: "success",
-  failed: "danger",
-};
+function StatusIcon({ status }: { status: RequestStatus }) {
+  const isActive = ["pending", "searching", "downloading", "encoding", "delivering"].includes(status);
 
-// Chevron SVG components
-// Episode status table for TV requests
-function EpisodeStatusTable({ requestId }: { requestId: string }) {
+  if (isActive) {
+    return (
+      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+      </svg>
+    );
+  }
+
+  if (status === "completed") {
+    return (
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+
+  if (status === "awaiting" || status === "quality_unavailable") {
+    return (
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+
+  return <div className="w-4 h-4 rounded-full border-2 border-current" />;
+}
+
+function EpisodeStatusIcon({ status }: { status: EpisodeStatus }) {
+  if (status === "available") {
+    return (
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
+      </svg>
+    );
+  }
+  if (status === "completed") {
+    return (
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+  const isProcessing = ["downloading", "encoding", "delivering"].includes(status);
+  if (isProcessing) {
+    return (
+      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+      </svg>
+    );
+  }
+  return <div className="w-3 h-3 rounded-full border border-current opacity-50" />;
+}
+
+function EpisodeGrid({ requestId }: { requestId: string }) {
   const utils = trpc.useUtils();
   const episodeStatuses = trpc.requests.getEpisodeStatuses.useQuery(
     { requestId },
-    { refetchInterval: 5000 } // Refresh every 5 seconds for live progress
+    { refetchInterval: 5000 }
   );
 
   const reprocessEpisodeMutation = trpc.requests.reprocessEpisode.useMutation({
@@ -117,130 +172,99 @@ function EpisodeStatusTable({ requestId }: { requestId: string }) {
     },
   });
 
-  const handleReprocessEpisode = (episodeId: string, episodeNum: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm(`Reprocess episode ${episodeNum}? This will re-encode and re-deliver the episode.`)) {
-      reprocessEpisodeMutation.mutate({ episodeId });
-    }
-  };
-
-  const handleReprocessSeason = (seasonNumber: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm(`Reprocess all completed episodes in Season ${seasonNumber}?`)) {
-      reprocessSeasonMutation.mutate({ requestId, seasonNumber });
-    }
-  };
-
   if (episodeStatuses.isLoading) {
     return (
-      <div className="space-y-2">
-        <div className="text-surface-400 text-sm font-medium">Episodes</div>
-        <div className="animate-pulse space-y-2">
-          <div className="h-8 bg-surface-700 rounded w-1/4" />
-          <div className="h-24 bg-surface-700 rounded" />
-        </div>
-      </div>
-    );
-  }
-
-  if (episodeStatuses.isError) {
-    return (
-      <div className="text-red-400 text-sm py-2">
-        Failed to load episode data: {episodeStatuses.error?.message}
+      <div className="animate-pulse space-y-3">
+        <div className="h-6 bg-white/5 rounded w-24" />
+        <div className="h-20 bg-white/5 rounded" />
       </div>
     );
   }
 
   if (!episodeStatuses.data || episodeStatuses.data.length === 0) {
     return (
-      <div className="text-surface-500 text-sm py-2">
-        No episode data available yet. Episode info will appear once TMDB data is fetched.
+      <div className="text-white/40 text-sm py-2">
+        Episode data will appear once available.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="text-surface-400 text-sm font-medium">Episodes</div>
+    <div className="space-y-3">
       {episodeStatuses.data.map((season) => {
-        const completedOrAvailable = season.episodes.filter(
-          e => e.status === "completed" || e.status === "available"
+        const completedCount = season.episodes.filter(
+          (e) => e.status === "completed" || e.status === "available"
         ).length;
-        const availableCount = season.episodes.filter(e => e.status === "available").length;
+        const availableCount = season.episodes.filter((e) => e.status === "available").length;
         const hasReprocessable = season.episodes.some(
-          e => e.status === "completed" || e.status === "available"
+          (e) => e.status === "completed" || e.status === "available"
         );
 
         return (
-          <div key={season.seasonNumber} className="bg-surface-700/30 rounded-lg overflow-hidden">
-            <div className="px-4 py-2 bg-surface-700/50 border-b border-surface-600 flex items-center justify-between">
-              <div>
-                <span className="font-medium">Season {season.seasonNumber}</span>
-                <span className="text-surface-400 ml-2 text-sm">
-                  ({completedOrAvailable}/{season.episodes.length} done
-                  {availableCount > 0 && <span className="text-emerald-400">, {availableCount} in library</span>})
+          <div key={season.seasonNumber} className="bg-white/5 rounded border border-white/10">
+            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white">Season {season.seasonNumber}</span>
+                <span className="text-xs text-white/40">
+                  {completedCount}/{season.episodes.length}
+                  {availableCount > 0 && (
+                    <span className="text-emerald-400 ml-1">({availableCount} in library)</span>
+                  )}
                 </span>
               </div>
               {hasReprocessable && (
                 <button
-                  onClick={(e) => handleReprocessSeason(season.seasonNumber, e)}
+                  onClick={() => {
+                    if (confirm(`Reprocess Season ${season.seasonNumber}?`)) {
+                      reprocessSeasonMutation.mutate({ requestId, seasonNumber: season.seasonNumber });
+                    }
+                  }}
                   disabled={reprocessSeasonMutation.isPending}
-                  className="text-xs px-2 py-1 rounded bg-surface-600 hover:bg-surface-500 text-surface-300 hover:text-white transition-colors disabled:opacity-50"
-                  title="Reprocess all completed/available episodes in this season"
+                  className="text-xs px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/70 transition-colors disabled:opacity-50"
                 >
-                  {reprocessSeasonMutation.isPending ? "..." : "Reprocess Season"}
+                  Reprocess
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1 p-2">
+            <div className="p-2 flex flex-wrap gap-1">
               {season.episodes.map((episode) => {
-                const isDownloading = episode.status === "downloading" || episode.status === "encoding" || episode.status === "delivering";
-                const hasProgress = episode.progress !== null && episode.progress !== undefined;
                 const canReprocess = episode.status === "completed" || episode.status === "available";
-
-                // Build tooltip content
-                let tooltipContent = `Episode ${episode.episodeNumber}: `;
-                if (episode.status === "available") {
-                  tooltipContent += "Already in library (click to reprocess)";
-                } else if (episode.status === "completed") {
-                  tooltipContent += "Completed (click to reprocess)";
-                } else {
-                  tooltipContent += episode.status;
-                  if (hasProgress) {
-                    tooltipContent += ` (${episode.progress?.toFixed(1)}%)`;
-                  }
-                  if (episode.releaseName) {
-                    tooltipContent += `\n${episode.releaseName}`;
-                  }
-                  if (episode.error) {
-                    tooltipContent += `\nError: ${episode.error}`;
-                  }
-                }
+                const isProcessing = ["downloading", "encoding", "delivering"].includes(episode.status);
+                const hasProgress = episode.progress != null && isProcessing;
 
                 return (
-                  <div
+                  <button
                     key={episode.episodeNumber}
-                    onClick={canReprocess && episode.id ? (e) => handleReprocessEpisode(episode.id!, episode.episodeNumber, e) : undefined}
-                    className={`relative flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs overflow-hidden ${
-                      episodeStatusColors[episode.status as EpisodeStatus] || "bg-surface-600 text-surface-400"
-                    } ${canReprocess ? "cursor-pointer hover:ring-2 hover:ring-white/30" : ""}`}
-                    title={tooltipContent}
+                    onClick={() => {
+                      if (canReprocess && episode.id) {
+                        if (confirm(`Reprocess Episode ${episode.episodeNumber}?`)) {
+                          reprocessEpisodeMutation.mutate({ episodeId: episode.id });
+                        }
+                      }
+                    }}
+                    disabled={!canReprocess}
+                    className={`
+                      relative flex items-center gap-1 px-2 py-1 rounded text-xs
+                      ${episodeStatusColors[episode.status as EpisodeStatus] || "bg-white/5 text-white/40"}
+                      ${canReprocess ? "cursor-pointer hover:ring-1 hover:ring-white/30" : "cursor-default"}
+                      transition-all overflow-hidden
+                    `}
+                    title={`Episode ${episode.episodeNumber}: ${episode.status}${episode.error ? ` - ${episode.error}` : ""}`}
                   >
-                    {/* Progress bar background for downloading episodes */}
-                    {isDownloading && hasProgress && (
+                    {hasProgress && (
                       <div
-                        className="absolute inset-0 bg-blue-500/30 transition-all duration-300"
+                        className="absolute inset-0 bg-white/10 transition-all"
                         style={{ width: `${episode.progress}%` }}
                       />
                     )}
-                    <div className="relative flex items-center gap-1">
+                    <span className="relative flex items-center gap-1">
                       <EpisodeStatusIcon status={episode.status as EpisodeStatus} />
                       <span>{episode.episodeNumber}</span>
-                      {isDownloading && hasProgress && (
-                        <span className="text-[10px] opacity-75">{Math.round(episode.progress || 0)}%</span>
+                      {hasProgress && (
+                        <span className="text-[10px] opacity-70">{Math.round(episode.progress || 0)}%</span>
                       )}
-                    </div>
-                  </div>
+                    </span>
+                  </button>
                 );
               })}
             </div>
@@ -251,29 +275,14 @@ function EpisodeStatusTable({ requestId }: { requestId: string }) {
   );
 }
 
-function ChevronDown({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
-
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  );
-}
-
-interface RequestRowProps {
+interface RequestCardProps {
   request: {
     id: string;
     type: string;
     tmdbId: number;
     title: string;
     year: number;
+    posterPath?: string | null;
     targets: {
       serverId: string;
       serverName: string;
@@ -292,31 +301,34 @@ interface RequestRowProps {
     updatedAt: Date;
     completedAt: Date | null;
   };
-  isExpanded: boolean;
-  onToggle: () => void;
-  onShowAlternatives?: (requestId: string) => void;
+  onShowAlternatives: (id: string) => void;
 }
 
-function RequestRow({ request, isExpanded, onToggle, onShowAlternatives }: RequestRowProps) {
+function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const utils = trpc.useUtils();
+
   const cancelMutation = trpc.requests.cancel.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
       utils.system.queue.invalidate();
     },
   });
+
   const retryMutation = trpc.requests.retry.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
       utils.system.queue.invalidate();
     },
   });
+
   const deleteMutation = trpc.requests.delete.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
       utils.system.queue.invalidate();
     },
   });
+
   const reprocessMutation = trpc.requests.reprocess.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
@@ -332,6 +344,7 @@ function RequestRow({ request, isExpanded, onToggle, onShowAlternatives }: Reque
   });
 
   const status = request.status as RequestStatus;
+  const config = statusConfig[status];
   const isActive = ["pending", "searching", "downloading", "encoding", "delivering"].includes(status);
   const isAwaiting = status === "awaiting";
   const isQualityUnavailable = status === "quality_unavailable";
@@ -339,419 +352,545 @@ function RequestRow({ request, isExpanded, onToggle, onShowAlternatives }: Reque
   const isCompleted = status === "completed";
   const isDownloading = status === "downloading";
 
+  const posterUrl = request.posterPath
+    ? `${TMDB_IMAGE_BASE}/w185${request.posterPath}`
+    : null;
+
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatTime = (date: Date) => {
+    return new Date(date).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
   return (
-    <>
-      {/* Main row */}
-      <tr
-        className={`border-b border-surface-700/50 hover:bg-surface-700/30 cursor-pointer transition-colors ${
-          isExpanded ? "bg-surface-700/20" : ""
-        }`}
-        onClick={onToggle}
+    <div className={`bg-white/5 border rounded overflow-hidden transition-all ${
+      isActive ? "border-annex-500/30" : "border-white/10"
+    }`}>
+      {/* Main Card Content */}
+      <div
+        className="flex gap-4 p-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
       >
-        <td className="px-4 py-3 w-8">
-          {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-surface-400" />
+        {/* Poster */}
+        <div className="flex-shrink-0 w-16 relative">
+          {posterUrl ? (
+            <img
+              src={posterUrl}
+              alt={request.title}
+              className="w-16 h-24 object-cover rounded border border-white/10"
+            />
           ) : (
-            <ChevronRight className="w-4 h-4 text-surface-400" />
-          )}
-        </td>
-        <td className="px-4 py-3">
-          <div className="font-medium">{request.title}</div>
-          <div className="text-sm text-surface-500">{request.year}</div>
-        </td>
-        <td className="px-4 py-3 text-surface-400">
-          {request.type === "movie" ? "Movie" : "TV Show"}
-        </td>
-        <td className="px-4 py-3">
-          <Badge variant={statusVariants[status]}>
-            {status}
-          </Badge>
-        </td>
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="w-24 h-2 bg-surface-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  isCompleted ? "bg-green-500" : isFailed ? "bg-red-500" : "bg-annex-500"
-                }`}
-                style={{ width: `${request.progress}%` }}
-              />
+            <div className="w-16 h-24 rounded border border-white/10 bg-white/5 flex items-center justify-center">
+              <svg className="w-8 h-8 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+              </svg>
             </div>
-            <span className="text-xs text-surface-500 w-10">
-              {request.progress.toFixed(0)}%
-            </span>
+          )}
+          {/* Type badge */}
+          <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 text-[10px] font-medium bg-black/80 rounded border border-white/10 text-white/60">
+            {request.type === "movie" ? "MOVIE" : "TV"}
           </div>
-        </td>
-        <td className="px-4 py-3 text-surface-400 text-sm">
-          {new Date(request.createdAt).toLocaleDateString()}
-        </td>
-      </tr>
+        </div>
 
-      {/* Expanded detail row */}
-      {isExpanded && (
-        <tr className="bg-surface-800/50">
-          <td colSpan={6} className="px-4 py-4">
-            <div className="pl-8 space-y-4">
-              {/* Error message */}
-              {isFailed && request.error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
-                  <div className="text-xs text-red-400 font-medium mb-1">Error</div>
-                  <div className="text-sm text-red-300">{request.error}</div>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-medium text-white truncate">{request.title}</h3>
+              <p className="text-sm text-white/40">{request.year}</p>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {/* Progress Ring */}
+              <div className="relative">
+                <ProgressRing progress={request.progress} size={44} strokeWidth={3} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xs font-medium text-white/70">
+                    {Math.round(request.progress)}%
+                  </span>
                 </div>
-              )}
-
-              {/* Awaiting release message */}
-              {isAwaiting && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded p-3">
-                  <div className="text-xs text-amber-400 font-medium mb-1">Awaiting Release</div>
-                  <div className="text-sm text-amber-300">
-                    No releases found yet. This request will be retried automatically on schedule.
-                  </div>
-                </div>
-              )}
-
-              {/* Quality unavailable message */}
-              {isQualityUnavailable && (
-                <div className="bg-orange-500/10 border border-orange-500/30 rounded p-3 space-y-3">
-                  <div>
-                    <div className="text-xs text-orange-400 font-medium mb-1">Quality Unavailable</div>
-                    <div className="text-sm text-orange-300">
-                      {request.requiredResolution ? (
-                        <>No {request.requiredResolution} releases found. {request.hasAlternatives && "Lower quality releases are available."}</>
-                      ) : (
-                        <>No releases meeting quality requirements found.</>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {request.hasAlternatives && (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onShowAlternatives?.(request.id);
-                        }}
-                      >
-                        View Alternatives
-                      </Button>
-                    )}
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        refreshQualityMutation.mutate({ id: request.id });
-                      }}
-                      disabled={refreshQualityMutation.isPending}
-                    >
-                      {refreshQualityMutation.isPending ? "Searching..." : "Re-search"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Current step for active requests */}
-              {isActive && request.currentStep && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-surface-400">Current step:</span>
-                  <Badge variant="info">{request.currentStep}</Badge>
-                </div>
-              )}
-
-              {/* Episode Status Table for TV shows */}
-              {request.type === "tv" && (
-                <EpisodeStatusTable requestId={request.id} />
-              )}
-
-              {/* Grid of details */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                {/* Target servers */}
-                <div>
-                  <div className="text-surface-500 mb-1">Target Servers</div>
-                  <div className="space-y-1">
-                    {request.targets.map((target, i) => (
-                      <div key={i} className="text-surface-300">
-                        {target.serverName}
-                        <span className="text-surface-500 ml-1">
-                          ({target.encodingProfileName})
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* TV-specific: Seasons/Episodes - just show summary in the grid */}
-                {request.type === "tv" && (
-                  <div>
-                    <div className="text-surface-500 mb-1">Requested</div>
-                    {request.requestedSeasons.length > 0 ? (
-                      <div className="text-surface-300">
-                        {request.requestedSeasons.length === 1
-                          ? `Season ${request.requestedSeasons[0]}`
-                          : `Seasons ${request.requestedSeasons.join(", ")}`}
-                      </div>
-                    ) : request.requestedEpisodes && request.requestedEpisodes.length > 0 ? (
-                      <div className="text-surface-300">
-                        {request.requestedEpisodes.map((ep) => `S${ep.season}E${ep.episode}`).join(", ")}
-                      </div>
-                    ) : (
-                      <div className="text-surface-300">All episodes</div>
-                    )}
-                  </div>
-                )}
-
-                {/* TMDB ID */}
-                <div>
-                  <div className="text-surface-500 mb-1">TMDB ID</div>
-                  <div className="text-surface-300">{request.tmdbId}</div>
-                </div>
-
-                {/* Timestamps */}
-                <div>
-                  <div className="text-surface-500 mb-1">Created</div>
-                  <div className="text-surface-300">
-                    {new Date(request.createdAt).toLocaleString()}
-                  </div>
-                </div>
-
-                {request.completedAt && (
-                  <div>
-                    <div className="text-surface-500 mb-1">Completed</div>
-                    <div className="text-surface-300">
-                      {new Date(request.completedAt).toLocaleString()}
-                    </div>
-                  </div>
-                )}
-
-                {!request.completedAt && request.updatedAt && (
-                  <div>
-                    <div className="text-surface-500 mb-1">Last Updated</div>
-                    <div className="text-surface-300">
-                      {new Date(request.updatedAt).toLocaleString()}
-                    </div>
-                  </div>
-                )}
               </div>
+            </div>
+          </div>
 
-              {/* Action buttons */}
-              <div className="flex gap-2 pt-2">
-                {isActive && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cancelMutation.mutate({ id: request.id });
-                    }}
-                    disabled={cancelMutation.isLoading}
-                    popcorn={false}
-                  >
-                    {cancelMutation.isLoading ? "Cancelling..." : "Cancel"}
-                  </Button>
-                )}
+          {/* Status Row */}
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs ${config.bgColor} ${config.color}`}>
+              <StatusIcon status={status} />
+              <span>{config.label}</span>
+            </div>
+            {request.currentStep && isActive && (
+              <span className="text-xs text-white/40">{request.currentStep}</span>
+            )}
+            {request.type === "tv" && request.requestedSeasons.length > 0 && (
+              <span className="text-xs text-white/30">
+                Season{request.requestedSeasons.length > 1 ? "s" : ""} {request.requestedSeasons.join(", ")}
+              </span>
+            )}
+          </div>
 
-                {(isFailed || isAwaiting || isDownloading) && (
+          {/* Target servers (compact) */}
+          <div className="mt-2 flex items-center gap-1 flex-wrap">
+            {request.targets.slice(0, 2).map((target, i) => (
+              <span key={i} className="text-xs px-1.5 py-0.5 bg-white/5 rounded text-white/40">
+                {target.serverName}
+              </span>
+            ))}
+            {request.targets.length > 2 && (
+              <span className="text-xs text-white/30">+{request.targets.length - 2} more</span>
+            )}
+          </div>
+        </div>
+
+        {/* Expand indicator */}
+        <div className="flex-shrink-0 self-center">
+          <svg
+            className={`w-5 h-5 text-white/30 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="border-t border-white/10 p-4 space-y-4 bg-black/20">
+          {/* Error Message */}
+          {isFailed && request.error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded">
+              <div className="text-xs text-red-400/70 mb-1">Error</div>
+              <div className="text-sm text-red-400">{request.error}</div>
+            </div>
+          )}
+
+          {/* Awaiting Message */}
+          {isAwaiting && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded">
+              <div className="text-xs text-amber-400/70 mb-1">Awaiting Release</div>
+              <div className="text-sm text-amber-400">
+                No releases found yet. Will retry automatically.
+              </div>
+            </div>
+          )}
+
+          {/* Quality Unavailable */}
+          {isQualityUnavailable && (
+            <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded space-y-3">
+              <div>
+                <div className="text-xs text-orange-400/70 mb-1">Quality Unavailable</div>
+                <div className="text-sm text-orange-400">
+                  {request.requiredResolution
+                    ? `No ${request.requiredResolution} releases found.`
+                    : "No releases meeting quality requirements."}
+                  {request.hasAlternatives && " Lower quality alternatives available."}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {request.hasAlternatives && (
                   <Button
                     variant="primary"
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      retryMutation.mutate({ id: request.id });
+                      onShowAlternatives(request.id);
                     }}
-                    disabled={retryMutation.isLoading}
                   >
-                    {retryMutation.isLoading ? "Retrying..." : isAwaiting ? "Retry Now" : "Retry"}
+                    View Alternatives
                   </Button>
                 )}
-
-                {isAwaiting && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cancelMutation.mutate({ id: request.id });
-                    }}
-                    disabled={cancelMutation.isLoading}
-                    popcorn={false}
-                  >
-                    {cancelMutation.isLoading ? "Cancelling..." : "Cancel"}
-                  </Button>
-                )}
-
-                {isCompleted && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`Reprocess "${request.title}"? This will re-encode and re-deliver the media.`)) {
-                        reprocessMutation.mutate({ id: request.id });
-                      }
-                    }}
-                    disabled={reprocessMutation.isPending}
-                  >
-                    {reprocessMutation.isPending ? "Reprocessing..." : "Reprocess"}
-                  </Button>
-                )}
-
-                {/* Delete button - always available */}
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm(`Delete request "${request.title}"? This will cancel any running jobs.`)) {
-                      deleteMutation.mutate({ id: request.id });
-                    }
+                    refreshQualityMutation.mutate({ id: request.id });
                   }}
-                  disabled={deleteMutation.isPending}
-                  popcorn={false}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  disabled={refreshQualityMutation.isPending}
                 >
-                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                  {refreshQualityMutation.isPending ? "Searching..." : "Re-search"}
                 </Button>
               </div>
             </div>
-          </td>
-        </tr>
+          )}
+
+          {/* Episode Grid for TV */}
+          {request.type === "tv" && (
+            <div>
+              <div className="text-xs text-white/40 mb-2 font-medium">Episodes</div>
+              <EpisodeGrid requestId={request.id} />
+            </div>
+          )}
+
+          {/* Details Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div>
+              <div className="text-xs text-white/40 mb-1">Target Servers</div>
+              <div className="space-y-1">
+                {request.targets.map((target, i) => (
+                  <div key={i} className="text-white/70">
+                    {target.serverName}
+                    <span className="text-white/30 ml-1 text-xs">({target.encodingProfileName})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-white/40 mb-1">TMDB ID</div>
+              <div className="text-white/70">{request.tmdbId}</div>
+            </div>
+            <div>
+              <div className="text-xs text-white/40 mb-1">Created</div>
+              <div className="text-white/70">{formatDate(request.createdAt)}</div>
+              <div className="text-xs text-white/40">{formatTime(request.createdAt)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-white/40 mb-1">
+                {request.completedAt ? "Completed" : "Updated"}
+              </div>
+              <div className="text-white/70">
+                {formatDate(request.completedAt || request.updatedAt)}
+              </div>
+              <div className="text-xs text-white/40">
+                {formatTime(request.completedAt || request.updatedAt)}
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2 border-t border-white/5">
+            {isActive && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancelMutation.mutate({ id: request.id });
+                }}
+                disabled={cancelMutation.isPending}
+                popcorn={false}
+              >
+                {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+              </Button>
+            )}
+
+            {(isFailed || isAwaiting || isDownloading) && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryMutation.mutate({ id: request.id });
+                }}
+                disabled={retryMutation.isPending}
+              >
+                {retryMutation.isPending ? "Retrying..." : "Retry"}
+              </Button>
+            )}
+
+            {isAwaiting && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancelMutation.mutate({ id: request.id });
+                }}
+                disabled={cancelMutation.isPending}
+                popcorn={false}
+              >
+                Cancel
+              </Button>
+            )}
+
+            {isCompleted && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(`Reprocess "${request.title}"?`)) {
+                    reprocessMutation.mutate({ id: request.id });
+                  }
+                }}
+                disabled={reprocessMutation.isPending}
+              >
+                {reprocessMutation.isPending ? "Reprocessing..." : "Reprocess"}
+              </Button>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`Delete "${request.title}"?`)) {
+                  deleteMutation.mutate({ id: request.id });
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              popcorn={false}
+              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 ml-auto"
+            >
+              {deleteMutation.isPending ? "..." : "Delete"}
+            </Button>
+          </div>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
 export default function RequestsPage() {
-  const requests = trpc.requests.list.useQuery({ limit: 50 });
-  const queue = trpc.system.queue.useQuery();
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
+  const [typeFilter, setTypeFilter] = useState<FilterType>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [alternativesRequestId, setAlternativesRequestId] = useState<string | null>(null);
 
-  const toggleExpanded = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
+  const requests = trpc.requests.list.useQuery(
+    { limit: 100 },
+    { refetchInterval: 5000 }
+  );
+
+  const filteredAndSortedRequests = useMemo(() => {
+    if (!requests.data) return [];
+
+    let filtered = requests.data;
+
+    // Search filter
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter((r) =>
+        r.title.toLowerCase().includes(searchLower) ||
+        r.year.toString().includes(searchLower)
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((r) => {
+        const status = r.status as RequestStatus;
+        switch (statusFilter) {
+          case "active":
+            return ["pending", "searching", "downloading", "encoding", "delivering"].includes(status);
+          case "completed":
+            return status === "completed";
+          case "failed":
+            return status === "failed";
+          case "awaiting":
+            return status === "awaiting" || status === "quality_unavailable";
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Type filter
+    if (typeFilter !== "all") {
+      filtered = filtered.filter((r) => r.type === typeFilter);
+    }
+
+    // Sort
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case "newest":
+        sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+      case "oldest":
+        sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        break;
+      case "title":
+        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case "progress":
+        sorted.sort((a, b) => b.progress - a.progress);
+        break;
+      case "status":
+        const statusOrder: Record<string, number> = {
+          downloading: 0,
+          encoding: 1,
+          delivering: 2,
+          searching: 3,
+          pending: 4,
+          awaiting: 5,
+          quality_unavailable: 6,
+          failed: 7,
+          completed: 8,
+        };
+        sorted.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
+        break;
+    }
+
+    return sorted;
+  }, [requests.data, search, statusFilter, typeFilter, sortBy]);
+
+  // Compute stats
+  const stats = useMemo(() => {
+    if (!requests.data) return { total: 0, active: 0, completed: 0, failed: 0, awaiting: 0 };
+
+    return {
+      total: requests.data.length,
+      active: requests.data.filter((r) =>
+        ["pending", "searching", "downloading", "encoding", "delivering"].includes(r.status)
+      ).length,
+      completed: requests.data.filter((r) => r.status === "completed").length,
+      failed: requests.data.filter((r) => r.status === "failed").length,
+      awaiting: requests.data.filter((r) =>
+        r.status === "awaiting" || r.status === "quality_unavailable"
+      ).length,
+    };
+  }, [requests.data]);
 
   return (
-    <div className="space-y-8">
-      {/* Active Queue */}
-      <section>
-        <h2 className="text-xl font-semibold mb-4">Active Queue</h2>
-        {queue.isLoading && (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-16 bg-surface-800 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        )}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-white">Requests</h1>
+          <p className="text-sm text-white/40 mt-1">
+            {stats.total} total, {stats.active} active
+          </p>
+        </div>
+      </div>
 
-        {queue.data?.length === 0 && (
-          <div className="text-center py-8 text-surface-500 bg-surface-800/50 rounded-lg">
-            No active requests in queue
-          </div>
-        )}
+      {/* Stats Bar */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={() => setStatusFilter("all")}
+          className={`px-3 py-1.5 rounded text-sm transition-colors ${
+            statusFilter === "all"
+              ? "bg-white/10 text-white"
+              : "bg-white/5 text-white/50 hover:text-white/70"
+          }`}
+        >
+          All ({stats.total})
+        </button>
+        <button
+          onClick={() => setStatusFilter("active")}
+          className={`px-3 py-1.5 rounded text-sm transition-colors ${
+            statusFilter === "active"
+              ? "bg-annex-500/20 text-annex-400"
+              : "bg-white/5 text-white/50 hover:text-white/70"
+          }`}
+        >
+          Active ({stats.active})
+        </button>
+        <button
+          onClick={() => setStatusFilter("awaiting")}
+          className={`px-3 py-1.5 rounded text-sm transition-colors ${
+            statusFilter === "awaiting"
+              ? "bg-amber-500/20 text-amber-400"
+              : "bg-white/5 text-white/50 hover:text-white/70"
+          }`}
+        >
+          Awaiting ({stats.awaiting})
+        </button>
+        <button
+          onClick={() => setStatusFilter("completed")}
+          className={`px-3 py-1.5 rounded text-sm transition-colors ${
+            statusFilter === "completed"
+              ? "bg-green-500/20 text-green-400"
+              : "bg-white/5 text-white/50 hover:text-white/70"
+          }`}
+        >
+          Completed ({stats.completed})
+        </button>
+        <button
+          onClick={() => setStatusFilter("failed")}
+          className={`px-3 py-1.5 rounded text-sm transition-colors ${
+            statusFilter === "failed"
+              ? "bg-red-500/20 text-red-400"
+              : "bg-white/5 text-white/50 hover:text-white/70"
+          }`}
+        >
+          Failed ({stats.failed})
+        </button>
+      </div>
 
-        {queue.data && queue.data.length > 0 && (
-          <div className="space-y-2">
-            {queue.data.map((item) => (
-              <div
-                key={item.requestId}
-                className="bg-surface-800 rounded-lg p-4 flex items-center gap-4"
-              >
-                <div className="w-8 h-8 rounded-full bg-surface-700 flex items-center justify-center text-sm font-medium">
-                  {item.position}
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">{item.title}</div>
-                  <div className="text-sm text-surface-400">
-                    {item.type === "movie" ? "Movie" : "TV Show"}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-32">
-                    <div className="h-2 bg-surface-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-annex-500 transition-all duration-300"
-                        style={{ width: `${item.progress}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-surface-500 mt-1 text-right">
-                      {item.progress.toFixed(0)}%
-                    </div>
-                  </div>
-                  <Badge variant={statusVariants[item.status as RequestStatus] || "default"}>
-                    {item.status}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Filters Row */}
+      <div className="flex gap-3 items-center">
+        <Input
+          type="text"
+          placeholder="Search requests..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 min-w-[150px]"
+        />
+        <Select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as FilterType)}
+          className="w-36 flex-shrink-0"
+        >
+          <option value="all">All Types</option>
+          <option value="movie">Movies</option>
+          <option value="tv">TV Shows</option>
+        </Select>
+        <Select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortOption)}
+          className="w-36 flex-shrink-0"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="title">Title A-Z</option>
+          <option value="progress">Progress</option>
+          <option value="status">Status</option>
+        </Select>
+      </div>
 
-      {/* All Requests */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">All Requests</h2>
-          {requests.data && requests.data.length > 0 && (
-            <span className="text-sm text-surface-500">
-              Click a row to expand details
-            </span>
+      {/* Request List */}
+      {requests.isLoading ? (
+        <div className="space-y-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-28 bg-white/5 rounded animate-pulse" />
+          ))}
+        </div>
+      ) : filteredAndSortedRequests.length === 0 ? (
+        <div className="text-center py-16 bg-white/5 rounded border border-white/10">
+          {requests.data?.length === 0 ? (
+            <>
+              <svg className="w-12 h-12 mx-auto text-white/20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <p className="text-white/50">No requests yet</p>
+              <p className="text-sm text-white/30 mt-1">
+                Search for movies or TV shows in Discover to make a request
+              </p>
+            </>
+          ) : (
+            <>
+              <svg className="w-12 h-12 mx-auto text-white/20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <p className="text-white/50">No matching requests</p>
+              <p className="text-sm text-white/30 mt-1">
+                Try adjusting your search or filters
+              </p>
+            </>
           )}
         </div>
-
-        {requests.isLoading && (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-16 bg-surface-800 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        )}
-
-        {requests.data?.length === 0 && (
-          <div className="text-center py-12 text-surface-500 bg-surface-800/50 rounded-lg">
-            <p>No requests yet</p>
-            <p className="text-sm mt-2">
-              Search for movies or TV shows in Discover to make a request
-            </p>
-          </div>
-        )}
-
-        {requests.data && requests.data.length > 0 && (
-          <div className="bg-surface-800 rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-surface-700">
-                  <th className="w-8"></th>
-                  <th className="text-left px-4 py-3 text-surface-400 font-medium">Title</th>
-                  <th className="text-left px-4 py-3 text-surface-400 font-medium">Type</th>
-                  <th className="text-left px-4 py-3 text-surface-400 font-medium">Status</th>
-                  <th className="text-left px-4 py-3 text-surface-400 font-medium">Progress</th>
-                  <th className="text-left px-4 py-3 text-surface-400 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.data.map((req) => (
-                  <RequestRow
-                    key={req.id}
-                    request={req}
-                    isExpanded={expandedIds.has(req.id)}
-                    onToggle={() => toggleExpanded(req.id)}
-                    onShowAlternatives={setAlternativesRequestId}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      ) : (
+        <div className="space-y-3">
+          {filteredAndSortedRequests.map((request) => (
+            <RequestCard
+              key={request.id}
+              request={request}
+              onShowAlternatives={setAlternativesRequestId}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Alternatives Modal */}
       <AlternativesModal

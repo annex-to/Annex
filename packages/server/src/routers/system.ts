@@ -77,14 +77,28 @@ export const systemRouter = router({
       orderBy: { createdAt: "asc" },
     });
 
-    return results.map((r, index) => ({
-      requestId: r.id,
-      title: r.title,
-      type: r.type.toLowerCase(),
-      status: r.status.toLowerCase(),
-      progress: r.progress,
-      position: index + 1,
-    }));
+    // Get poster paths from MediaItem
+    const mediaItemIds = results.map((r) => `tmdb-${r.type.toLowerCase()}-${r.tmdbId}`);
+    const mediaItems = await prisma.mediaItem.findMany({
+      where: { id: { in: mediaItemIds } },
+      select: { id: true, posterPath: true },
+    });
+    const posterMap = new Map(mediaItems.map((m) => [m.id, m.posterPath]));
+
+    return results.map((r, index) => {
+      const mediaItemId = `tmdb-${r.type.toLowerCase()}-${r.tmdbId}`;
+      return {
+        requestId: r.id,
+        title: r.title,
+        year: r.year,
+        type: r.type.toLowerCase(),
+        status: r.status.toLowerCase(),
+        progress: r.progress,
+        currentStep: r.currentStep,
+        posterPath: posterMap.get(mediaItemId) || null,
+        position: index + 1,
+      };
+    });
   }),
 
   /**
