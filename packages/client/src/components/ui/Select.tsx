@@ -8,7 +8,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <select
         ref={ref}
         className={`
-          w-full px-4 py-2.5
+          px-4 py-2.5
           bg-white/5 backdrop-blur-sm
           border border-white/10
           rounded text-white
