@@ -337,6 +337,7 @@ function RequestRow({ request, isExpanded, onToggle, onShowAlternatives }: Reque
   const isQualityUnavailable = status === "quality_unavailable";
   const isFailed = status === "failed";
   const isCompleted = status === "completed";
+  const isDownloading = status === "downloading";
 
   return (
     <>
@@ -550,7 +551,7 @@ function RequestRow({ request, isExpanded, onToggle, onShowAlternatives }: Reque
                   </Button>
                 )}
 
-                {(isFailed || isAwaiting) && (
+                {(isFailed || isAwaiting || isDownloading) && (
                   <Button
                     variant="primary"
                     size="sm"
