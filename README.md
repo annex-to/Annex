@@ -125,7 +125,7 @@ curl -fsSL http://ANNEX_SERVER:3000/deploy-encoder | sudo bash -s -- \
   --gpu-device /dev/dri/renderD128
 ```
 
-See [Remote Encoder Documentation](docs/remote-encoders.md) for details.
+See [documentation/](documentation/) for more details.
 
 ## Project Structure
 
@@ -167,6 +167,10 @@ Environment=NODE_ENV=production
 [Install]
 WantedBy=multi-user.target
 ```
+
+## Documentation
+
+- [Development Setup](documentation/development.md)
 
 ## License
 

@@ -2,6 +2,14 @@
 
 Media acquisition platform: discovery → request → download → encode (AV1) → deliver to storage servers.
 
+## Guidelines
+
+- No emojis in code, commits, or communication
+- Keep commit messages short: `type(scope): description`
+- Code should be self-documenting; avoid unnecessary comments
+- Don't over-explain in responses; be direct
+- Prefer simple solutions over clever ones
+
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, tRPC client
