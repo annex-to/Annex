@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ReactNode } from "react";
+import { useState, useRef, useLayoutEffect, ReactNode, useCallback } from "react";
 import { createPortal } from "react-dom";
 
 interface TooltipProps {
@@ -9,38 +9,44 @@ interface TooltipProps {
 
 export function Tooltip({ content, children, position = "top" }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
-  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (isVisible && triggerRef.current && tooltipRef.current) {
-      const triggerRect = triggerRef.current.getBoundingClientRect();
-      const tooltipRect = tooltipRef.current.getBoundingClientRect();
+  // Use callback ref to position tooltip after it renders
+  const setTooltipRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node && triggerRef.current) {
+        const triggerRect = triggerRef.current.getBoundingClientRect();
+        const tooltipRect = node.getBoundingClientRect();
 
-      // Center horizontally
-      let left = triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
+        // Center horizontally
+        let left = triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
 
-      // Keep tooltip within viewport
-      if (left < 8) left = 8;
-      if (left + tooltipRect.width > window.innerWidth - 8) {
-        left = window.innerWidth - tooltipRect.width - 8;
+        // Keep tooltip within viewport
+        if (left < 8) left = 8;
+        if (left + tooltipRect.width > window.innerWidth - 8) {
+          left = window.innerWidth - tooltipRect.width - 8;
+        }
+
+        let top: number;
+        if (position === "top") {
+          top = triggerRect.top - tooltipRect.height - 8;
+        } else {
+          top = triggerRect.bottom + 8;
+        }
+
+        setCoords({ top, left });
       }
+    },
+    [position]
+  );
 
-      const style: React.CSSProperties = {
-        left: `${left}px`,
-        position: "fixed",
-      };
-
-      if (position === "top") {
-        style.top = `${triggerRect.top - tooltipRect.height - 8}px`;
-      } else {
-        style.top = `${triggerRect.bottom + 8}px`;
-      }
-
-      setTooltipStyle(style);
+  // Reset coords when hidden
+  useLayoutEffect(() => {
+    if (!isVisible) {
+      setCoords(null);
     }
-  }, [isVisible, position]);
+  }, [isVisible]);
 
   return (
     <div
@@ -53,8 +59,13 @@ export function Tooltip({ content, children, position = "top" }: TooltipProps) {
       {isVisible &&
         createPortal(
           <div
-            ref={tooltipRef}
-            style={tooltipStyle}
+            ref={setTooltipRef}
+            style={{
+              position: "fixed",
+              top: coords?.top ?? -9999,
+              left: coords?.left ?? -9999,
+              visibility: coords ? "visible" : "hidden",
+            }}
             className="z-[9999] px-2.5 py-1.5 text-xs font-medium text-white bg-black/90 border border-white/20 rounded shadow-lg whitespace-nowrap pointer-events-none"
           >
             {content}
