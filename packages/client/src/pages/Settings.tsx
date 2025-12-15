@@ -5,7 +5,6 @@ import { Button, Input, Select, Card, Badge, Label, SidebarNav, EmptyState, Togg
 
 const settingsNavItems = [
   { to: "/settings", label: "General", end: true },
-  { to: "/settings/sync", label: "Sync" },
   { to: "/settings/servers", label: "Storage Servers" },
   { to: "/settings/indexers", label: "Indexers" },
   { to: "/settings/encoding", label: "Encoding" },
@@ -2013,155 +2012,6 @@ function EncodingSettings() {
   );
 }
 
-function SyncSettings() {
-  const utils = trpc.useUtils();
-
-  // Get queue stats
-  const queueStats = trpc.sync.queueStats.useQuery(undefined, {
-    refetchInterval: 5000,
-  });
-
-  // Get running jobs
-  const runningJobs = trpc.sync.getRunningJobs.useQuery(undefined, {
-    refetchInterval: 3000,
-  });
-
-  const cleanupJobs = trpc.sync.cleanupJobs.useMutation({
-    onSuccess: () => {
-      utils.sync.queueStats.invalidate();
-    },
-  });
-
-  const queue = queueStats.data;
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-semibold">Job Queue</h2>
-        <p className="text-white/50 text-sm mt-1">
-          Monitor background job queue status. Media data is fetched on-demand when viewing detail pages.
-        </p>
-      </div>
-
-      {/* Maintenance */}
-      <div>
-        <h3 className="text-lg font-medium mb-4">Maintenance</h3>
-        <Card className="p-5">
-          <div className="flex justify-between items-start">
-            <div>
-              <h4 className="font-medium">Cleanup Old Jobs</h4>
-              <p className="text-sm text-white/50 mt-1">
-                Remove completed and failed jobs older than 7 days to keep the database clean.
-              </p>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => cleanupJobs.mutate({})}
-              disabled={cleanupJobs.isPending}
-            >
-              {cleanupJobs.isPending ? "Cleaning..." : "Cleanup"}
-            </Button>
-          </div>
-          {cleanupJobs.data && (
-            <p className="text-green-400 text-sm mt-2">
-              Cleaned up {cleanupJobs.data.deleted} old jobs
-            </p>
-          )}
-        </Card>
-      </div>
-
-      {/* Queue Status */}
-      <div>
-        <h3 className="text-lg font-medium mb-4">Job Queue Status</h3>
-        {queueStats.isLoading ? (
-          <Card className="p-5">
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 text-center">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-12 bg-white/5 rounded animate-pulse" />
-              ))}
-            </div>
-          </Card>
-        ) : queue ? (
-          <Card className="p-5">
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 text-center">
-              <div>
-                <div className="text-xl font-bold text-yellow-400">{queue.pending}</div>
-                <div className="text-xs text-white/50">Pending</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-blue-400">{queue.running}</div>
-                <div className="text-xs text-white/50">Running</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-orange-400">{queue.paused ?? 0}</div>
-                <div className="text-xs text-white/50">Paused</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-green-400">{queue.completed}</div>
-                <div className="text-xs text-white/50">Completed</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-red-400">{queue.failed}</div>
-                <div className="text-xs text-white/50">Failed</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-purple-400">{queue.activeInMemory}</div>
-                <div className="text-xs text-white/50">Active</div>
-              </div>
-            </div>
-            {queue.byType && Object.keys(queue.byType).length > 0 && (
-              <div className="mt-4 pt-4 border-t border-white/10">
-                <div className="text-sm text-white/50 mb-2">Pending by Type:</div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(queue.byType).map(([type, count]) => (
-                    <Badge key={type} variant="default">
-                      {type}: {String(count)}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-        ) : null}
-      </div>
-
-      {/* Running Jobs */}
-      {runningJobs.data?.jobs && runningJobs.data.jobs.length > 0 && (
-        <div>
-          <h3 className="text-lg font-medium mb-4">Running Jobs</h3>
-          <div className="space-y-3">
-            {runningJobs.data.jobs.map((job) => (
-              <Card key={job.id} className="p-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <span className="font-medium">{job.type}</span>
-                    <span className="text-white/50 text-sm ml-2">
-                      {job.status}
-                    </span>
-                  </div>
-                  {job.progressTotal && job.progressCurrent !== null && (
-                    <span className="text-sm text-white/50">
-                      {job.progressCurrent} / {job.progressTotal}
-                    </span>
-                  )}
-                </div>
-                {job.progress !== null && job.progress > 0 && (
-                  <div className="mt-2 h-1.5 bg-white/10 rounded overflow-hidden">
-                    <div
-                      className="h-full bg-annex-500 transition-all duration-300"
-                      style={{ width: `${job.progress}%` }}
-                    />
-                  </div>
-                )}
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 type JobStatusFilter = "all" | "pending" | "running" | "paused" | "completed" | "failed" | "cancelled";
 
 const statusFilterOptions = [
@@ -2174,15 +2024,6 @@ const statusFilterOptions = [
 ];
 
 const jobTypeLabels: Record<string, string> = {
-  "sync:full": "Full MDBList Sync",
-  "sync:incremental": "Incremental Sync",
-  "sync:refresh-stale": "Refresh Stale",
-  "sync:tmdb-full": "Full TMDB Hydration",
-  "sync:tmdb-missing": "TMDB Missing Sync",
-  "mdblist:hydrate": "MDBList Hydrate",
-  "mdblist:batch-hydrate": "MDBList Batch Hydrate",
-  "tmdb:hydrate": "TMDB Hydrate",
-  "tmdb:batch-hydrate": "TMDB Batch Hydrate",
   "library:sync": "Library Sync All",
   "library:sync-server": "Library Sync Server",
   "pipeline:search": "Search Release",
@@ -3284,7 +3125,6 @@ export default function SettingsPage() {
       <div className="flex-1">
         <Routes>
           <Route index element={<GeneralSettings />} />
-          <Route path="sync" element={<SyncSettings />} />
           <Route path="servers" element={<ServersSettings />} />
           <Route path="indexers" element={<IndexersSettings />} />
           <Route path="encoding" element={<EncodingSettings />} />

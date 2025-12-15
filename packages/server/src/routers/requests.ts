@@ -262,7 +262,13 @@ export const requestsRouter = router({
         }
       }
 
-      const [servers, profiles] = await Promise.all([
+      // For requests without posterPath, look up from MediaItem (legacy support)
+      const requestsWithoutPoster = results.filter((r) => !r.posterPath);
+      const mediaItemIds = requestsWithoutPoster.map(
+        (r) => `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`
+      );
+
+      const [servers, profiles, mediaItems] = await Promise.all([
         prisma.storageServer.findMany({
           where: { id: { in: Array.from(serverIds) } },
           select: { id: true, name: true },
@@ -271,21 +277,31 @@ export const requestsRouter = router({
           where: { id: { in: Array.from(profileIds) } },
           select: { id: true, name: true },
         }),
+        mediaItemIds.length > 0
+          ? prisma.mediaItem.findMany({
+              where: { id: { in: mediaItemIds } },
+              select: { id: true, posterPath: true },
+            })
+          : [],
       ]);
 
       const serverMap = new Map(servers.map((s) => [s.id, s.name]));
       const profileMap = new Map(profiles.map((p) => [p.id, p.name]));
+      const posterMap = new Map(mediaItems.map((m) => [m.id, m.posterPath]));
 
       return results.map((r) => {
         const targets = r.targets as unknown as RequestTarget[];
         const availableReleases = r.availableReleases as unknown[] | null;
+        // Use stored posterPath, or fall back to MediaItem lookup for legacy requests
+        const mediaItemId = `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`;
+        const posterPath = r.posterPath ?? posterMap.get(mediaItemId) ?? null;
         return {
           id: r.id,
           type: fromMediaType(r.type),
           tmdbId: r.tmdbId,
           title: r.title,
           year: r.year,
-          posterPath: r.posterPath,
+          posterPath,
           targets: targets.map((t) => ({
             serverId: t.serverId,
             serverName: serverMap.get(t.serverId) || "Unknown",
