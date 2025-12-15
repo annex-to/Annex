@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface TooltipProps {
   content: string;
@@ -49,15 +50,17 @@ export function Tooltip({ content, children, position = "top" }: TooltipProps) {
       className="inline-block"
     >
       {children}
-      {isVisible && (
-        <div
-          ref={tooltipRef}
-          style={tooltipStyle}
-          className="z-50 px-2.5 py-1.5 text-xs font-medium text-white bg-black/90 border border-white/20 rounded shadow-lg whitespace-nowrap pointer-events-none"
-        >
-          {content}
-        </div>
-      )}
+      {isVisible &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            style={tooltipStyle}
+            className="z-[9999] px-2.5 py-1.5 text-xs font-medium text-white bg-black/90 border border-white/20 rounded shadow-lg whitespace-nowrap pointer-events-none"
+          >
+            {content}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
