@@ -7,10 +7,31 @@ import LibraryPage from "./pages/Library";
 import SettingsPage from "./pages/Settings";
 import PreferencesPage from "./pages/Preferences";
 import LoginPage from "./pages/Login";
+import SetupPage from "./pages/Setup";
 import { NavButton } from "./components/ui/NavButton";
 import { AuthProvider } from "./components/AuthProvider";
 import { useAuthStore } from "./hooks/useAuth";
+import { trpc } from "./trpc";
 import type { ReactNode } from "react";
+
+// Setup guard - redirects to /setup if app is not configured
+function SetupGuard({ children }: { children: ReactNode }) {
+  const { data: status, isLoading } = trpc.secrets.setupStatus.useQuery();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-annex-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!status?.isConfigured) {
+    return <Navigate to="/setup" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -122,8 +143,6 @@ function UserMenu() {
   );
 }
 
-// Import trpc for logout mutation
-import { trpc } from "./trpc";
 
 function AppLayout() {
   const location = useLocation();
@@ -179,13 +198,26 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        {/* Setup wizard - no guards needed */}
+        <Route path="/setup" element={<SetupPage />} />
+        {/* Login - only accessible if app is configured */}
+        <Route
+          path="/login"
+          element={
+            <SetupGuard>
+              <LoginPage />
+            </SetupGuard>
+          }
+        />
+        {/* Main app - requires setup and auth */}
         <Route
           path="/*"
           element={
-            <ProtectedRoute>
-              <AppLayout />
-            </ProtectedRoute>
+            <SetupGuard>
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            </SetupGuard>
           }
         />
       </Routes>
