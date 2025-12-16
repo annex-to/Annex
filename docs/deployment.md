@@ -13,10 +13,17 @@ docker run -d \
   -v annex-postgres:/data/postgres \
   -v annex-config:/data/config \
   -v /path/to/downloads:/downloads \
-  annex
+  ghcr.io/wehavenoeyes/annex:latest
 ```
 
 Open `http://localhost` and complete the setup wizard.
+
+## Available Tags
+
+| Tag | Description |
+|-----|-------------|
+| `latest` | Latest build from main branch |
+| `x.y.z` | Specific version (e.g., `1.0.0`) |
 
 ## Deployment Modes
 
@@ -33,7 +40,7 @@ docker run -d \
   -v annex-postgres:/data/postgres \
   -v annex-config:/data/config \
   -v /path/to/downloads:/downloads \
-  annex
+  ghcr.io/wehavenoeyes/annex:latest
 ```
 
 ### 2. External PostgreSQL
@@ -47,7 +54,7 @@ docker run -d \
   -e DATABASE_URL="postgresql://user:password@db-host:5432/annex" \
   -v annex-config:/data/config \
   -v /path/to/downloads:/downloads \
-  annex
+  ghcr.io/wehavenoeyes/annex:latest
 ```
 
 The `/data/postgres` volume is not needed in this mode.
@@ -63,7 +70,7 @@ docker run -d \
   -e DISABLE_INTERNAL_ENCODER=true \
   -v annex-postgres:/data/postgres \
   -v annex-config:/data/config \
-  annex
+  ghcr.io/wehavenoeyes/annex:latest
 ```
 
 ## GPU Encoding
@@ -78,7 +85,7 @@ docker run -d \
   -v annex-postgres:/data/postgres \
   -v annex-config:/data/config \
   -v /path/to/downloads:/downloads \
-  annex
+  ghcr.io/wehavenoeyes/annex:latest
 ```
 
 The encoder auto-detects GPU availability:
@@ -122,7 +129,7 @@ version: "3.8"
 
 services:
   annex:
-    image: annex
+    image: ghcr.io/wehavenoeyes/annex:latest
     container_name: annex
     ports:
       - "80:80"
@@ -146,7 +153,7 @@ version: "3.8"
 
 services:
   annex:
-    image: annex
+    image: ghcr.io/wehavenoeyes/annex:latest
     container_name: annex
     ports:
       - "80:80"
