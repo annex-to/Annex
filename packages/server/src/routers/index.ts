@@ -10,6 +10,7 @@ import { syncRouter } from "./sync.js";
 import { profilesRouter } from "./profiles.js";
 import { jobSubscriptionsRouter } from "./jobSubscriptions.js";
 import { encodersRouter } from "./encoders.js";
+import { secretsRouter } from "./secrets.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   profiles: profilesRouter,
   jobs: jobSubscriptionsRouter,
   encoders: encodersRouter,
+  secrets: secretsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -13,6 +13,7 @@
 
 import { EventEmitter } from "events";
 import type { CryptoService } from "./crypto.js";
+import { getConfig } from "../config/index.js";
 
 const DEFAULT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -328,11 +329,12 @@ export async function migrateEnvSecretsIfNeeded(): Promise<{
   }
 
   // Then, get from config (lower priority than env)
+  // Note: only include properties that exist in the config schema
   const configMappings: Record<string, string | undefined> = {
     "tmdb.apiKey": config.tmdb?.apiKey,
     "mdblist.apiKey": config.mdblist?.apiKey,
     "trakt.clientId": config.trakt?.clientId,
-    "trakt.clientSecret": config.trakt?.clientSecret,
+    // trakt.clientSecret is only in env vars, not in config schema
     "qbittorrent.url": config.qbittorrent?.url,
     "qbittorrent.username": config.qbittorrent?.username,
     "qbittorrent.password": config.qbittorrent?.password,
