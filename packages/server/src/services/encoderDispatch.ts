@@ -653,11 +653,18 @@ class EncoderDispatchService {
       return { assignment: existingAssignment, waitForCompletion };
     }
 
-    // Select initial encoder
-    const encoderId = await this.selectEncoder();
+    // Select initial encoder (prefer one with capacity, but accept any connected encoder)
+    let encoderId = await this.selectEncoder();
 
+    // If no encoder has capacity, use any connected encoder - job will queue
     if (!encoderId) {
-      throw new Error("No available encoders");
+      const connectedEncoders = Array.from(this.encoders.keys());
+      if (connectedEncoders.length > 0) {
+        encoderId = connectedEncoders[0];
+        console.log(`[EncoderDispatch] No encoder with capacity, queuing job for ${encoderId}`);
+      } else {
+        throw new Error("No encoders connected");
+      }
     }
 
     // Create assignment

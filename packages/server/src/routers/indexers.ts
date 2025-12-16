@@ -8,11 +8,16 @@ import {
   TORRENTLEECH_CATEGORIES,
   TORRENTLEECH_CATEGORY_GROUPS,
 } from "../services/torrentleech.js";
+import {
+  getUnit3dProvider,
+  UNIT3D_CATEGORIES,
+  UNIT3D_CATEGORY_GROUPS,
+} from "../services/unit3d.js";
 import { getCryptoService } from "../services/crypto.js";
 
 const indexerInputSchema = z.object({
   name: z.string().min(1),
-  type: z.enum(["torznab", "newznab", "rss", "torrentleech"]),
+  type: z.enum(["torznab", "newznab", "rss", "torrentleech", "unit3d"]),
   url: z.string().url(),
   apiKey: z.string(),
   categories: z.object({
@@ -30,6 +35,7 @@ function toIndexerType(value: string): IndexerType {
     newznab: IndexerType.NEWZNAB,
     rss: IndexerType.RSS,
     torrentleech: IndexerType.TORRENTLEECH,
+    unit3d: IndexerType.UNIT3D,
   };
   return map[value] ?? IndexerType.TORZNAB;
 }
@@ -238,6 +244,26 @@ export const indexersRouter = router({
               }
             : null,
         };
+      } else if (indexer.type === IndexerType.UNIT3D) {
+        // Test UNIT3D connection
+        const provider = getUnit3dProvider({
+          baseUrl: indexer.url,
+          apiToken: apiKey,
+        });
+
+        const result = await provider.testConnection();
+        return {
+          success: result.success,
+          message: result.message,
+          capabilities: result.success
+            ? {
+                search: true,
+                tvSearch: true,
+                movieSearch: true,
+                username: result.username,
+              }
+            : null,
+        };
       } else {
         // Test Torznab/Newznab connection via capabilities endpoint
         const baseUrl = indexer.url.replace(/\/+$/, "");
@@ -335,6 +361,20 @@ export const indexersRouter = router({
         movies: TORRENTLEECH_CATEGORY_GROUPS.movies,
         tv: TORRENTLEECH_CATEGORY_GROUPS.tv,
         all: TORRENTLEECH_CATEGORY_GROUPS.all,
+      },
+    };
+  }),
+
+  /**
+   * Get UNIT3D categories (default values - actual categories vary per tracker)
+   */
+  unit3dCategories: publicProcedure.query(() => {
+    return {
+      categories: UNIT3D_CATEGORIES,
+      groups: {
+        movies: UNIT3D_CATEGORY_GROUPS.movies,
+        tv: UNIT3D_CATEGORY_GROUPS.tv,
+        all: UNIT3D_CATEGORY_GROUPS.all,
       },
     };
   }),

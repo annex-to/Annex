@@ -13,6 +13,11 @@ import {
   TORRENTLEECH_CATEGORY_GROUPS,
   type TorrentLeechSearchOptions,
 } from "./torrentleech.js";
+import {
+  getUnit3dProvider,
+  UNIT3D_CATEGORY_GROUPS,
+  type Unit3dSearchOptions,
+} from "./unit3d.js";
 import { getCryptoService } from "./crypto.js";
 
 // Decrypt API key, falling back to the raw value for legacy unencrypted data
@@ -213,6 +218,9 @@ class IndexerService {
       case IndexerType.TORRENTLEECH:
         return this.searchTorrentLeech(indexer, options);
 
+      case IndexerType.UNIT3D:
+        return this.searchUnit3d(indexer, options);
+
       case IndexerType.TORZNAB:
       case IndexerType.NEWZNAB:
       default:
@@ -321,6 +329,65 @@ class IndexerService {
         searchOptions.query = `${options.query} S${options.season.toString().padStart(2, "0")}E${options.episode.toString().padStart(2, "0")}`;
       } else if (options.season !== undefined) {
         searchOptions.query = `${options.query} S${options.season.toString().padStart(2, "0")}`;
+      }
+    }
+
+    const releases = await provider.search(searchOptions);
+
+    // Update indexer ID/name on releases
+    return releases.map((r) => ({
+      ...r,
+      id: `${indexer.id}-${r.id}`,
+      indexerId: indexer.id,
+      indexerName: indexer.name,
+    }));
+  }
+
+  /**
+   * Search UNIT3D indexer
+   */
+  private async searchUnit3d(
+    indexer: {
+      id: string;
+      name: string;
+      url: string;
+      apiKey: string;
+      categoriesMovies: number[];
+      categoriesTv: number[];
+    },
+    options: SearchOptions
+  ): Promise<Release[]> {
+    const provider = getUnit3dProvider({
+      baseUrl: indexer.url,
+      apiToken: indexer.apiKey,
+    });
+
+    // Build search options
+    const searchOptions: Unit3dSearchOptions = {
+      query: options.query,
+      tmdbId: options.tmdbId,
+      imdbId: options.imdbId,
+      tvdbId: options.tvdbId,
+    };
+
+    // Determine categories
+    if (options.type === "movie") {
+      searchOptions.categories =
+        indexer.categoriesMovies.length > 0
+          ? indexer.categoriesMovies
+          : UNIT3D_CATEGORY_GROUPS.movies;
+    } else {
+      searchOptions.categories =
+        indexer.categoriesTv.length > 0
+          ? indexer.categoriesTv
+          : UNIT3D_CATEGORY_GROUPS.tv;
+
+      // Add season/episode for TV searches
+      if (options.season !== undefined) {
+        searchOptions.season = options.season;
+      }
+      if (options.episode !== undefined) {
+        searchOptions.episode = options.episode;
       }
     }
 

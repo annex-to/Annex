@@ -153,6 +153,16 @@ cp "$TEMP_DIR/update.sh" "$ANNEX_HOME/" 2>/dev/null || true
 chmod +x "$ANNEX_HOME/encoder.js"
 chmod +x "$ANNEX_HOME/update.sh" 2>/dev/null || true
 
+# Update systemd service file if included and changed
+if [[ -f "$TEMP_DIR/annex-encoder.service" ]]; then
+  if ! cmp -s "$TEMP_DIR/annex-encoder.service" /etc/systemd/system/annex-encoder.service 2>/dev/null; then
+    echo "Updating systemd service file..."
+    sudo cp "$TEMP_DIR/annex-encoder.service" /etc/systemd/system/annex-encoder.service
+    sudo systemctl daemon-reload
+    echo "Service file updated"
+  fi
+fi
+
 # Cleanup
 rm -rf "$TEMP_DIR"
 echo "Installed version $REMOTE_VERSION"

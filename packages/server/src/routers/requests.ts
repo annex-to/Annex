@@ -238,6 +238,26 @@ export const requestsRouter = router({
         where: input.status ? { status: toRequestStatus(input.status) } : undefined,
         orderBy: { createdAt: "desc" },
         take: input.limit,
+        select: {
+          id: true,
+          type: true,
+          tmdbId: true,
+          title: true,
+          year: true,
+          posterPath: true,
+          targets: true,
+          requestedSeasons: true,
+          requestedEpisodes: true,
+          status: true,
+          progress: true,
+          currentStep: true,
+          error: true,
+          requiredResolution: true,
+          availableReleases: true,
+          createdAt: true,
+          updatedAt: true,
+          completedAt: true,
+        },
       });
 
       // Get server and profile names for display
@@ -585,7 +605,6 @@ export const requestsRouter = router({
       const downloadService = getDownloadService();
       const progressMap = new Map<string, { progress: number; speed: number }>();
 
-      // Fetch progress for all downloading episodes in parallel
       // First, get the Download records for these episodes
       const downloadIds = downloadingEpisodes
         .map((ep) => ep.downloadId)
@@ -597,13 +616,19 @@ export const requestsRouter = router({
 
       const downloadMap = new Map(downloads.map((d) => [d.id, d]));
 
-      await Promise.all(
-        downloadingEpisodes.map(async (ep) => {
-          if (!ep.downloadId) return;
-          const download = downloadMap.get(ep.downloadId);
-          if (!download) return;
-          try {
-            const progress = await downloadService.getProgress(download.torrentHash);
+      // Fetch all torrents once instead of individual calls per episode
+      // This reduces API overhead when qBittorrent is under load
+      if (downloadingEpisodes.length > 0) {
+        try {
+          const allTorrents = await downloadService.getAllTorrents();
+          const torrentMap = new Map(allTorrents.map((t) => [t.hash.toLowerCase(), t]));
+
+          for (const ep of downloadingEpisodes) {
+            if (!ep.downloadId) continue;
+            const download = downloadMap.get(ep.downloadId);
+            if (!download) continue;
+
+            const progress = torrentMap.get(download.torrentHash.toLowerCase());
             if (progress) {
               const key = `${ep.season}-${ep.episode}`;
               progressMap.set(key, {
@@ -611,11 +636,11 @@ export const requestsRouter = router({
                 speed: progress.downloadSpeed,
               });
             }
-          } catch {
-            // Ignore errors
           }
-        })
-      );
+        } catch {
+          // Ignore errors - progress will just be unavailable
+        }
+      }
 
       // Group by season
       const seasons: Record<number, {

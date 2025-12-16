@@ -618,6 +618,9 @@ class JobQueueService {
   ): Promise<Job> {
     const { priority = 0, maxAttempts = 3, dedupeKey } = options;
 
+    // Extract requestId from payload if present (for pipeline jobs)
+    const requestId = (payload as { requestId?: string }).requestId;
+
     // Create job in database
     const job = await prisma.job.create({
       data: {
@@ -626,6 +629,7 @@ class JobQueueService {
         priority,
         maxAttempts,
         dedupeKey,
+        requestId,
         scheduledFor: new Date(),
       },
     });

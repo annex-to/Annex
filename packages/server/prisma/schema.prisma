@@ -121,6 +121,8 @@ model StorageServer {
   encodingProfileId     String?
   libraryItems          LibraryItem[]
   episodeLibraryItems   EpisodeLibraryItem[]
+
+  @@index([enabled])
 }
 
 enum Protocol {
@@ -166,6 +168,9 @@ model Indexer {
   enabled          Boolean     @default(true)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+
+  @@index([enabled, priority])
+  @@index([type, enabled])
 }
 
 enum IndexerType {
@@ -173,6 +178,7 @@ enum IndexerType {
   NEWZNAB
   RSS
   TORRENTLEECH
+  UNIT3D
 }
 
 // =============================================================================
@@ -225,6 +231,8 @@ model EncodingProfile {
   // Relations
   servers              StorageServer[]
   encodingJobs         EncodingJob[]
+
+  @@index([isDefault])
 }
 
 enum HwAccel {
@@ -303,6 +311,9 @@ model MediaRequest {
 
   @@index([userId])
   @@index([monitoring, type])  // For finding monitored TV shows
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 // =============================================================================
@@ -721,6 +732,8 @@ model LibraryItem {
 
   @@unique([tmdbId, type, serverId])
   @@index([tmdbId, type])
+  @@index([serverId])
+  @@index([serverId, type])
 }
 
 // Episode-level library tracking for TV shows
@@ -739,6 +752,7 @@ model EpisodeLibraryItem {
 
   @@unique([tmdbId, season, episode, serverId])
   @@index([tmdbId, serverId])
+  @@index([serverId])
 }
 
 // =============================================================================

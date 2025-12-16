@@ -353,7 +353,9 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
   const isDownloading = status === "downloading";
 
   const posterUrl = request.posterPath
-    ? `${TMDB_IMAGE_BASE}/w185${request.posterPath}`
+    ? request.posterPath.startsWith("http")
+      ? request.posterPath
+      : `${TMDB_IMAGE_BASE}/w185${request.posterPath}`
     : null;
 
   const formatDate = (date: Date) => {

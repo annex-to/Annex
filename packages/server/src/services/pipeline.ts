@@ -1155,10 +1155,7 @@ async function handleDeliver(payload: DeliverPayload, jobId: string): Promise<vo
       where: {
         type: "pipeline:deliver",
         status: { in: ["PENDING", "RUNNING"] },
-        payload: {
-          path: ["requestId"],
-          equals: requestId,
-        },
+        requestId,
         id: { not: jobId }, // Exclude current job
       },
     });
@@ -1601,6 +1598,51 @@ export async function retryPipeline(requestId: string): Promise<{ step: string }
 
   // Determine which step to resume from based on saved state
   // Priority: most advanced state first
+
+  // Check for completed encoding - if encoded file exists, resume delivery
+  const completedEncoding = await prisma.encoderAssignment.findFirst({
+    where: {
+      job: { requestId },
+      status: "COMPLETED",
+    },
+    orderBy: { completedAt: "desc" },
+  });
+
+  if (completedEncoding?.outputPath) {
+    const { existsSync } = await import("fs");
+    if (existsSync(completedEncoding.outputPath)) {
+      await logActivity(requestId, ActivityType.INFO, "Retrying from delivery step (encoded file exists)");
+
+      // Get target server IDs from request
+      const targets = (request.targets as unknown as Array<{ serverId: string }>) || [];
+      const targetServerIds = targets.map(t => t.serverId);
+
+      // Get profile details
+      const profile = await prisma.encodingProfile.findUnique({
+        where: { id: completedEncoding.profileId },
+      });
+
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.ENCODING,
+          progress: 75,
+          currentStep: "Resuming delivery...",
+        },
+      });
+
+      await jobQueue.addJob("pipeline:deliver" as JobType, {
+        requestId,
+        encodedFilePath: completedEncoding.outputPath,
+        profileId: completedEncoding.profileId,
+        resolution: profile?.videoMaxResolution || "unknown",
+        codec: profile?.videoEncoder || "av1",
+        targetServerIds,
+      } as DeliverPayload, { priority: 5, maxAttempts: 2 });
+
+      return { step: "delivery" };
+    }
+  }
 
   // If we have a source file path, we can skip straight to encoding
   if (request.sourceFilePath && existingDownload) {

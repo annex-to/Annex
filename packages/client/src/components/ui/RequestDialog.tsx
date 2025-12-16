@@ -169,7 +169,11 @@ function RequestDialog({
       return newRank > currentRank ? res : highest;
     }, null as string | null);
 
-  const posterUrl = posterPath ? `${TMDB_IMAGE_BASE}/w154${posterPath}` : null;
+  const posterUrl = posterPath
+    ? posterPath.startsWith("http")
+      ? posterPath
+      : `${TMDB_IMAGE_BASE}/w154${posterPath}`
+    : null;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-lg mx-4">

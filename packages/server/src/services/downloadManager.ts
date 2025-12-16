@@ -631,11 +631,19 @@ export async function checkDownloadHealth(): Promise<DownloadHealth[]> {
     where: { status: DownloadStatus.DOWNLOADING },
   });
 
+  if (activeDownloads.length === 0) {
+    return [];
+  }
+
   const qb = getDownloadService();
   const healthResults: DownloadHealth[] = [];
 
+  // Fetch all torrents once instead of individual calls per download
+  const allTorrents = await qb.getAllTorrents();
+  const torrentMap = new Map(allTorrents.map((t) => [t.hash.toLowerCase(), t]));
+
   for (const download of activeDownloads) {
-    const torrent = await qb.getProgress(download.torrentHash);
+    const torrent = torrentMap.get(download.torrentHash.toLowerCase());
 
     if (!torrent) {
       // Torrent disappeared from qBittorrent

@@ -1095,7 +1095,7 @@ function ServersSettings() {
 // Indexer form state type
 interface IndexerFormData {
   name: string;
-  type: "torznab" | "newznab" | "rss" | "torrentleech";
+  type: "torznab" | "newznab" | "rss" | "torrentleech" | "unit3d";
   url: string;
   apiKey: string;
   hasApiKey?: boolean; // Track if indexer already has an API key (for edit mode)
@@ -1124,6 +1124,7 @@ const indexerTypeOptions = [
   { value: "torznab", label: "Torznab", description: "Standard torrent indexer protocol (Prowlarr, Jackett)" },
   { value: "newznab", label: "Newznab", description: "Usenet indexer protocol" },
   { value: "torrentleech", label: "TorrentLeech", description: "TorrentLeech private tracker" },
+  { value: "unit3d", label: "UNIT3D", description: "UNIT3D-based private tracker (YUSCENE, etc.)" },
   { value: "rss", label: "RSS", description: "RSS feed" },
 ];
 
@@ -1188,6 +1189,7 @@ function IndexerForm({
   };
 
   const isTorrentLeech = form.type === "torrentleech";
+  const isUnit3d = form.type === "unit3d";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -1222,18 +1224,18 @@ function IndexerForm({
         </div>
 
         <div>
-          <Label>{isTorrentLeech ? "TorrentLeech URL" : "Indexer URL"}</Label>
+          <Label>{isTorrentLeech ? "TorrentLeech URL" : isUnit3d ? "Tracker URL" : "Indexer URL"}</Label>
           <Input
             value={form.url}
             onChange={(e) => updateForm("url", e.target.value)}
-            placeholder={isTorrentLeech ? "https://www.torrentleech.org" : "https://indexer.example.com"}
+            placeholder={isTorrentLeech ? "https://www.torrentleech.org" : isUnit3d ? "https://yu-scene.net" : "https://indexer.example.com"}
             required
           />
         </div>
 
         <div>
-          <Label hint={isTorrentLeech ? "Format: username:password:alt2FAToken" : undefined}>
-            {isTorrentLeech ? "Credentials" : "API Key"}
+          <Label hint={isTorrentLeech ? "Format: username:password:alt2FAToken" : isUnit3d ? "From your profile settings" : undefined}>
+            {isTorrentLeech ? "Credentials" : isUnit3d ? "API Token" : "API Key"}
           </Label>
           <Input
             type={isTorrentLeech ? "text" : "password"}
@@ -1244,13 +1246,15 @@ function IndexerForm({
                 ? "Leave blank to keep current"
                 : isTorrentLeech
                   ? "username:password:alt2FAToken"
-                  : "API key from indexer"
+                  : isUnit3d
+                    ? "API token from your profile"
+                    : "API key from indexer"
             }
             required={!form.hasApiKey}
           />
           {form.hasApiKey && !form.apiKey && (
             <p className="text-xs text-green-400/70 mt-1">
-              {isTorrentLeech ? "Credentials are" : "API key is"} configured
+              {isTorrentLeech ? "Credentials are" : "API token is"} configured
             </p>
           )}
           {isTorrentLeech && !form.hasApiKey && (
@@ -1258,6 +1262,12 @@ function IndexerForm({
               Enter your TorrentLeech username and password separated by colons.
               If you have 2FA enabled, add your alt2FAToken (MD5 hash from your TL profile).
               Format: <code className="text-white/60">username:password:alt2FAToken</code>
+            </p>
+          )}
+          {isUnit3d && !form.hasApiKey && (
+            <p className="text-xs text-white/40 mt-1">
+              Find your API token in your profile settings on the tracker.
+              Go to Settings &gt; Security &gt; API Token.
             </p>
           )}
         </div>
