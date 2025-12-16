@@ -120,8 +120,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Always tag with latest on main
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Canary tag for automated builds
+            type=raw,value=canary,enable=${{ github.event_name == 'push' }}
+            # Latest tag only for manual releases
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
             # Tag with version on manual release
             type=raw,value=${{ steps.new_version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
             # Tag with short SHA
@@ -153,17 +155,24 @@ jobs:
           echo "## Docker Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "**Version:** ${{ steps.new_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Release Version:** ${{ steps.new_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.new_version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
+            echo "**Canary Build**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:canary\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:canary" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

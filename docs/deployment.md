@@ -22,7 +22,8 @@ Open `http://localhost` and complete the setup wizard.
 
 | Tag | Description |
 |-----|-------------|
-| `latest` | Latest build from main branch |
+| `latest` | Latest stable release (manual deployment) |
+| `canary` | Latest build from main branch (automated) |
 | `x.y.z` | Specific version (e.g., `1.0.0`) |
 
 ## Deployment Modes

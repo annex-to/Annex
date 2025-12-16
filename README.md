@@ -14,7 +14,8 @@ Unified media acquisition platform replacing Jellyseerr, Radarr, Sonarr & Prowla
 
 ## Documentation
 
-- [Development Setup](documentation/development.md)
+- [Docker Deployment](docs/deployment.md) - Deploy with Docker (recommended)
+- [Development Setup](docs/development.md) - Local development environment
 
 ## Features
 
@@ -61,33 +62,33 @@ Annex Server ←──WebSocket──→ Encoder 1 (Intel Arc)
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 20+
-- pnpm 9+
-- PostgreSQL
-- qBittorrent (running locally or accessible via network)
-
-### Installation
+### Docker (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/annex.git
-cd annex
+docker run -d \
+  --name annex \
+  -p 80:80 \
+  -v annex-postgres:/data/postgres \
+  -v annex-config:/data/config \
+  -v /path/to/downloads:/downloads \
+  ghcr.io/wehavenoeyes/annex:latest
+```
 
-# Install dependencies
+Access the web UI at `http://localhost` and complete the setup wizard.
+
+See [Docker Deployment](docs/deployment.md) for more options including external PostgreSQL and GPU encoding.
+
+### Manual Installation
+
+Prerequisites: Node.js 20+, pnpm 9+, PostgreSQL, qBittorrent
+
+```bash
+git clone https://github.com/WeHaveNoEyes/Annex.git
+cd Annex
 pnpm install
-
-# Set up environment
-cp .env.example .env
-# Edit .env with your configuration
-
-# Set up database
+cp .env.example .env  # Edit with your configuration
 pnpm prisma migrate deploy
-
-# Build and start
-pnpm build
-pnpm start
+pnpm build && pnpm start
 ```
 
 Access the web UI at `http://localhost:3000`
@@ -129,7 +130,7 @@ curl -fsSL http://ANNEX_SERVER:3000/deploy-encoder | sudo bash -s -- \
   --gpu-device /dev/dri/renderD128
 ```
 
-See [documentation/](documentation/) for more details.
+See [docs/](docs/) for more details.
 
 ## Project Structure
 
