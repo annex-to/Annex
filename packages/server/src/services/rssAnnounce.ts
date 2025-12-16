@@ -10,6 +10,7 @@ import { getConfig } from "../config/index.js";
 import { RequestStatus, MediaType, TvEpisodeStatus, Prisma } from "@prisma/client";
 import { getJobQueueService } from "./jobQueue.js";
 import { getSchedulerService } from "./scheduler.js";
+import { getCryptoService } from "./crypto.js";
 import { XMLParser } from "fast-xml-parser";
 import type { Release } from "./indexer.js";
 import { resolutionMeetsRequirement } from "./qualityService.js";
@@ -105,10 +106,20 @@ class RssAnnounceMonitor {
       where: { type: "TORRENTLEECH", enabled: true },
     });
 
-    if (tlIndexer) {
+    if (tlIndexer && tlIndexer.apiKey) {
+      // Decrypt the apiKey first (it's stored encrypted)
+      let decryptedApiKey: string;
+      try {
+        const crypto = getCryptoService();
+        decryptedApiKey = crypto.decrypt(tlIndexer.apiKey);
+      } catch {
+        // Fallback for legacy unencrypted data
+        decryptedApiKey = tlIndexer.apiKey;
+      }
+
       // Parse RSS key from apiKey field
       // Format: username:password:alt2FAToken:rssKey
-      const parts = tlIndexer.apiKey.split(":");
+      const parts = decryptedApiKey.split(":");
       if (parts.length >= 4 && parts[3]) {
         this.rssKey = parts[3];
         console.log(`[RSS] Found RSS key from TorrentLeech indexer config`);

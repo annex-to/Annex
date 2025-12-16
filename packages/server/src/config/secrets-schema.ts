@@ -8,7 +8,7 @@ export interface SecretDefinition {
   key: string;
   label: string;
   description: string;
-  group: "metadata" | "downloads" | "media-servers" | "system";
+  group: "metadata" | "downloads" | "system";
   required: boolean;
   sensitive: boolean;
   validate?: (value: string) => boolean;
@@ -91,46 +91,6 @@ export const SECRET_DEFINITIONS: SecretDefinition[] = [
     required: false,
     sensitive: true,
     placeholder: "Enter qBittorrent password",
-  },
-
-  // Media servers
-  {
-    key: "plex.serverUrl",
-    label: "Plex Server URL",
-    description: "URL for Plex server (for library sync)",
-    group: "media-servers",
-    required: false,
-    sensitive: false,
-    placeholder: "http://localhost:32400",
-    validate: (v) => v.startsWith("http://") || v.startsWith("https://"),
-  },
-  {
-    key: "plex.serverToken",
-    label: "Plex Server Token",
-    description: "Admin token for Plex server",
-    group: "media-servers",
-    required: false,
-    sensitive: true,
-    placeholder: "Enter Plex server token",
-  },
-  {
-    key: "emby.serverUrl",
-    label: "Emby Server URL",
-    description: "URL for Emby server (for library sync)",
-    group: "media-servers",
-    required: false,
-    sensitive: false,
-    placeholder: "http://localhost:8096",
-    validate: (v) => v.startsWith("http://") || v.startsWith("https://"),
-  },
-  {
-    key: "emby.apiKey",
-    label: "Emby API Key",
-    description: "API key for Emby server",
-    group: "media-servers",
-    required: false,
-    sensitive: true,
-    placeholder: "Enter Emby API key",
   },
 
   // System

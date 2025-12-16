@@ -26,8 +26,7 @@ export default function SetupPage() {
     setSecrets((prev) => ({ ...prev, [key]: value }));
   };
 
-  const testConnection = async (service: "qbittorrent" | "plex" | "emby" | "tmdb" | "mdblist") => {
-    // Temporarily set secrets for testing
+  const testConnection = async (service: "qbittorrent" | "tmdb" | "mdblist") => {
     const result = await testConnectionMutation.mutateAsync({ service });
     setTestResults((prev) => ({
       ...prev,

@@ -13,8 +13,163 @@ const settingsNavItems = [
   { to: "/settings/scheduler", label: "Scheduler" },
 ];
 
+// Secret input with edit/save functionality
+function SecretInput({
+  secretKey,
+  label,
+  description,
+  placeholder,
+  helpUrl,
+  hasValue,
+  sensitive,
+  testService,
+}: {
+  secretKey: string;
+  label: string;
+  description: string;
+  placeholder?: string;
+  helpUrl?: string;
+  hasValue: boolean;
+  sensitive: boolean;
+  testService?: "qbittorrent" | "tmdb" | "mdblist";
+}) {
+  const utils = trpc.useUtils();
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
+
+  const setSecretMutation = trpc.secrets.set.useMutation();
+  const deleteSecretMutation = trpc.secrets.delete.useMutation();
+  const testConnectionMutation = trpc.secrets.testConnection.useMutation();
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const result = await setSecretMutation.mutateAsync({ key: secretKey, value });
+      if (result.success) {
+        setIsEditing(false);
+        setValue("");
+        utils.secrets.list.invalidate();
+      } else {
+        alert(result.error || "Failed to save");
+      }
+    } catch (error) {
+      alert("Failed to save: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${label}?`)) return;
+    try {
+      await deleteSecretMutation.mutateAsync({ key: secretKey });
+      utils.secrets.list.invalidate();
+    } catch (error) {
+      alert("Failed to delete: " + (error instanceof Error ? error.message : "Unknown error"));
+    }
+  };
+
+  const handleTest = async () => {
+    if (!testService) return;
+    setTestResult(null);
+    try {
+      const result = await testConnectionMutation.mutateAsync({ service: testService });
+      setTestResult({ success: result.success, message: result.message || result.error });
+    } catch (error) {
+      setTestResult({ success: false, message: error instanceof Error ? error.message : "Unknown error" });
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label hint={description}>{label}</Label>
+        <div className="flex items-center gap-2">
+          {hasValue && (
+            <Badge variant="success">Configured</Badge>
+          )}
+          {!hasValue && (
+            <Badge variant="default">Not set</Badge>
+          )}
+        </div>
+      </div>
+
+      {isEditing ? (
+        <div className="flex gap-2">
+          <Input
+            type={sensitive ? "password" : "text"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            className="flex-1"
+          />
+          <Button onClick={handleSave} disabled={isSaving || !value.trim()} size="sm">
+            {isSaving ? "Saving..." : "Save"}
+          </Button>
+          <Button variant="ghost" onClick={() => { setIsEditing(false); setValue(""); }} size="sm">
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setIsEditing(true)} size="sm">
+            {hasValue ? "Update" : "Set"}
+          </Button>
+          {hasValue && testService && (
+            <Button
+              variant="secondary"
+              onClick={handleTest}
+              disabled={testConnectionMutation.isLoading}
+              size="sm"
+            >
+              {testConnectionMutation.isLoading ? "Testing..." : "Test"}
+            </Button>
+          )}
+          {hasValue && secretKey !== "auth.sessionSecret" && (
+            <Button variant="ghost" onClick={handleDelete} size="sm">
+              Remove
+            </Button>
+          )}
+        </div>
+      )}
+
+      {testResult && (
+        <p className={`text-xs ${testResult.success ? "text-green-400" : "text-red-400"}`}>
+          {testResult.message}
+        </p>
+      )}
+
+      {helpUrl && (
+        <p className="text-xs text-surface-500">
+          <a
+            href={helpUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-annex-400 hover:text-annex-300"
+          >
+            Get an API key
+          </a>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function GeneralSettings() {
   const utils = trpc.useUtils();
+
+  // Fetch secrets list
+  const secretsQuery = trpc.secrets.list.useQuery();
+  const secrets = secretsQuery.data || [];
+
+  // Group secrets by category
+  const secretsByGroup = secrets.reduce((acc, s) => {
+    if (!acc[s.group]) acc[s.group] = [];
+    acc[s.group].push(s);
+    return acc;
+  }, {} as Record<string, typeof secrets>);
 
   // Fetch current retry interval setting
   const retryIntervalQuery = trpc.system.settings.get.useQuery({ key: "search.retryIntervalHours" });
@@ -31,7 +186,6 @@ function GeneralSettings() {
     onSuccess: () => {
       utils.system.settings.get.invalidate({ key: "search.retryIntervalHours" });
       setRetryIntervalSaved(true);
-      // Reset saved state after a moment
       setTimeout(() => setRetryIntervalSaved(false), 2000);
     },
   });
@@ -43,47 +197,58 @@ function GeneralSettings() {
     }
   };
 
+  // Map secret keys to testable services
+  const testServiceMap: Record<string, "qbittorrent" | "tmdb" | "mdblist"> = {
+    "tmdb.apiKey": "tmdb",
+    "mdblist.apiKey": "mdblist",
+    "qbittorrent.url": "qbittorrent",
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold">General Settings</h2>
 
-      <Card className="space-y-5">
-        <div>
-          <Label hint="Required for movie and TV show discovery. Get one at themoviedb.org">
-            TMDB API Key
-          </Label>
-          <Input
-            type="password"
-            placeholder="Enter your TMDB API key"
-          />
-        </div>
-
-        <div>
-          <Label>qBittorrent URL</Label>
-          <Input
-            type="text"
-            placeholder="http://localhost:8080"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>qBittorrent Username</Label>
-            <Input
-              type="text"
-              placeholder="admin"
+      {/* Metadata APIs */}
+      {secretsByGroup["metadata"] && (
+        <Card className="space-y-5">
+          <h3 className="text-lg font-medium">Metadata APIs</h3>
+          {secretsByGroup["metadata"].map((secret) => (
+            <SecretInput
+              key={secret.key}
+              secretKey={secret.key}
+              label={secret.label}
+              description={secret.description}
+              placeholder={secret.placeholder}
+              helpUrl={secret.helpUrl}
+              hasValue={secret.hasValue}
+              sensitive={secret.sensitive}
+              testService={testServiceMap[secret.key]}
             />
-          </div>
-          <div>
-            <Label>qBittorrent Password</Label>
-            <Input
-              type="password"
-              placeholder="password"
-            />
-          </div>
-        </div>
-      </Card>
+          ))}
+        </Card>
+      )}
 
+      {/* Download Client */}
+      {secretsByGroup["downloads"] && (
+        <Card className="space-y-5">
+          <h3 className="text-lg font-medium">Download Client</h3>
+          {secretsByGroup["downloads"].map((secret) => (
+            <SecretInput
+              key={secret.key}
+              secretKey={secret.key}
+              label={secret.label}
+              description={secret.description}
+              placeholder={secret.placeholder}
+              helpUrl={secret.helpUrl}
+              hasValue={secret.hasValue}
+              sensitive={secret.sensitive}
+              testService={testServiceMap[secret.key]}
+            />
+          ))}
+        </Card>
+      )}
+
+      {/* Request Settings */}
       <Card className="space-y-5">
         <h3 className="text-lg font-medium">Request Settings</h3>
 
@@ -113,8 +278,6 @@ function GeneralSettings() {
           </p>
         </div>
       </Card>
-
-      <Button>Save Settings</Button>
     </div>
   );
 }
@@ -141,6 +304,7 @@ interface ServerFormData {
     type: "plex" | "emby" | "none";
     url: string;
     apiKey: string;
+    hasApiKey?: boolean; // Track if server already has an API key (for edit mode)
     libraryIds: {
       movies: string[];
       tv: string[];
@@ -368,9 +532,12 @@ function ServerForm({
                     },
                   }))
                 }
-                placeholder="Enter API key or token"
-                required
+                placeholder={form.mediaServer?.hasApiKey ? "Leave blank to keep current" : "Enter API key or token"}
+                required={!form.mediaServer?.hasApiKey}
               />
+              {form.mediaServer?.hasApiKey && !form.mediaServer.apiKey && (
+                <p className="text-xs text-green-400/70 mt-1">API key is configured</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -819,7 +986,8 @@ function ServersSettings() {
         ? {
             type: data.mediaServer.type as "plex" | "emby",
             url: data.mediaServer.url,
-            apiKey: data.mediaServer.apiKey,
+            // Only send apiKey if user entered a new one
+            apiKey: data.mediaServer.apiKey || undefined,
             libraryIds: data.mediaServer.libraryIds,
           }
         : null,
@@ -864,7 +1032,8 @@ function ServersSettings() {
           ? {
               type: server.mediaServer.type as "plex" | "emby" | "none",
               url: server.mediaServer.url,
-              apiKey: server.mediaServer.apiKey,
+              apiKey: "", // Don't populate - server doesn't return it
+              hasApiKey: server.mediaServer.hasApiKey,
               libraryIds: server.mediaServer.libraryIds,
             }
           : null,
@@ -929,6 +1098,7 @@ interface IndexerFormData {
   type: "torznab" | "newznab" | "rss" | "torrentleech";
   url: string;
   apiKey: string;
+  hasApiKey?: boolean; // Track if indexer already has an API key (for edit mode)
   categories: {
     movies: number[];
     tv: number[];
@@ -1069,10 +1239,21 @@ function IndexerForm({
             type={isTorrentLeech ? "text" : "password"}
             value={form.apiKey}
             onChange={(e) => updateForm("apiKey", e.target.value)}
-            placeholder={isTorrentLeech ? "username:password:alt2FAToken" : "API key from indexer"}
-            required
+            placeholder={
+              form.hasApiKey
+                ? "Leave blank to keep current"
+                : isTorrentLeech
+                  ? "username:password:alt2FAToken"
+                  : "API key from indexer"
+            }
+            required={!form.hasApiKey}
           />
-          {isTorrentLeech && (
+          {form.hasApiKey && !form.apiKey && (
+            <p className="text-xs text-green-400/70 mt-1">
+              {isTorrentLeech ? "Credentials are" : "API key is"} configured
+            </p>
+          )}
+          {isTorrentLeech && !form.hasApiKey && (
             <p className="text-xs text-white/40 mt-1">
               Enter your TorrentLeech username and password separated by colons.
               If you have 2FA enabled, add your alt2FAToken (MD5 hash from your TL profile).
@@ -1242,7 +1423,8 @@ function IndexersSettings() {
       name: data.name,
       type: data.type,
       url: data.url,
-      apiKey: data.apiKey,
+      // Only send apiKey if user entered a new one
+      apiKey: data.apiKey || undefined,
       categories: data.categories,
       priority: data.priority,
       enabled: data.enabled,
@@ -1282,7 +1464,8 @@ function IndexersSettings() {
         name: indexer.name,
         type: indexer.type as IndexerFormData["type"],
         url: indexer.url,
-        apiKey: indexer.apiKey,
+        apiKey: "", // Don't populate - server doesn't return it
+        hasApiKey: indexer.hasApiKey,
         categories: indexer.categories,
         priority: indexer.priority,
         enabled: indexer.enabled,

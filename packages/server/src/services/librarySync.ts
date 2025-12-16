@@ -9,6 +9,18 @@ import { prisma } from "../db/client.js";
 import { MediaServerType, MediaType } from "@prisma/client";
 import { fetchEmbyLibraryForSync, fetchEmbyShowsWithEpisodes } from "./emby.js";
 import { fetchPlexLibraryForSync, fetchPlexShowsWithEpisodes } from "./plex.js";
+import { getCryptoService } from "./crypto.js";
+
+// Decrypt value, falling back to raw value for legacy unencrypted data
+function decryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const crypto = getCryptoService();
+    return crypto.decrypt(value);
+  } catch {
+    return value;
+  }
+}
 
 export interface LibrarySyncResult {
   serverId: string;
@@ -74,6 +86,18 @@ export async function syncServerLibrary(
     };
   }
 
+  // Decrypt the API key
+  const apiKey = decryptIfPresent(server.mediaServerApiKey);
+  if (!apiKey) {
+    return {
+      serverId,
+      serverName: server.name,
+      synced: 0,
+      skipped: 0,
+      error: "Failed to decrypt media server API key",
+    };
+  }
+
   let syncedCount = 0;
   let skippedCount = 0;
   let episodesSynced = 0;
@@ -92,13 +116,13 @@ export async function syncServerLibrary(
     if (server.mediaServerType === MediaServerType.EMBY) {
       items = await fetchEmbyLibraryForSync(
         server.mediaServerUrl,
-        server.mediaServerApiKey,
+        apiKey,
         { sinceDate: options.sinceDate }
       );
     } else if (server.mediaServerType === MediaServerType.PLEX) {
       items = await fetchPlexLibraryForSync(
         server.mediaServerUrl,
-        server.mediaServerApiKey,
+        apiKey,
         { sinceDate: options.sinceDate }
       );
     }
@@ -152,7 +176,7 @@ export async function syncServerLibrary(
     const episodeStart = Date.now();
 
     try {
-      episodesSynced = await syncServerEpisodes(server.id, server.mediaServerType, server.mediaServerUrl, server.mediaServerApiKey, options.sinceDate);
+      episodesSynced = await syncServerEpisodes(server.id, server.mediaServerType, server.mediaServerUrl, apiKey, options.sinceDate);
       console.log(`[LibrarySync] Episode sync completed: ${episodesSynced} episodes in ${Date.now() - episodeStart}ms`);
     } catch (episodeError) {
       console.error(`[LibrarySync] Error syncing episodes for ${server.name}:`, episodeError);

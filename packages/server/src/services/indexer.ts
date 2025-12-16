@@ -13,6 +13,18 @@ import {
   TORRENTLEECH_CATEGORY_GROUPS,
   type TorrentLeechSearchOptions,
 } from "./torrentleech.js";
+import { getCryptoService } from "./crypto.js";
+
+// Decrypt API key, falling back to the raw value for legacy unencrypted data
+function decryptApiKey(encrypted: string): string {
+  try {
+    const crypto = getCryptoService();
+    return crypto.decrypt(encrypted);
+  } catch {
+    // Return as-is if decryption fails (might be unencrypted legacy data)
+    return encrypted;
+  }
+}
 
 // Quality scoring weights
 const QUALITY_SCORES = {
@@ -135,8 +147,14 @@ class IndexerService {
       };
     }
 
+    // Decrypt API keys before searching
+    const indexersWithDecryptedKeys = indexers.map((indexer) => ({
+      ...indexer,
+      apiKey: decryptApiKey(indexer.apiKey),
+    }));
+
     const results = await Promise.allSettled(
-      indexers.map((indexer) => this.searchIndexer(indexer, options))
+      indexersWithDecryptedKeys.map((indexer) => this.searchIndexer(indexer, options))
     );
 
     const allReleases: Release[] = [];

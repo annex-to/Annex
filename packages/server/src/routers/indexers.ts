@@ -8,6 +8,7 @@ import {
   TORRENTLEECH_CATEGORIES,
   TORRENTLEECH_CATEGORY_GROUPS,
 } from "../services/torrentleech.js";
+import { getCryptoService } from "../services/crypto.js";
 
 const indexerInputSchema = z.object({
   name: z.string().min(1),
@@ -37,6 +38,24 @@ function fromIndexerType(value: IndexerType): string {
   return value.toLowerCase();
 }
 
+// Encryption helpers for sensitive fields
+function encryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const crypto = getCryptoService();
+  return crypto.encrypt(value);
+}
+
+function decryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const crypto = getCryptoService();
+    return crypto.decrypt(value);
+  } catch {
+    // Return as-is if decryption fails (might be unencrypted legacy data)
+    return value;
+  }
+}
+
 export const indexersRouter = router({
   /**
    * List all indexers
@@ -51,7 +70,7 @@ export const indexersRouter = router({
       name: i.name,
       type: fromIndexerType(i.type),
       url: i.url,
-      apiKey: i.apiKey,
+      hasApiKey: !!i.apiKey,
       categories: {
         movies: i.categoriesMovies,
         tv: i.categoriesTv,
@@ -80,7 +99,7 @@ export const indexersRouter = router({
       name: i.name,
       type: fromIndexerType(i.type),
       url: i.url,
-      apiKey: i.apiKey,
+      hasApiKey: !!i.apiKey,
       categories: {
         movies: i.categoriesMovies,
         tv: i.categoriesTv,
@@ -101,7 +120,7 @@ export const indexersRouter = router({
         name: input.name,
         type: toIndexerType(input.type),
         url: input.url,
-        apiKey: input.apiKey,
+        apiKey: encryptIfPresent(input.apiKey) || "",
         categoriesMovies: input.categories.movies,
         categoriesTv: input.categories.tv,
         priority: input.priority,
@@ -125,7 +144,8 @@ export const indexersRouter = router({
       if (updates.name !== undefined) data.name = updates.name;
       if (updates.type !== undefined) data.type = toIndexerType(updates.type);
       if (updates.url !== undefined) data.url = updates.url;
-      if (updates.apiKey !== undefined) data.apiKey = updates.apiKey;
+      // Only update apiKey if a new one was provided (don't overwrite with null/empty)
+      if (updates.apiKey) data.apiKey = encryptIfPresent(updates.apiKey);
       if (updates.categories?.movies !== undefined) data.categoriesMovies = updates.categories.movies;
       if (updates.categories?.tv !== undefined) data.categoriesTv = updates.categories.tv;
       if (updates.priority !== undefined) data.priority = updates.priority;
@@ -165,12 +185,15 @@ export const indexersRouter = router({
       };
     }
 
+    // Decrypt the API key for testing
+    const apiKey = decryptIfPresent(indexer.apiKey) || "";
+
     try {
       // Test based on indexer type
       if (indexer.type === IndexerType.TORRENTLEECH) {
         // Test TorrentLeech connection
         // Format: username:password or username:password:alt2FAToken or username:password:alt2FAToken:rssKey
-        const parts = indexer.apiKey.split(":");
+        const parts = apiKey.split(":");
         const [username, password] = parts;
 
         // Third part could be 2FA token (32 char MD5) or RSS key (longer)
@@ -218,7 +241,7 @@ export const indexersRouter = router({
       } else {
         // Test Torznab/Newznab connection via capabilities endpoint
         const baseUrl = indexer.url.replace(/\/+$/, "");
-        const capsUrl = `${baseUrl}/api?apikey=${encodeURIComponent(indexer.apiKey)}&t=caps`;
+        const capsUrl = `${baseUrl}/api?apikey=${encodeURIComponent(apiKey)}&t=caps`;
 
         const response = await fetch(capsUrl, {
           signal: AbortSignal.timeout(15000),

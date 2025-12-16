@@ -133,15 +133,14 @@ export const secretsRouter = router({
   }),
 
   /**
-   * Get a secret value
+   * Get a secret's status
    * Admin only
-   * Returns masked value by default
+   * Never returns the actual secret value - only masked version for sensitive secrets
    */
   get: adminProcedure
     .input(
       z.object({
         key: z.string(),
-        masked: z.boolean().default(true),
       })
     )
     .query(async ({ input }) => {
@@ -156,7 +155,8 @@ export const secretsRouter = router({
 
       return {
         key: input.key,
-        value: input.masked && def?.sensitive ? maskSecret(value) : value,
+        // Always mask sensitive secrets - never expose plain text
+        value: def?.sensitive ? maskSecret(value) : value,
         hasValue: true,
         label: def?.label,
       };
@@ -229,7 +229,7 @@ export const secretsRouter = router({
   testConnection: adminProcedure
     .input(
       z.object({
-        service: z.enum(["qbittorrent", "plex", "emby", "tmdb", "mdblist"]),
+        service: z.enum(["qbittorrent", "tmdb", "mdblist"]),
       })
     )
     .mutation(async ({ input }) => {
@@ -297,58 +297,6 @@ export const secretsRouter = router({
 
             if (response.ok) {
               return { success: true, message: "Connected to MDBList!" };
-            } else {
-              return { success: false, error: `HTTP ${response.status}` };
-            }
-          } catch (error) {
-            return { success: false, error: (error as Error).message };
-          }
-        }
-
-        case "plex": {
-          const serverUrl = await secrets.getSecret("plex.serverUrl");
-          const token = await secrets.getSecret("plex.serverToken");
-
-          if (!serverUrl) {
-            return { success: false, error: "Plex server URL not configured" };
-          }
-          if (!token) {
-            return { success: false, error: "Plex server token not configured" };
-          }
-
-          try {
-            const response = await fetch(`${serverUrl}/identity`, {
-              headers: { "X-Plex-Token": token },
-            });
-
-            if (response.ok) {
-              return { success: true, message: "Connected to Plex!" };
-            } else {
-              return { success: false, error: `HTTP ${response.status}` };
-            }
-          } catch (error) {
-            return { success: false, error: (error as Error).message };
-          }
-        }
-
-        case "emby": {
-          const serverUrl = await secrets.getSecret("emby.serverUrl");
-          const apiKey = await secrets.getSecret("emby.apiKey");
-
-          if (!serverUrl) {
-            return { success: false, error: "Emby server URL not configured" };
-          }
-          if (!apiKey) {
-            return { success: false, error: "Emby API key not configured" };
-          }
-
-          try {
-            const response = await fetch(
-              `${serverUrl}/System/Info?api_key=${apiKey}`
-            );
-
-            if (response.ok) {
-              return { success: true, message: "Connected to Emby!" };
             } else {
               return { success: false, error: `HTTP ${response.status}` };
             }

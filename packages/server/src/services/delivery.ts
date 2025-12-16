@@ -13,7 +13,19 @@ import { dirname } from "path";
 import SftpClient from "ssh2-sftp-client";
 import { prisma } from "../db/client.js";
 import { triggerPlexLibraryScan } from "./plex.js";
+import { getCryptoService } from "./crypto.js";
 import type { StorageServer } from "@prisma/client";
+
+// Decrypt value, falling back to raw value for legacy unencrypted data
+function decryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const crypto = getCryptoService();
+    return crypto.decrypt(value);
+  } catch {
+    return value;
+  }
+}
 
 export interface DeliveryProgress {
   bytesTransferred: number;
@@ -717,13 +729,20 @@ class DeliveryService {
       return;
     }
 
+    // Decrypt the API key
+    const apiKey = decryptIfPresent(server.mediaServerApiKey);
+    if (!apiKey) {
+      console.log(`[Delivery] Failed to decrypt media server API key for ${server.name}`);
+      return;
+    }
+
     switch (server.mediaServerType) {
       case "PLEX":
-        await this.triggerPlexScan(server, deliveredPath);
+        await this.triggerPlexScan(server, deliveredPath, apiKey);
         break;
 
       case "EMBY":
-        await this.triggerEmbyScan(server, deliveredPath);
+        await this.triggerEmbyScan(server, deliveredPath, apiKey);
         break;
     }
   }
@@ -731,7 +750,7 @@ class DeliveryService {
   /**
    * Trigger Plex library scan
    */
-  private async triggerPlexScan(server: StorageServer, deliveredPath: string): Promise<void> {
+  private async triggerPlexScan(server: StorageServer, deliveredPath: string, apiKey: string): Promise<void> {
     // Determine which library to scan based on path
     const isMovie = deliveredPath.includes(server.pathMovies);
     const libraryIds = isMovie ? server.mediaServerLibraryMovies : server.mediaServerLibraryTv;
@@ -746,7 +765,7 @@ class DeliveryService {
       try {
         await triggerPlexLibraryScan(
           server.mediaServerUrl!,
-          server.mediaServerApiKey!,
+          apiKey,
           libraryId
         );
         console.log(`[Delivery] Triggered Plex scan for library ${libraryId}`);
@@ -759,7 +778,7 @@ class DeliveryService {
   /**
    * Trigger Emby library scan
    */
-  private async triggerEmbyScan(server: StorageServer, deliveredPath: string): Promise<void> {
+  private async triggerEmbyScan(server: StorageServer, deliveredPath: string, apiKey: string): Promise<void> {
     // Determine which library to scan based on path
     const isMovie = deliveredPath.includes(server.pathMovies);
     const libraryIds = isMovie ? server.mediaServerLibraryMovies : server.mediaServerLibraryTv;
@@ -776,7 +795,7 @@ class DeliveryService {
         const response = await fetch(`${baseUrl}/Library/Refresh`, {
           method: "POST",
           headers: {
-            "X-Emby-Token": server.mediaServerApiKey!,
+            "X-Emby-Token": apiKey,
           },
         });
 

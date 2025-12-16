@@ -15,12 +15,13 @@ import {
   fetchPlexStats,
 } from "../services/plex.js";
 import { getJobQueueService } from "../services/jobQueue.js";
+import { getCryptoService } from "../services/crypto.js";
 
 const mediaServerConfigSchema = z
   .object({
     type: z.enum(["plex", "emby", "none"]),
     url: z.string().url(),
-    apiKey: z.string(),
+    apiKey: z.string().optional(), // Optional on updates - omit to keep existing key
     libraryIds: z.object({
       movies: z.array(z.string()),
       tv: z.array(z.string()),
@@ -126,6 +127,24 @@ function fromMediaServerType(value: MediaServerType): string {
   return value.toLowerCase();
 }
 
+// Encryption helpers for sensitive fields
+function encryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const crypto = getCryptoService();
+  return crypto.encrypt(value);
+}
+
+function decryptIfPresent(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const crypto = getCryptoService();
+    return crypto.decrypt(value);
+  } catch {
+    // Return as-is if decryption fails (might be unencrypted legacy data)
+    return value;
+  }
+}
+
 export const serversRouter = router({
   /**
    * List all storage servers
@@ -157,7 +176,7 @@ export const serversRouter = router({
           ? {
               type: fromMediaServerType(s.mediaServerType),
               url: s.mediaServerUrl!,
-              apiKey: s.mediaServerApiKey!,
+              hasApiKey: !!s.mediaServerApiKey,
               libraryIds: {
                 movies: s.mediaServerLibraryMovies,
                 tv: s.mediaServerLibraryTv,
@@ -208,7 +227,7 @@ export const serversRouter = router({
           ? {
               type: fromMediaServerType(s.mediaServerType),
               url: s.mediaServerUrl!,
-              apiKey: s.mediaServerApiKey!,
+              hasApiKey: !!s.mediaServerApiKey,
               libraryIds: {
                 movies: s.mediaServerLibraryMovies,
                 tv: s.mediaServerLibraryTv,
@@ -229,7 +248,6 @@ export const serversRouter = router({
    * Create a new storage server
    */
   create: publicProcedure.input(serverInputSchema).mutation(async ({ input }) => {
-    // TODO: Encrypt password/privateKey before storing
     const server = await prisma.storageServer.create({
       data: {
         name: input.name,
@@ -237,8 +255,8 @@ export const serversRouter = router({
         port: input.port,
         protocol: toProtocol(input.protocol),
         username: input.username,
-        encryptedPassword: input.password || null,
-        encryptedPrivateKey: input.privateKey || null,
+        encryptedPassword: encryptIfPresent(input.password),
+        encryptedPrivateKey: encryptIfPresent(input.privateKey),
         pathMovies: input.paths.movies,
         pathTv: input.paths.tv,
         maxResolution: toResolution(input.restrictions.maxResolution),
@@ -247,7 +265,7 @@ export const serversRouter = router({
         maxBitrate: input.restrictions.maxBitrate,
         mediaServerType: toMediaServerType(input.mediaServer?.type ?? null),
         mediaServerUrl: input.mediaServer?.url || null,
-        mediaServerApiKey: input.mediaServer?.apiKey || null,
+        mediaServerApiKey: encryptIfPresent(input.mediaServer?.apiKey),
         mediaServerLibraryMovies: input.mediaServer?.libraryIds.movies ?? [],
         mediaServerLibraryTv: input.mediaServer?.libraryIds.tv ?? [],
         librarySyncEnabled: input.librarySync?.enabled ?? true,
@@ -280,8 +298,8 @@ export const serversRouter = router({
       if (updates.port !== undefined) data.port = updates.port;
       if (updates.protocol !== undefined) data.protocol = toProtocol(updates.protocol);
       if (updates.username !== undefined) data.username = updates.username;
-      if (updates.password !== undefined) data.encryptedPassword = updates.password;
-      if (updates.privateKey !== undefined) data.encryptedPrivateKey = updates.privateKey;
+      if (updates.password !== undefined) data.encryptedPassword = encryptIfPresent(updates.password);
+      if (updates.privateKey !== undefined) data.encryptedPrivateKey = encryptIfPresent(updates.privateKey);
       if (updates.paths?.movies !== undefined) data.pathMovies = updates.paths.movies;
       if (updates.paths?.tv !== undefined) data.pathTv = updates.paths.tv;
       if (updates.restrictions?.maxResolution !== undefined)
@@ -303,7 +321,10 @@ export const serversRouter = router({
         } else {
           data.mediaServerType = toMediaServerType(updates.mediaServer.type);
           data.mediaServerUrl = updates.mediaServer.url;
-          data.mediaServerApiKey = updates.mediaServer.apiKey;
+          // Only update API key if a new one was provided (don't overwrite with null)
+          if (updates.mediaServer.apiKey) {
+            data.mediaServerApiKey = encryptIfPresent(updates.mediaServer.apiKey);
+          }
           data.mediaServerLibraryMovies = updates.mediaServer.libraryIds.movies;
           data.mediaServerLibraryTv = updates.mediaServer.libraryIds.tv;
         }
@@ -380,6 +401,12 @@ export const serversRouter = router({
         throw new Error("Media server URL or API key not configured");
       }
 
+      // Decrypt the API key for use
+      const apiKey = decryptIfPresent(server.mediaServerApiKey);
+      if (!apiKey) {
+        throw new Error("Failed to decrypt media server API key");
+      }
+
       let syncedCount = 0;
       let skippedCount = 0;
 
@@ -387,7 +414,7 @@ export const serversRouter = router({
         // Fetch all items from Emby
         const items = await fetchEmbyLibraryForSync(
           server.mediaServerUrl,
-          server.mediaServerApiKey
+          apiKey
         );
 
         // Upsert all items to LibraryItem table
@@ -425,7 +452,7 @@ export const serversRouter = router({
         // Fetch all items from Plex
         const items = await fetchPlexLibraryForSync(
           server.mediaServerUrl,
-          server.mediaServerApiKey
+          apiKey
         );
 
         // Upsert all items to LibraryItem table
@@ -794,11 +821,17 @@ export const serversRouter = router({
         throw new Error("Media server URL or API key not configured");
       }
 
+      // Decrypt the API key for use
+      const apiKey = decryptIfPresent(server.mediaServerApiKey);
+      if (!apiKey) {
+        throw new Error("Failed to decrypt media server API key");
+      }
+
       if (server.mediaServerType === MediaServerType.EMBY) {
         const startIndex = (input.page - 1) * input.limit;
         const result = await fetchEmbyMediaPaginated(
           server.mediaServerUrl,
-          server.mediaServerApiKey,
+          apiKey,
           {
             type: input.type,
             startIndex,
@@ -823,7 +856,7 @@ export const serversRouter = router({
         const plexSortOrder = input.sortOrder === "Ascending" ? "asc" : "desc";
         const result = await fetchPlexMediaPaginated(
           server.mediaServerUrl,
-          server.mediaServerApiKey,
+          apiKey,
           {
             type: input.type,
             startIndex,
@@ -869,10 +902,16 @@ export const serversRouter = router({
         return null;
       }
 
+      // Decrypt the API key for use
+      const apiKey = decryptIfPresent(server.mediaServerApiKey);
+      if (!apiKey) {
+        return null;
+      }
+
       if (server.mediaServerType === MediaServerType.EMBY) {
         const stats = await fetchEmbyStats(
           server.mediaServerUrl,
-          server.mediaServerApiKey
+          apiKey
         );
         return {
           ...stats,
@@ -882,7 +921,7 @@ export const serversRouter = router({
       } else if (server.mediaServerType === MediaServerType.PLEX) {
         const stats = await fetchPlexStats(
           server.mediaServerUrl,
-          server.mediaServerApiKey
+          apiKey
         );
         return {
           ...stats,
