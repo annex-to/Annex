@@ -7,6 +7,7 @@
 
 import { getConfig } from "../config/index.js";
 import { isSampleFile } from "./archive.js";
+import { getSecretsService } from "./secrets.js";
 
 interface TorrentInfo {
   hash: string;
@@ -97,13 +98,68 @@ class DownloadService {
   private qbBaseDir: string | undefined;
   private cookie: string | null = null;
   private cookieExpiry: number = 0;
+  private credentialsPromise: Promise<void> | null = null;
+  private credentialsLoaded: boolean = false;
 
   constructor() {
     const config = getConfig();
+    // Load from config initially as fallback
     this.baseUrl = config.qbittorrent.url.replace(/\/+$/, "");
     this.username = config.qbittorrent.username || "";
     this.password = config.qbittorrent.password || "";
     this.qbBaseDir = config.qbittorrent.baseDir?.replace(/\/+$/, "");
+
+    // Listen for secret changes to refresh credentials
+    const secrets = getSecretsService();
+    secrets.on("change", (key: string) => {
+      if (key.startsWith("qbittorrent.")) {
+        this.credentialsLoaded = false;
+        this.credentialsPromise = null;
+        this.cookie = null;
+        this.cookieExpiry = 0;
+      }
+    });
+  }
+
+  /**
+   * Load credentials from secrets store (preferred) or config (fallback)
+   */
+  private async loadCredentials(): Promise<void> {
+    if (this.credentialsLoaded) {
+      return;
+    }
+
+    // Prevent duplicate fetches
+    if (this.credentialsPromise) {
+      return this.credentialsPromise;
+    }
+
+    this.credentialsPromise = (async () => {
+      try {
+        const secrets = getSecretsService();
+        const [url, username, password] = await Promise.all([
+          secrets.getSecret("qbittorrent.url"),
+          secrets.getSecret("qbittorrent.username"),
+          secrets.getSecret("qbittorrent.password"),
+        ]);
+
+        if (url) {
+          this.baseUrl = url.replace(/\/+$/, "");
+        }
+        if (username !== null) {
+          this.username = username;
+        }
+        if (password !== null) {
+          this.password = password;
+        }
+      } catch {
+        // Keep config values on error
+      }
+
+      this.credentialsLoaded = true;
+    })();
+
+    return this.credentialsPromise;
   }
 
   /**
@@ -146,6 +202,9 @@ class DownloadService {
    * Authenticate with qBittorrent
    */
   private async authenticate(): Promise<void> {
+    // Load credentials from secrets first
+    await this.loadCredentials();
+
     // Reuse valid cookie
     if (this.cookie && Date.now() < this.cookieExpiry) {
       return;

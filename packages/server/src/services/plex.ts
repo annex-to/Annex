@@ -6,6 +6,7 @@
  */
 
 import { getConfig } from "../config/index.js";
+import { getSecretsService } from "./secrets.js";
 
 // =============================================================================
 // Types
@@ -686,41 +687,76 @@ export async function findPlexItemByTmdbId(
 // Global Config-based Functions (for backward compatibility)
 // =============================================================================
 
+// Cache for Plex credentials
+let plexCredentialsCache: { url?: string; token?: string } | null = null;
+
+// Listen for secret changes
+const plexSecrets = getSecretsService();
+plexSecrets.on("change", (key: string) => {
+  if (key.startsWith("plex.")) {
+    plexCredentialsCache = null;
+  }
+});
+
+/**
+ * Load Plex credentials from secrets store (preferred) or config (fallback)
+ */
+async function loadPlexCredentials(): Promise<{ url?: string; token?: string }> {
+  if (plexCredentialsCache) {
+    return plexCredentialsCache;
+  }
+
+  const secrets = getSecretsService();
+  const [secretUrl, secretToken] = await Promise.all([
+    secrets.getSecret("plex.serverUrl"),
+    secrets.getSecret("plex.serverToken"),
+  ]);
+
+  const config = getConfig();
+  plexCredentialsCache = {
+    url: secretUrl || config.plex.serverUrl || undefined,
+    token: secretToken || config.plex.serverToken || undefined,
+  };
+
+  return plexCredentialsCache;
+}
+
 /**
  * Get the configured Plex server URL
  */
-function getPlexServerUrl(): string {
-  const config = getConfig();
-  if (!config.plex.serverUrl) {
+async function getPlexServerUrl(): Promise<string> {
+  const creds = await loadPlexCredentials();
+  if (!creds.url) {
     throw new Error("Plex server URL is not configured");
   }
-  return config.plex.serverUrl.replace(/\/$/, "");
+  return creds.url.replace(/\/$/, "");
 }
 
 /**
  * Get the configured Plex server token
  */
-function getPlexServerToken(): string {
-  const config = getConfig();
-  if (!config.plex.serverToken) {
+async function getPlexServerToken(): Promise<string> {
+  const creds = await loadPlexCredentials();
+  if (!creds.token) {
     throw new Error("Plex server token is not configured");
   }
-  return config.plex.serverToken;
+  return creds.token;
 }
 
 /**
  * Check if Plex is fully configured (URL and token)
  */
-export function isPlexFullyConfigured(): boolean {
-  const config = getConfig();
-  return !!(config.plex.serverUrl && config.plex.serverToken);
+export async function isPlexFullyConfigured(): Promise<boolean> {
+  const creds = await loadPlexCredentials();
+  return !!(creds.url && creds.token);
 }
 
 /**
  * Get libraries from the globally configured Plex server
  */
 export async function getConfiguredPlexLibraries(): Promise<PlexLibrary[]> {
-  return getPlexLibraries(getPlexServerUrl(), getPlexServerToken());
+  const [url, token] = await Promise.all([getPlexServerUrl(), getPlexServerToken()]);
+  return getPlexLibraries(url, token);
 }
 
 /**
@@ -731,7 +767,8 @@ export async function getConfiguredPlexStats(): Promise<{
   tvShowCount: number;
   episodeCount: number;
 }> {
-  return fetchPlexStats(getPlexServerUrl(), getPlexServerToken());
+  const [url, token] = await Promise.all([getPlexServerUrl(), getPlexServerToken()]);
+  return fetchPlexStats(url, token);
 }
 
 /**

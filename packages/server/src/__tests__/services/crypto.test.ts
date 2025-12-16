@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CryptoService, resetCryptoService } from "../../services/crypto.js";
-import { writeFileSync, readFileSync, unlinkSync, chmodSync, existsSync, statSync } from "fs";
+import { writeFileSync, readFileSync, chmodSync, existsSync, statSync } from "fs";
 import { randomBytes } from "crypto";
 import { join } from "path";
 import { mkdtempSync, rmSync } from "fs";

@@ -6,6 +6,7 @@
  */
 
 import { getConfig } from "../config/index.js";
+import { getSecretsService } from "./secrets.js";
 
 // =============================================================================
 // Types
@@ -119,42 +120,77 @@ export interface EmbyLibraryItem {
 // Helpers
 // =============================================================================
 
+// Cache for Emby credentials
+let embyCredentialsCache: { url?: string; apiKey?: string } | null = null;
+
+// Listen for secret changes
+const embySecrets = getSecretsService();
+embySecrets.on("change", (key: string) => {
+  if (key.startsWith("emby.")) {
+    embyCredentialsCache = null;
+  }
+});
+
+/**
+ * Load Emby credentials from secrets store (preferred) or config (fallback)
+ */
+async function loadEmbyCredentials(): Promise<{ url?: string; apiKey?: string }> {
+  if (embyCredentialsCache) {
+    return embyCredentialsCache;
+  }
+
+  const secrets = getSecretsService();
+  const [secretUrl, secretApiKey] = await Promise.all([
+    secrets.getSecret("emby.serverUrl"),
+    secrets.getSecret("emby.apiKey"),
+  ]);
+
+  const config = getConfig();
+  embyCredentialsCache = {
+    url: secretUrl || config.emby.serverUrl || undefined,
+    apiKey: secretApiKey || config.emby.apiKey || undefined,
+  };
+
+  return embyCredentialsCache;
+}
+
 /**
  * Get the configured Emby server URL
  */
-function getEmbyServerUrl(): string {
-  const config = getConfig();
-  if (!config.emby.serverUrl) {
+async function getEmbyServerUrl(): Promise<string> {
+  const creds = await loadEmbyCredentials();
+  if (!creds.url) {
     throw new Error("Emby server URL is not configured");
   }
-  return config.emby.serverUrl.replace(/\/$/, "");
+  return creds.url.replace(/\/$/, "");
 }
 
 /**
  * Get the configured Emby API key
  */
-function getEmbyApiKey(): string {
-  const config = getConfig();
-  if (!config.emby.apiKey) {
+async function getEmbyApiKey(): Promise<string> {
+  const creds = await loadEmbyCredentials();
+  if (!creds.apiKey) {
     throw new Error("Emby API key is not configured");
   }
-  return config.emby.apiKey;
+  return creds.apiKey;
 }
 
 /**
  * Check if Emby is fully configured (URL and API key)
  */
-export function isEmbyFullyConfigured(): boolean {
-  const config = getConfig();
-  return !!(config.emby.serverUrl && config.emby.apiKey);
+export async function isEmbyFullyConfigured(): Promise<boolean> {
+  const creds = await loadEmbyCredentials();
+  return !!(creds.url && creds.apiKey);
 }
 
 /**
  * Build headers for Emby API requests
  */
-function getEmbyHeaders(): Record<string, string> {
+async function getEmbyHeaders(): Promise<Record<string, string>> {
+  const apiKey = await getEmbyApiKey();
   return {
-    "X-Emby-Token": getEmbyApiKey(),
+    "X-Emby-Token": apiKey,
     "Content-Type": "application/json",
   };
 }
@@ -163,13 +199,14 @@ function getEmbyHeaders(): Record<string, string> {
  * Make a request to the Emby API
  */
 async function embyFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const baseUrl = getEmbyServerUrl();
+  const baseUrl = await getEmbyServerUrl();
   const url = `${baseUrl}${endpoint}`;
+  const headers = await getEmbyHeaders();
 
   const response = await fetch(url, {
     ...options,
     headers: {
-      ...getEmbyHeaders(),
+      ...headers,
       ...options?.headers,
     },
   });
@@ -183,7 +220,8 @@ async function embyFetch<T>(endpoint: string, options?: RequestInit): Promise<T>
 }
 
 /**
- * Get the primary image URL for an Emby item
+ * Get the primary image URL for an Emby item (sync version using cache)
+ * Uses cached credentials if available, otherwise returns null
  */
 export function getEmbyImageUrl(
   itemId: string,
@@ -193,16 +231,25 @@ export function getEmbyImageUrl(
 ): string | null {
   if (!imageTag) return null;
 
-  try {
-    const baseUrl = getEmbyServerUrl();
-    let url = `${baseUrl}/Items/${itemId}/Images/${imageType}?tag=${imageTag}`;
+  // Use cached URL if available (sync-friendly for image rendering)
+  const baseUrl = embyCredentialsCache?.url?.replace(/\/$/, "");
+  if (!baseUrl) {
+    // Fall back to config for sync access
+    const config = getConfig();
+    if (!config.emby.serverUrl) return null;
+    const configUrl = config.emby.serverUrl.replace(/\/$/, "");
+    let url = `${configUrl}/Items/${itemId}/Images/${imageType}?tag=${imageTag}`;
     if (maxWidth) {
       url += `&maxWidth=${maxWidth}`;
     }
     return url;
-  } catch {
-    return null;
   }
+
+  let url = `${baseUrl}/Items/${itemId}/Images/${imageType}?tag=${imageTag}`;
+  if (maxWidth) {
+    url += `&maxWidth=${maxWidth}`;
+  }
+  return url;
 }
 
 /**

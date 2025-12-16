@@ -14,6 +14,7 @@
  */
 
 import { getConfig } from "../config/index.js";
+import { getSecretsService } from "./secrets.js";
 
 const TRAKT_API_BASE = "https://api.trakt.tv";
 const TRAKT_API_VERSION = "2";
@@ -328,23 +329,71 @@ export interface TraktEpisodeDetails {
 
 class TraktService {
   private clientId: string | undefined;
+  private clientIdPromise: Promise<string | undefined> | null = null;
 
   constructor() {
     const config = getConfig();
+    // Load from config initially as fallback
     this.clientId = config.trakt?.clientId;
+
+    // Listen for secret changes to refresh client ID
+    const secrets = getSecretsService();
+    secrets.on("change", (key: string) => {
+      if (key === "trakt.clientId") {
+        this.clientId = undefined;
+        this.clientIdPromise = null;
+      }
+    });
   }
 
-  isConfigured(): boolean {
-    return Boolean(this.clientId);
+  /**
+   * Get client ID from secrets store (preferred) or config (fallback)
+   */
+  private async getClientId(): Promise<string | undefined> {
+    // Return cached value if available
+    if (this.clientId) {
+      return this.clientId;
+    }
+
+    // Prevent duplicate fetches
+    if (this.clientIdPromise) {
+      return this.clientIdPromise;
+    }
+
+    this.clientIdPromise = (async () => {
+      try {
+        const secrets = getSecretsService();
+        const secretValue = await secrets.getSecret("trakt.clientId");
+        if (secretValue) {
+          this.clientId = secretValue;
+          return secretValue;
+        }
+      } catch {
+        // Fall back to config on error
+      }
+
+      // Fall back to config
+      const config = getConfig();
+      this.clientId = config.trakt?.clientId;
+      return this.clientId;
+    })();
+
+    return this.clientIdPromise;
+  }
+
+  async isConfigured(): Promise<boolean> {
+    const clientId = await this.getClientId();
+    return Boolean(clientId);
   }
 
   private async fetch<T>(
     endpoint: string,
     params?: Record<string, string>
   ): Promise<T> {
-    if (!this.clientId) {
+    const clientId = await this.getClientId();
+    if (!clientId) {
       throw new Error(
-        "Trakt API not configured. Set ANNEX_TRAKT_CLIENT_ID in your environment."
+        "Trakt API not configured. Set ANNEX_TRAKT_CLIENT_ID in your environment or configure via Settings."
       );
     }
 
@@ -371,7 +420,7 @@ class TraktService {
       headers: {
         "Content-Type": "application/json",
         "trakt-api-version": TRAKT_API_VERSION,
-        "trakt-api-key": this.clientId,
+        "trakt-api-key": clientId,
       },
     });
 

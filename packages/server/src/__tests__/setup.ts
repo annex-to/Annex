@@ -6,7 +6,7 @@
 
 import { vi, beforeAll, afterAll, afterEach } from "vitest";
 import { randomBytes } from "crypto";
-import { mkdtempSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -47,7 +47,6 @@ afterAll(() => {
  */
 export function createTestKeyFile(keyPath: string, keyLength = 32): Buffer {
   const key = randomBytes(keyLength);
-  const { writeFileSync, chmodSync } = require("fs");
   writeFileSync(keyPath, key);
   chmodSync(keyPath, 0o600);
   return key;
@@ -116,6 +115,5 @@ export function createMockPrisma() {
 
 // Declare vitest globals
 declare global {
-  // eslint-disable-next-line no-var
   var testTempDir: string;
 }

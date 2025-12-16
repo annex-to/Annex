@@ -16,12 +16,33 @@ import { getIrcAnnounceMonitor } from "./services/ircAnnounce.js";
 import { getRssAnnounceMonitor } from "./services/rssAnnounce.js";
 import { getEncoderDispatchService } from "./services/encoderDispatch.js";
 import { getSchedulerService } from "./services/scheduler.js";
+import { getCryptoService } from "./services/crypto.js";
+import { migrateEnvSecretsIfNeeded } from "./services/secrets.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize configuration early to catch errors
 const config = initConfig();
+
+// Initialize crypto service and migrate env secrets to encrypted storage
+// This must happen before any service that might use secrets
+(async () => {
+  try {
+    const crypto = getCryptoService();
+    await crypto.initialize();
+    console.log("[Startup] Crypto service initialized");
+
+    // Migrate any secrets from env/config to encrypted storage
+    const { migrated, skipped } = await migrateEnvSecretsIfNeeded();
+    if (migrated.length > 0 || skipped.length > 0) {
+      console.log(`[Startup] Secrets migration complete: ${migrated.length} migrated, ${skipped.length} skipped`);
+    }
+  } catch (error) {
+    console.error("[Startup] Failed to initialize crypto/secrets:", error);
+    // Don't exit - the app can still work with env vars
+  }
+})();
 
 // Initialize job queue (will be started after server is ready)
 const jobQueue = getJobQueueService();

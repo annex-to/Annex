@@ -12,6 +12,7 @@ import { createHash } from "crypto";
 import { prisma } from "../db/client.js";
 import { getConfig } from "../config/index.js";
 import { getSchedulerService } from "./scheduler.js";
+import { getSecretsService } from "./secrets.js";
 import type { User, PlexAccount, EmbyAccount, Session } from "@prisma/client";
 
 // Plex API endpoints
@@ -94,18 +95,52 @@ function getPlexHeaders(clientIdentifier: string): Record<string, string> {
   };
 }
 
+// Cache for session secret (for deterministic client ID)
+let sessionSecretCache: string | null = null;
+
+// Listen for secret changes
+const authSecrets = getSecretsService();
+authSecrets.on("change", (key: string) => {
+  if (key === "auth.sessionSecret") {
+    sessionSecretCache = null;
+  }
+});
+
+/**
+ * Get session secret from secrets store (preferred) or config (fallback)
+ */
+async function getSessionSecret(): Promise<string> {
+  if (sessionSecretCache) {
+    return sessionSecretCache;
+  }
+
+  const secrets = getSecretsService();
+  const secretValue = await secrets.getSecret("auth.sessionSecret");
+
+  if (secretValue) {
+    sessionSecretCache = secretValue;
+    return secretValue;
+  }
+
+  // Fall back to config
+  const config = getConfig();
+  sessionSecretCache = config.auth.sessionSecret;
+  return sessionSecretCache;
+}
+
 /**
  * Generate or retrieve a stable client identifier
  * This should be consistent per installation
  */
-function getClientIdentifier(): string {
+async function getClientIdentifier(): Promise<string> {
   const config = getConfig();
   if (config.auth.plexClientId) {
     return config.auth.plexClientId;
   }
   // Generate a deterministic ID based on session secret
+  const sessionSecret = await getSessionSecret();
   return createHash("sha256")
-    .update(`annex-${config.auth.sessionSecret}`)
+    .update(`annex-${sessionSecret}`)
     .digest("hex")
     .substring(0, 32);
 }
@@ -119,7 +154,7 @@ export async function createPlexPin(): Promise<{
   code: string;
   authUrl: string;
 }> {
-  const clientIdentifier = getClientIdentifier();
+  const clientIdentifier = await getClientIdentifier();
 
   const response = await fetch(`${PLEX_PIN_URL}?strong=true`, {
     method: "POST",
@@ -167,6 +202,7 @@ export async function checkPlexPin(pinKey: string): Promise<string | null> {
     throw new Error("PIN expired");
   }
 
+  // Note: Using stored clientIdentifier from when PIN was created
   const response = await fetch(`${PLEX_PIN_URL}/${pendingPin.pinId}`, {
     method: "GET",
     headers: getPlexHeaders(pendingPin.clientIdentifier),
@@ -191,7 +227,7 @@ export async function checkPlexPin(pinKey: string): Promise<string | null> {
  * Get Plex user info using an auth token
  */
 export async function getPlexUser(authToken: string): Promise<PlexUser> {
-  const clientIdentifier = getClientIdentifier();
+  const clientIdentifier = await getClientIdentifier();
 
   const response = await fetch(PLEX_USER_URL, {
     headers: {

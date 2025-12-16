@@ -10,6 +10,7 @@
 import { getConfig } from "../config/index.js";
 import { prisma } from "../db/client.js";
 import { MediaType, Prisma } from "@prisma/client";
+import { getSecretsService } from "./secrets.js";
 
 const MDBLIST_BASE_URL = "https://api.mdblist.com";
 
@@ -95,14 +96,60 @@ interface MDBListBatchResponse {
 
 class MDBListService {
   private apiKey: string | undefined;
+  private apiKeyPromise: Promise<string | undefined> | null = null;
 
   constructor() {
     const config = getConfig();
+    // Load from config initially as fallback
     this.apiKey = config.mdblist.apiKey;
     // Use configured rate limit but cap at something reasonable for Cloudflare
     // Cloudflare typically allows ~10-20 req/sec before triggering rate limits
     maxTokens = Math.min(config.mdblist.rateLimit, 10);
     tokens = maxTokens;
+
+    // Listen for secret changes to refresh API key
+    const secrets = getSecretsService();
+    secrets.on("change", (key: string) => {
+      if (key === "mdblist.apiKey") {
+        this.apiKey = undefined;
+        this.apiKeyPromise = null;
+      }
+    });
+  }
+
+  /**
+   * Get API key from secrets store (preferred) or config (fallback)
+   */
+  private async getApiKey(): Promise<string | undefined> {
+    // Return cached value if available
+    if (this.apiKey) {
+      return this.apiKey;
+    }
+
+    // Prevent duplicate fetches
+    if (this.apiKeyPromise) {
+      return this.apiKeyPromise;
+    }
+
+    this.apiKeyPromise = (async () => {
+      try {
+        const secrets = getSecretsService();
+        const secretValue = await secrets.getSecret("mdblist.apiKey");
+        if (secretValue) {
+          this.apiKey = secretValue;
+          return secretValue;
+        }
+      } catch {
+        // Fall back to config on error
+      }
+
+      // Fall back to config
+      const config = getConfig();
+      this.apiKey = config.mdblist.apiKey;
+      return this.apiKey;
+    })();
+
+    return this.apiKeyPromise;
   }
 
   /**
@@ -164,14 +211,15 @@ class MDBListService {
    * Fetch with retry on 429 rate limit errors
    */
   private async fetch<T>(endpoint: string, options: RequestInit = {}, retries = 3): Promise<T> {
-    if (!this.apiKey) {
-      throw new Error("MDBList API key not configured. Set MDBLIST_API_KEY in your environment.");
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
+      throw new Error("MDBList API key not configured. Set MDBLIST_API_KEY in your environment or configure via Settings.");
     }
 
     await this.rateLimit();
 
     const url = new URL(`${MDBLIST_BASE_URL}${endpoint}`);
-    url.searchParams.set("apikey", this.apiKey);
+    url.searchParams.set("apikey", apiKey);
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       const response = await fetch(url.toString(), {

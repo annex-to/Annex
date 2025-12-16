@@ -15,7 +15,6 @@ import {
   randomBytes,
   createCipheriv,
   createDecipheriv,
-  timingSafeEqual,
 } from "crypto";
 import { readFile, writeFile, chmod, access, stat, constants } from "fs/promises";
 import { join } from "path";

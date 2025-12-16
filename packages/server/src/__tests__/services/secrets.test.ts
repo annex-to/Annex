@@ -41,9 +41,10 @@ describe("SecretsService", () => {
     mockPrisma = createMockPrisma();
 
     // Create secrets service with injected dependencies
+    // The mock has extra test helpers (_store, _clear) but implements the required interface
     secretsService = new SecretsService({
       cacheTTL: 100, // Short TTL for testing
-      prismaClient: mockPrisma as any,
+      prismaClient: { setting: mockPrisma.setting },
       cryptoProvider: () => cryptoService,
     });
   });

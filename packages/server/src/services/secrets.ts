@@ -14,6 +14,8 @@
 import { EventEmitter } from "events";
 import type { CryptoService } from "./crypto.js";
 import { getConfig } from "../config/index.js";
+import { prisma } from "../db/client.js";
+import { getCryptoService } from "./crypto.js";
 
 const DEFAULT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -53,21 +55,9 @@ export class SecretsService extends EventEmitter {
     super();
     this.cacheTTL = options?.cacheTTL ?? DEFAULT_CACHE_TTL;
 
-    // Lazy load dependencies to support testing
-    if (options?.prismaClient) {
-      this.db = options.prismaClient;
-    } else {
-      // Dynamic import to avoid immediate instantiation in tests
-      const { prisma } = require("../db/client.js");
-      this.db = prisma;
-    }
-
-    if (options?.cryptoProvider) {
-      this.cryptoProvider = options.cryptoProvider;
-    } else {
-      const { getCryptoService } = require("./crypto.js");
-      this.cryptoProvider = getCryptoService;
-    }
+    // Use injected dependencies for testing, otherwise use real implementations
+    this.db = options?.prismaClient ?? prisma;
+    this.cryptoProvider = options?.cryptoProvider ?? getCryptoService;
   }
 
   /**

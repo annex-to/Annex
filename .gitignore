@@ -52,3 +52,4 @@ backups/
 *.tar.gz
 packages/client/dist-node/
 packages/encoder/dist-package/
+.annex-key
