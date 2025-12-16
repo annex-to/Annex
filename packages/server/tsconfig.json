@@ -6,6 +6,7 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
+  "exclude": ["src/__tests__/**/*"],
   "references": [
     { "path": "../shared" }
   ]
