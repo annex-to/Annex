@@ -1,55 +1,51 @@
 /**
  * Annex Remote Encoder
  *
- * Entry point for the remote encoder service.
- * Connects to the main Annex server and processes encoding jobs.
+ * Entry point for the remote encoder CLI.
+ * Dispatches to appropriate command based on CLI arguments.
  */
 
-import { initConfig } from "./config.js";
-import { EncoderClient } from "./client.js";
-import { testGpuEncoding, isGpuAvailable } from "./gpu.js";
+import { parseArgs } from "./cli.js";
+import { help } from "./commands/help.js";
+import { version } from "./commands/version.js";
+import { run } from "./commands/run.js";
+import { setup } from "./commands/setup.js";
+import { update } from "./commands/update.js";
 
 async function main(): Promise<void> {
-  // Initialize configuration
-  const config = initConfig();
+  // Parse command-line arguments (skip first two: node/bun and script path)
+  const args = parseArgs(process.argv.slice(2));
 
-  // Check GPU availability
-  console.log(`[Startup] Checking GPU: ${config.gpuDevice}`);
-
-  if (!isGpuAvailable(config.gpuDevice)) {
-    console.error(`[Startup] GPU device not accessible: ${config.gpuDevice}`);
-    console.error("[Startup] Make sure the device exists and you have read/write permissions");
+  // Check for unknown arguments
+  if (args.unknown.length > 0) {
+    console.error(`Unknown arguments: ${args.unknown.join(", ")}`);
+    console.error("Run 'annex-encoder --help' for usage information");
     process.exit(1);
   }
 
-  // Test GPU encoding capability
-  console.log("[Startup] Testing AV1 encoding capability...");
-  const gpuWorks = await testGpuEncoding(config.gpuDevice);
+  // Dispatch to appropriate command
+  switch (args.command) {
+    case "help":
+      help();
+      break;
 
-  if (!gpuWorks) {
-    console.error(`[Startup] GPU ${config.gpuDevice} failed AV1 encoding test`);
-    console.error("[Startup] Check FFmpeg VAAPI support and GPU drivers");
-    process.exit(1);
+    case "version":
+      version();
+      break;
+
+    case "update":
+      await update(args);
+      break;
+
+    case "setup":
+      await setup(args);
+      break;
+
+    case "run":
+    default:
+      await run();
+      break;
   }
-
-  console.log("[Startup] GPU AV1 encoding test passed");
-
-  // Start the encoder client
-  const client = new EncoderClient();
-  await client.start();
-
-  // Handle graceful shutdown
-  const shutdown = async (signal: string) => {
-    console.log(`\n[Shutdown] Received ${signal}`);
-    await client.stop();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-  // Keep process running
-  process.stdin.resume();
 }
 
 main().catch((error) => {
