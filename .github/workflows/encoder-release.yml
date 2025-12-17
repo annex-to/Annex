@@ -1,0 +1,164 @@
+name: Encoder Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Calculate new version
+        id: version
+        run: |
+          cd packages/encoder
+          CURRENT_VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\([^"]*\)".*/\1/')
+          echo "Current version: $CURRENT_VERSION"
+
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+
+          case "${{ github.event.inputs.version_bump }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${major}.${minor}.${patch}"
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        run: |
+          cd packages/encoder
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.version.outputs.new_version }}"/' package.json
+          echo "Updated package.json to version ${{ steps.version.outputs.new_version }}"
+
+      - name: Build encoder binaries
+        run: |
+          cd packages/encoder
+          bun scripts/build-dist.js
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/encoder/package.json
+          git commit -m "chore(encoder): bump version to ${{ steps.version.outputs.new_version }}"
+
+      - name: Create and push tag
+        run: |
+          git tag "encoder-v${{ steps.version.outputs.new_version }}"
+          git push origin main
+          git push origin "encoder-v${{ steps.version.outputs.new_version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: encoder-v${{ steps.version.outputs.new_version }}
+          name: Encoder v${{ steps.version.outputs.new_version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            packages/encoder/dist-binaries/annex-encoder-linux-x64
+            packages/encoder/dist-binaries/annex-encoder-linux-arm64
+            packages/encoder/dist-binaries/annex-encoder-windows-x64.exe
+            packages/encoder/dist-binaries/annex-encoder-darwin-x64
+            packages/encoder/dist-binaries/annex-encoder-darwin-arm64
+            packages/encoder/dist-binaries/manifest.json
+          body: |
+            ## Annex Remote Encoder v${{ steps.version.outputs.new_version }}
+
+            Self-contained AV1 encoder binaries for all platforms.
+
+            ### Installation
+
+            Download the binary for your platform and make it executable:
+
+            **Linux (x64):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/encoder-v${{ steps.version.outputs.new_version }}/annex-encoder-linux-x64 -o annex-encoder
+            chmod +x annex-encoder
+            sudo mv annex-encoder /usr/local/bin/
+            ```
+
+            **Linux (arm64):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/encoder-v${{ steps.version.outputs.new_version }}/annex-encoder-linux-arm64 -o annex-encoder
+            chmod +x annex-encoder
+            sudo mv annex-encoder /usr/local/bin/
+            ```
+
+            **Windows:**
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/encoder-v${{ steps.version.outputs.new_version }}/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
+            ```
+
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/encoder-v${{ steps.version.outputs.new_version }}/annex-encoder-darwin-x64 -o annex-encoder
+            chmod +x annex-encoder
+            sudo mv annex-encoder /usr/local/bin/
+            ```
+
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/encoder-v${{ steps.version.outputs.new_version }}/annex-encoder-darwin-arm64 -o annex-encoder
+            chmod +x annex-encoder
+            sudo mv annex-encoder /usr/local/bin/
+            ```
+
+            ### Setup Service
+
+            After installation, generate and install the service:
+
+            ```bash
+            annex-encoder --setup --install
+            ```
+
+            ### Usage
+
+            ```bash
+            annex-encoder          # Run encoder
+            annex-encoder --help   # Show help
+            annex-encoder --update # Update to latest version
+            ```
+
+            ### Checksums
+
+            See `manifest.json` for SHA256 checksums of all binaries.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
