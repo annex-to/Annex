@@ -12,9 +12,9 @@
 
 ## Checklist
 
-- [ ] I have run `pnpm lint` and fixed any errors
-- [ ] I have run `pnpm typecheck` and there are no type errors
-- [ ] I have run `pnpm build` and it completes successfully
+- [ ] I have run `bun run lint` and fixed any errors
+- [ ] I have run `bun run typecheck` and there are no type errors
+- [ ] I have run `bun run build` and it completes successfully
 - [ ] I have tested my changes locally
 - [ ] My commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) format
 
