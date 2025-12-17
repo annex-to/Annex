@@ -130,39 +130,6 @@ function findFile(filename: string): string | null {
 // HTTP Route Handlers
 // =============================================================================
 
-function handleDeployEncoder(req: Request): Response {
-  if (req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405 });
-  }
-
-  const scriptPath = findFile("scripts/setup-remote-encoder.sh");
-
-  if (!scriptPath) {
-    console.error("[Deploy] Setup script not found");
-    return new Response("Encoder setup script not found", { status: 404 });
-  }
-
-  try {
-    const script = fs.readFileSync(scriptPath, "utf-8");
-
-    // Log the deployment request
-    const clientIp = req.headers.get("x-forwarded-for") || "unknown";
-    console.log(`[Deploy] Serving encoder setup script to ${clientIp}`);
-
-    return new Response(script, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/x-shellscript",
-        "Content-Disposition": 'inline; filename="setup-remote-encoder.sh"',
-        "Cache-Control": "no-cache",
-      },
-    });
-  } catch (error) {
-    console.error("[Deploy] Failed to read setup script:", error);
-    return new Response("Failed to read setup script", { status: 500 });
-  }
-}
-
 function handleEncoderPackage(req: Request, url: URL): Response {
   if (req.method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
@@ -173,94 +140,76 @@ function handleEncoderPackage(req: Request, url: URL): Response {
 
   // Route: /api/encoder/package/info - return package version info
   if (pathname === "/api/encoder/package/info") {
-    const tarballPath = findFile("packages/encoder/annex-encoder-latest.tar.gz");
-    const packagePath = findFile("packages/encoder/package.json");
+    const manifestPath = findFile("packages/encoder/dist-binaries/manifest.json");
 
-    if (!tarballPath || !packagePath) {
+    if (!manifestPath || !fs.existsSync(manifestPath)) {
       return new Response(
-        JSON.stringify({ error: "Encoder package not built. Run: bun run --filter @annex/encoder build:dist" }),
+        JSON.stringify({ error: "Encoder binaries not built. Run: bun run --filter @annex/encoder build" }),
         { status: 404, headers: { "Content-Type": "application/json" } }
       );
     }
 
     try {
-      const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
-      const stats = fs.statSync(tarballPath);
-
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+      console.log(`[Encoder] Serving manifest info to ${clientIp}`);
       return new Response(
-        JSON.stringify({
-          version: pkg.version,
-          size: stats.size,
-          buildTime: stats.mtime.toISOString(),
-        }),
+        JSON.stringify(manifest),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     } catch (error) {
-      console.error("[Encoder] Failed to read package info:", error);
+      console.error("[Encoder] Failed to read manifest:", error);
       return new Response(
-        JSON.stringify({ error: "Failed to read package info" }),
+        JSON.stringify({ error: "Failed to read manifest" }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
   }
 
-  // Route: /api/encoder/package/update-script - serve just the update.sh
-  if (pathname === "/api/encoder/package/update-script") {
-    const distDir = findFile("packages/encoder/dist-package");
-    const scriptPath = distDir ? `${distDir}/update.sh` : null;
+  // Route: /api/encoder/binary/:platform - serve platform-specific binary
+  const binaryMatch = pathname.match(/^\/api\/encoder\/binary\/([a-z0-9-]+)$/);
+  if (binaryMatch) {
+    const platform = binaryMatch[1];
+    const validPlatforms = ["linux-x64", "linux-arm64", "windows-x64", "darwin-x64", "darwin-arm64"];
 
-    if (!scriptPath || !fs.existsSync(scriptPath)) {
+    if (!validPlatforms.includes(platform)) {
       return new Response(
-        "Update script not found. Run: bun run --filter @annex/encoder build:dist",
-        { status: 404 }
+        JSON.stringify({ error: `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(", ")}` }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const ext = platform.startsWith("windows") ? ".exe" : "";
+    const binaryFilename = `annex-encoder-${platform}${ext}`;
+    const binaryPath = findFile(`packages/encoder/dist-binaries/${binaryFilename}`);
+
+    if (!binaryPath) {
+      return new Response(
+        JSON.stringify({
+          error: `Binary not found for platform: ${platform}. Run: bun run --filter @annex/encoder build`
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
       );
     }
 
     try {
-      const script = fs.readFileSync(scriptPath, "utf-8");
-      console.log(`[Encoder] Serving update script to ${clientIp}`);
-
-      return new Response(script, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/x-shellscript",
-          "Content-Disposition": 'inline; filename="update.sh"',
-          "Cache-Control": "no-cache",
-        },
-      });
-    } catch (error) {
-      console.error("[Encoder] Failed to serve update script:", error);
-      return new Response("Failed to serve update script", { status: 500 });
-    }
-  }
-
-  // Route: /api/encoder/package/download - serve the tarball
-  if (pathname === "/api/encoder/package/download") {
-    const tarballPath = findFile("packages/encoder/annex-encoder-latest.tar.gz");
-
-    if (!tarballPath) {
-      return new Response(
-        "Encoder package not built. Run: bun run --filter @annex/encoder build:dist",
-        { status: 404 }
-      );
-    }
-
-    try {
-      const file = Bun.file(tarballPath);
-      console.log(`[Encoder] Serving package to ${clientIp} (${(file.size / 1024).toFixed(1)} KB)`);
+      const file = Bun.file(binaryPath);
+      console.log(`[Encoder] Serving ${platform} binary to ${clientIp} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
 
       return new Response(file, {
         status: 200,
         headers: {
-          "Content-Type": "application/gzip",
+          "Content-Type": "application/octet-stream",
           "Content-Length": file.size.toString(),
-          "Content-Disposition": 'attachment; filename="annex-encoder.tar.gz"',
+          "Content-Disposition": `attachment; filename="${binaryFilename}"`,
           "Cache-Control": "no-cache",
         },
       });
     } catch (error) {
-      console.error("[Encoder] Failed to serve package:", error);
-      return new Response("Failed to serve encoder package", { status: 500 });
+      console.error(`[Encoder] Failed to serve ${platform} binary:`, error);
+      return new Response(
+        JSON.stringify({ error: "Failed to serve binary" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
   }
 
@@ -316,15 +265,6 @@ const server = Bun.serve<WebSocketData>({
     }
 
     // Custom routes
-    if (url.pathname === "/deploy-encoder") {
-      const response = handleDeployEncoder(req);
-      // Add CORS headers
-      Object.entries(corsHeaders).forEach(([key, value]) => {
-        response.headers.set(key, value);
-      });
-      return response;
-    }
-
     if (url.pathname.startsWith("/api/encoder/package")) {
       const response = handleEncoderPackage(req, url);
       Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -387,10 +327,10 @@ console.log(`
 Server running at http://${host}:${port}
 Remote encoder WebSocket at ws://${host}:${port}/encoder
 
-Encoder Deployment:
-  Setup script: curl -fsSL http://${host}:${port}/deploy-encoder | sudo bash
+Encoder Binaries:
   Package info: http://${host}:${port}/api/encoder/package/info
-  Package download: http://${host}:${port}/api/encoder/package/download
+  Binary download: http://${host}:${port}/api/encoder/binary/{platform}
+  Platforms: linux-x64, linux-arm64, windows-x64, darwin-x64, darwin-arm64
 
 Log level: ${config.logging.level}
 `);
