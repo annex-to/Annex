@@ -49,6 +49,9 @@ packages/
 bun install           # Install dependencies
 bun run dev           # Start dev servers (backend :3000, frontend :5173)
 bun run build         # Build all packages
+bun run lint          # Lint code with ESLint
+bun run test          # Run tests across all packages
+bun run typecheck     # Type check all packages
 bunx prisma migrate   # Run database migrations
 bunx prisma studio    # Open Prisma database GUI
 
