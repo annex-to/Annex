@@ -116,6 +116,75 @@ appRouter = {
 
 ## Remote Encoder System
 
+Encoders are distributed as single-file executables (no Bun runtime required). Built with `bun build --compile` for cross-platform support.
+
+### Distribution
+
+Binaries available for:
+- `linux-x64`, `linux-arm64`
+- `windows-x64`
+- `darwin-x64`, `darwin-arm64`
+
+Download from GitHub Releases or server endpoints:
+- `GET /api/encoder/package/info` - Manifest with versions and checksums
+- `GET /api/encoder/binary/{platform}` - Platform-specific binary
+
+### CLI Commands
+
+```bash
+annex-encoder                    # Run encoder
+annex-encoder --help             # Show help
+annex-encoder --version          # Show version
+annex-encoder --update           # Self-update from server
+annex-encoder --setup            # Generate service files
+annex-encoder --setup --install  # Generate and install service
+```
+
+### Installation
+
+**Quick Start (Linux):**
+```bash
+# Download binary
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder
+chmod +x annex-encoder
+
+# Setup and install service
+sudo ./annex-encoder --setup --install
+
+# Edit configuration
+sudo nano /etc/annex-encoder.env
+
+# Start service
+sudo systemctl start annex-encoder
+```
+
+**Quick Start (Windows):**
+```powershell
+# Download binary
+Invoke-WebRequest -Uri "https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
+
+# Setup service (run as Administrator)
+.\annex-encoder.exe --setup --install
+
+# Start service
+Start-Service AnnexEncoder
+```
+
+**Quick Start (macOS):**
+```bash
+# Download binary
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-darwin-arm64 -o annex-encoder
+chmod +x annex-encoder
+
+# Setup service
+./annex-encoder --setup --install
+
+# Start service
+launchctl start com.annex.encoder
+```
+
+### WebSocket Protocol
+
 Encoders connect via WebSocket to `ws://server:3000/encoder`. Message types in `packages/shared/src/types/encoder.ts`:
 - `register` → `registered` (encoder registration)
 - `job:assign` → `job:accepted` / `job:rejected` (job assignment)
@@ -128,6 +197,23 @@ Path translation: Server paths mapped to encoder NFS mount paths via env vars:
 ENCODER_SERVER_DOWNLOADS_PATH=/media/downloads
 ENCODER_REMOTE_DOWNLOADS_PATH=/mnt/downloads
 ```
+
+### Building
+
+```bash
+bun run --filter @annex/encoder build    # Build cross-platform binaries
+```
+
+Outputs to `packages/encoder/dist-binaries/`:
+- Platform-specific binaries
+- `manifest.json` with SHA256 checksums
+
+### Releasing
+
+Use GitHub Actions workflow with manual trigger:
+1. Go to Actions → Encoder Release
+2. Run workflow and select version bump (patch/minor/major)
+3. Workflow builds binaries, creates tag `encoder-v{version}`, and publishes release
 
 ## Background Job Queue
 
