@@ -9,7 +9,7 @@ import * as path from "path";
 import * as os from "os";
 import { createHash, randomUUID } from "crypto";
 import type { CliArgs } from "../cli.js";
-import { VERSION } from "../version.ts";
+import { VERSION } from "../version.js";
 import { getPlatformBinaryName, detectPlatform } from "../platform/index.js";
 import { getConfig } from "../config.js";
 

@@ -1,9 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "typeRoots": ["../../node_modules/@types"]
+    "noEmit": true
   },
   "include": ["src/**/*"]
 }

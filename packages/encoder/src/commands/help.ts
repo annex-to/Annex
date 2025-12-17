@@ -4,7 +4,7 @@
  * Displays CLI usage information.
  */
 
-import { VERSION } from "../version.ts";
+import { VERSION } from "../version.js";
 
 export function help(): void {
   console.log(`

@@ -4,7 +4,7 @@
  * Displays version information.
  */
 
-import { VERSION, BUILD_DATE, BUILD_TIMESTAMP } from "../version.ts";
+import { VERSION, BUILD_DATE, BUILD_TIMESTAMP } from "../version.js";
 import * as os from "os";
 
 export function version(): void {

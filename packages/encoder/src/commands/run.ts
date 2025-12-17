@@ -7,7 +7,7 @@
 import { initConfig } from "../config.js";
 import { EncoderClient } from "../client.js";
 import { testGpuEncoding, isGpuAvailable } from "../gpu.js";
-import { VERSION, BUILD_DATE } from "../version.ts";
+import { VERSION, BUILD_DATE } from "../version.js";
 
 export async function run(): Promise<void> {
   // Initialize configuration
