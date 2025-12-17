@@ -1027,7 +1027,8 @@ class TraktService {
     const slug = await this.getTraktSlugFromTmdbId(tmdbId, "show");
 
     const endpoint = `/shows/${slug}/seasons`;
-    const params = { extended: "full,images" };
+    // Include episodes in the response - required for initializeTvEpisodes
+    const params = { extended: "full,episodes" };
 
     const result = await this.fetch<TraktSeasonDetails[]>(endpoint, params);
 

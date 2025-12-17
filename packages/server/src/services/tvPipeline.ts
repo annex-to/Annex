@@ -447,6 +447,19 @@ export async function handleTvSearch(payload: TvSearchPayload, jobId: string): P
   if (pendingEpisodes.length === 0) {
     const progress = await getEpisodeProgress(requestId);
 
+    // Guard: if no episodes exist at all, don't mark as completed
+    if (progress.total === 0) {
+      await logActivity(requestId, ActivityType.WARNING, "No episodes found - waiting for episode data");
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.AWAITING,
+          currentStep: "Waiting for episode data",
+        },
+      });
+      return;
+    }
+
     if (progress.completed === progress.total) {
       await prisma.mediaRequest.update({
         where: { id: requestId },
