@@ -130,12 +130,16 @@ class EncoderDispatchService {
   // Initialization
   // ==========================================================================
 
+  // Job assignment loop interval (1 second)
+  private readonly jobAssignmentIntervalMs = 1000;
+
   /**
    * Initialize the encoder dispatch service
    */
   initialize(): void {
     this.startHealthCheck();
     this.startProgressFlush();
+    this.startJobAssignmentLoop();
     console.log(`[EncoderDispatch] Initialized`);
   }
 
@@ -248,9 +252,6 @@ class EncoderDispatchService {
 
     // Emit status update
     this.emitEncoderStatusUpdate(encoderId);
-
-    // Check for pending jobs to assign
-    await this.tryAssignPendingJobs();
   }
 
   private async handleHeartbeat(msg: HeartbeatMessage): Promise<void> {
@@ -394,9 +395,6 @@ class EncoderDispatchService {
 
     // Emit status updates
     this.emitEncoderStatusUpdate(assignment.encoderId);
-
-    // Try to assign more jobs
-    await this.tryAssignPendingJobs();
   }
 
   private async handleJobFailed(msg: JobFailedMessage): Promise<void> {
@@ -452,8 +450,6 @@ class EncoderDispatchService {
           progress: 0,
         },
       });
-
-      await this.tryAssignPendingJobs();
     } else {
       // No more retries - mark as failed
       await prisma.encoderAssignment.update({
@@ -543,7 +539,6 @@ class EncoderDispatchService {
         });
 
         console.log(`[EncoderDispatch] Requeued job ${jobId} from ${failedEncoderId} to ${newEncoderId}`);
-        await this.tryAssignPendingJobs();
       } else {
         // No available encoders - keep pending
         await prisma.encoderAssignment.update({
@@ -688,9 +683,6 @@ class EncoderDispatchService {
       });
     };
 
-    // Try to assign immediately
-    await this.tryAssignPendingJobs();
-
     return { assignment, waitForCompletion };
   }
 
@@ -705,11 +697,8 @@ class EncoderDispatchService {
       orderBy: { assignedAt: "asc" },
     });
 
-    if (pendingAssignments.length > 0) {
-      const connectedEncoders = Array.from(this.encoders.entries()).map(([id, e]) =>
-        `${id}(${e.currentJobs.size}/${e.maxConcurrent})`
-      );
-      console.log(`[EncoderDispatch] ${pendingAssignments.length} pending jobs, connected encoders: [${connectedEncoders.join(", ")}]`);
+    if (pendingAssignments.length === 0) {
+      return;
     }
 
     for (const assignment of pendingAssignments) {
@@ -891,9 +880,6 @@ class EncoderDispatchService {
 
         // Check for stalled jobs (no progress updates for too long)
         await this.checkStalledJobs();
-
-        // Try to assign any pending jobs that might be waiting
-        await this.tryAssignPendingJobs();
       }
     );
   }
@@ -1002,9 +988,6 @@ class EncoderDispatchService {
 
       // Clean up cache
       this.cleanupJobCache(jobId);
-
-      // Try to reassign
-      await this.tryAssignPendingJobs();
     } else {
       // Max retries exceeded - mark as failed
       console.error(`[EncoderDispatch] Job ${jobId} failed - stalled after max retries`);
@@ -1040,6 +1023,22 @@ class EncoderDispatchService {
     }
 
     this.emitEncoderStatusUpdate(encoderId);
+  }
+
+  /**
+   * Start the job assignment loop (runs every 1 second)
+   * This is the single point of truth for assigning pending jobs to encoders
+   */
+  private startJobAssignmentLoop(): void {
+    const scheduler = getSchedulerService();
+    scheduler.register(
+      "encoder-job-assignment",
+      "Encoder Job Assignment",
+      this.jobAssignmentIntervalMs,
+      async () => {
+        await this.tryAssignPendingJobs();
+      }
+    );
   }
 
   /**
@@ -1182,6 +1181,7 @@ class EncoderDispatchService {
     const scheduler = getSchedulerService();
     scheduler.unregister("encoder-health");
     scheduler.unregister("encoder-progress-flush");
+    scheduler.unregister("encoder-job-assignment");
 
     // Final flush of progress updates
     this.flushProgressUpdates().catch(console.error);
