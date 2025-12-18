@@ -11,6 +11,9 @@ import { profilesRouter } from "./profiles.js";
 import { jobSubscriptionsRouter } from "./jobSubscriptions.js";
 import { encodersRouter } from "./encoders.js";
 import { secretsRouter } from "./secrets.js";
+import { pipelinesRouter } from "./pipelines.js";
+import { approvalsRouter } from "./approvals.js";
+import { notificationsRouter } from "./notifications.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -25,6 +28,9 @@ export const appRouter = router({
   jobs: jobSubscriptionsRouter,
   encoders: encodersRouter,
   secrets: secretsRouter,
+  pipelines: pipelinesRouter,
+  approvals: approvalsRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

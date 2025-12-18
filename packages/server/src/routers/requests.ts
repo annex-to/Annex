@@ -147,6 +147,7 @@ export const requestsRouter = router({
         posterPath: z.string().nullable().optional(),
         targets: z.array(targetSchema).min(1),
         selectedRelease: releaseSchema.optional(),
+        pipelineTemplateId: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -170,7 +171,8 @@ export const requestsRouter = router({
         },
       });
 
-      // Start the request processing pipeline
+      // TODO: Use new pipeline executor if pipelineTemplateId is provided
+      // For now, always use legacy pipeline
       await startLegacyMoviePipeline(request.id);
 
       return { id: request.id };
@@ -190,6 +192,7 @@ export const requestsRouter = router({
         seasons: z.array(z.number()).optional(),
         episodes: z.array(episodeRequestSchema).optional(),
         selectedRelease: releaseSchema.optional(),
+        pipelineTemplateId: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -215,7 +218,8 @@ export const requestsRouter = router({
         },
       });
 
-      // Start the request processing pipeline
+      // TODO: Use new pipeline executor if pipelineTemplateId is provided
+      // For now, always use legacy pipeline
       await startLegacyMoviePipeline(request.id);
 
       return { id: request.id };
