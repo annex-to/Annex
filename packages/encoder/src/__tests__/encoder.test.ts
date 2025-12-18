@@ -18,7 +18,7 @@ describe("encoder", () => {
 
   describe("probeMedia", () => {
     describe("happy path", () => {
-      test("function exists and is callable", () => {
+      test("function exists and is callable", async () => {
         const { probeMedia } = await import("../encoder.js");
         expect(typeof probeMedia).toBe("function");
       });
@@ -228,12 +228,12 @@ describe("encoder", () => {
 
   describe("encode", () => {
     describe("happy path", () => {
-      test("function exists and is callable", () => {
+      test("function exists and is callable", async () => {
         const { encode } = await import("../encoder.js");
         expect(typeof encode).toBe("function");
       });
 
-      test("encode function exists", () => {
+      test("encode function exists", async () => {
         const { encode } = await import("../encoder.js");
         expect(typeof encode).toBe("function");
         expect(encode.length).toBeGreaterThan(0); // Takes parameters
@@ -268,12 +268,19 @@ describe("encoder", () => {
           inputPath: "/nonexistent.mp4",
           outputPath: "/output.mkv",
           profile: {
-            videoCodec: "av1",
+            id: "test-profile",
+            name: "Test Profile",
+            videoEncoder: "av1_vaapi",
+            videoQuality: 28,
             videoMaxResolution: "1080p",
-            videoBitrate: 5000,
-            audioCodec: "aac",
-            audioBitrate: 192,
+            videoMaxBitrate: null,
             hwAccel: "vaapi",
+            hwDevice: "/dev/dri/renderD128",
+            videoFlags: {},
+            audioEncoder: "aac",
+            audioFlags: {},
+            subtitlesMode: "embed",
+            container: "mkv",
           },
           onProgress: mock(() => {}),
         };
@@ -344,12 +351,19 @@ describe("encoder", () => {
           inputPath: "/input.mp4",
           outputPath: "/output.mkv",
           profile: {
-            videoCodec: "av1",
+            id: "test-profile",
+            name: "Test Profile",
+            videoEncoder: "av1_vaapi",
+            videoQuality: 28,
             videoMaxResolution: "1080p",
-            videoBitrate: 5000,
-            audioCodec: "aac",
-            audioBitrate: 192,
+            videoMaxBitrate: null,
             hwAccel: "vaapi",
+            hwDevice: "/dev/dri/renderD128",
+            videoFlags: {},
+            audioEncoder: "aac",
+            audioFlags: {},
+            subtitlesMode: "embed",
+            container: "mkv",
           },
           onProgress: mock(() => {}),
         };
