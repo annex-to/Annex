@@ -41,7 +41,7 @@ User=${options.user}
 Group=${options.user}
 WorkingDirectory=${options.workDir}
 EnvironmentFile=/etc/annex-encoder.env
-ExecStart=${options.workDir}/annex-encoder
+ExecStart=/usr/local/bin/annex-encoder
 Restart=always
 RestartSec=10
 
