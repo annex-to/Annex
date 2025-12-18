@@ -198,6 +198,8 @@ docker build -t annex .
 
 For distributed encoding, deploy encoder nodes on separate machines. Encoders are distributed as standalone executables (no Bun runtime required).
 
+**Migrating from old encoder?** See [Encoder Migration Guide](encoder-migration.md) for upgrade instructions.
+
 ### Quick Setup
 
 **Linux:**
