@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { CryptoService, resetCryptoService } from "../../services/crypto.js";
 import { writeFileSync, readFileSync, chmodSync, existsSync, statSync } from "fs";
+import { access, stat, readFile } from "fs/promises";
 import { randomBytes } from "crypto";
 import { join } from "path";
 import { mkdtempSync, rmSync } from "fs";
@@ -21,11 +22,13 @@ describe("CryptoService", () => {
   let service: CryptoService;
 
   beforeEach(() => {
+    // Reset singleton first
+    resetCryptoService();
+
     // Create fresh temp directory for each test
     tempDir = mkdtempSync(join(tmpdir(), "crypto-test-"));
     keyPath = join(tempDir, ".annex-key");
     service = new CryptoService(keyPath);
-    resetCryptoService();
   });
 
   afterEach(() => {
@@ -38,11 +41,25 @@ describe("CryptoService", () => {
 
   describe("Key Generation and Loading", () => {
     it("generates 32-byte master key on first run", async () => {
+      // Ensure service is not already initialized
+      expect(service.isInitialized()).toBe(false);
+
       await service.initialize();
 
-      expect(existsSync(keyPath)).toBe(true);
+      // Verify service is now initialized
+      expect(service.isInitialized()).toBe(true);
 
-      const key = readFileSync(keyPath);
+      // Check if file exists at the expected path (use async operation)
+      let fileExists = true;
+      try {
+        await access(keyPath);
+      } catch {
+        fileExists = false;
+      }
+
+      expect(fileExists).toBe(true);
+
+      const key = await readFile(keyPath);
       expect(key.length).toBe(32);
     });
 
@@ -69,7 +86,7 @@ describe("CryptoService", () => {
 
       await service.initialize();
 
-      const stats = statSync(keyPath);
+      const stats = await stat(keyPath);
       const permissions = stats.mode & 0o777;
       expect(permissions).toBe(0o600);
     });
