@@ -220,6 +220,54 @@ export default function PipelineEditor() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate: check for merges (multiple edges to same target)
+    const targetCounts = new Map<string, number>();
+    edges.forEach((edge) => {
+      if (edge.target !== "start") {
+        targetCounts.set(edge.target, (targetCounts.get(edge.target) || 0) + 1);
+      }
+    });
+
+    const mergeNodes = Array.from(targetCounts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([nodeId]) => nodes.find((n) => n.id === nodeId)?.data.label);
+
+    if (mergeNodes.length > 0) {
+      alert(
+        `Pipeline validation failed: Merging branches is not supported.\n\n` +
+          `The following steps have multiple incoming connections:\n${mergeNodes.join(", ")}\n\n` +
+          `Please ensure each step has at most one incoming connection.`
+      );
+      return;
+    }
+
+    // Validate: check for cycles
+    const visited = new Set<string>();
+    const recStack = new Set<string>();
+
+    const hasCycle = (nodeId: string): boolean => {
+      if (!visited.has(nodeId)) {
+        visited.add(nodeId);
+        recStack.add(nodeId);
+
+        const outgoing = edges.filter((e) => e.source === nodeId);
+        for (const edge of outgoing) {
+          if (!visited.has(edge.target) && hasCycle(edge.target)) {
+            return true;
+          } else if (recStack.has(edge.target)) {
+            return true;
+          }
+        }
+      }
+      recStack.delete(nodeId);
+      return false;
+    };
+
+    if (hasCycle("start")) {
+      alert("Pipeline validation failed: Cycles are not allowed. Please remove any circular connections.");
+      return;
+    }
+
     // Convert nodes and edges to steps in order
     const orderedSteps = getOrderedSteps();
     if (orderedSteps.length === 0) {
@@ -262,25 +310,30 @@ export default function PipelineEditor() {
   };
 
   // Get steps in execution order by following edges from start node
+  // Supports branching (multiple outgoing edges) but not merging (multiple incoming edges)
   const getOrderedSteps = (): Node<StepData>[] => {
     const ordered: Node<StepData>[] = [];
     const visited = new Set<string>();
-    let currentId: string | undefined = "start";
 
-    while (currentId) {
-      visited.add(currentId);
-      const outgoingEdge = edges.find((e) => e.source === currentId && !visited.has(e.target));
-      if (outgoingEdge) {
-        const nextNode = nodes.find((n) => n.id === outgoingEdge.target);
+    // Depth-first traversal to collect all branches
+    const traverse = (nodeId: string) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+
+      // Find all outgoing edges from this node
+      const outgoingEdges = edges.filter((e) => e.source === nodeId && !visited.has(e.target));
+
+      // Process each branch
+      for (const edge of outgoingEdges) {
+        const nextNode = nodes.find((n) => n.id === edge.target);
         if (nextNode && nextNode.id !== "start") {
           ordered.push(nextNode);
+          traverse(edge.target); // Recursively traverse this branch
         }
-        currentId = outgoingEdge.target;
-      } else {
-        currentId = undefined;
       }
-    }
+    };
 
+    traverse("start");
     return ordered;
   };
 
