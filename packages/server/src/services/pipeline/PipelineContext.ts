@@ -23,19 +23,26 @@ export interface PipelineContext {
 
   // Step outputs (accumulated as pipeline executes)
   search?: {
-    selectedRelease: {
+    selectedRelease?: {
       title: string;
       size: number;
       seeders: number;
+      leechers?: number;
       indexer: string;
+      indexerName?: string;
       magnetUri: string;
       publishDate?: string;
       quality?: string;
       source?: string;
       codec?: string;
+      resolution?: string;
     };
     alternativeReleases?: unknown[];
     qualityMet?: boolean;
+    existingDownload?: {
+      torrentHash: string;
+      isComplete: boolean;
+    };
   };
 
   download?: {
@@ -50,6 +57,8 @@ export interface PipelineContext {
       profileId: string;
       path: string;
       targetServerIds: string[];
+      resolution: string;
+      codec: string;
       size?: number;
       compressionRatio?: number;
     }>;
@@ -94,4 +103,6 @@ export interface StepOutput {
   error?: string;
   shouldSkip?: boolean; // If true, mark step as skipped and continue
   shouldPause?: boolean; // If true, pause execution (used by ApprovalStep)
+  shouldRetry?: boolean; // If true, retry this step later
+  nextStep?: string | null; // Hint for which step should execute next
 }

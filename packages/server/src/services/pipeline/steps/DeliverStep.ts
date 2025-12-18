@@ -1,0 +1,268 @@
+import { BaseStep, type StepOutput } from "./BaseStep.js";
+import type { PipelineContext } from "../PipelineContext.js";
+import { StepType, RequestStatus, ActivityType, MediaType } from "@prisma/client";
+import { prisma } from "../../../db/client.js";
+import { getDeliveryService } from "../../delivery.js";
+import { getNamingService } from "../../naming.js";
+
+interface DeliverStepConfig {
+  requireAllServersSuccess?: boolean;
+}
+
+/**
+ * Deliver Step - Transfer encoded files to storage servers
+ *
+ * Inputs:
+ * - requestId, mediaType, tmdbId, title, year, targets
+ * - encode.encodedFiles: Array of encoded files with their target servers
+ *
+ * Outputs:
+ * - deliver.deliveredServers: Array of server IDs that received the file
+ * - deliver.failedServers: Array of server IDs that failed
+ * - deliver.completedAt: Timestamp of delivery completion
+ *
+ * Side effects:
+ * - Transfers files to remote servers via SFTP/rsync/SMB
+ * - Triggers media server library scans
+ * - Creates LibraryItem records
+ * - Updates MediaRequest status and progress
+ * - Cleans up temporary encoded files
+ */
+export class DeliverStep extends BaseStep {
+  readonly type = StepType.DELIVER;
+
+  validateConfig(config: unknown): void {
+    if (config !== undefined && typeof config !== "object") {
+      throw new Error("DeliverStep config must be an object");
+    }
+  }
+
+  async execute(context: PipelineContext, config: unknown): Promise<StepOutput> {
+    this.validateConfig(config);
+    const cfg = (config as DeliverStepConfig | undefined) || {};
+
+    const { requestId, mediaType, tmdbId, title, year } = context;
+    const encodedFiles = context.encode?.encodedFiles;
+
+    if (!encodedFiles || !Array.isArray(encodedFiles) || encodedFiles.length === 0) {
+      return {
+        success: false,
+        shouldRetry: false,
+        nextStep: null,
+        error: "No encoded files available for delivery",
+      };
+    }
+
+    await prisma.mediaRequest.update({
+      where: { id: requestId },
+      data: {
+        status: RequestStatus.DELIVERING,
+        progress: 75,
+        currentStep: "Preparing for delivery...",
+      },
+    });
+
+    const delivery = getDeliveryService();
+    const naming = getNamingService();
+
+    const deliveredServers: string[] = [];
+    const failedServers: string[] = [];
+
+    // Process each encoded file
+    for (const encodedFile of encodedFiles) {
+      const { path: encodedFilePath, resolution, codec, targetServerIds } = encodedFile as {
+        path: string;
+        profileId: string;
+        resolution: string;
+        codec: string;
+        targetServerIds: string[];
+      };
+
+      const servers = await prisma.storageServer.findMany({
+        where: { id: { in: targetServerIds } },
+      });
+
+      const container = encodedFilePath.split(".").pop() || "mkv";
+      let serverIndex = 0;
+
+      for (const server of servers) {
+        let remotePath: string;
+
+        if (mediaType === MediaType.MOVIE) {
+          remotePath = naming.getMovieDestinationPath(server.pathMovies, {
+            title,
+            year,
+            quality: resolution,
+            codec,
+            container,
+          });
+        } else {
+          // TV show - simplified for now
+          const season = context.requestedSeasons?.[0] || 1;
+          remotePath = naming.getTvDestinationPath(server.pathTv, {
+            series: title,
+            year,
+            season,
+            episode: 1,
+            quality: resolution,
+            codec,
+            container,
+          });
+        }
+
+        await this.logActivity(requestId, ActivityType.INFO, `Delivering to ${server.name}: ${remotePath}`);
+
+        await prisma.mediaRequest.update({
+          where: { id: requestId },
+          data: {
+            progress: 75 + (serverIndex / servers.length) * 20,
+            currentStep: `Transferring to ${server.name}...`,
+          },
+        });
+
+        const result = await delivery.deliver(server.id, encodedFilePath, remotePath, {
+          onProgress: async (progress) => {
+            const stageProgress = 75 + ((serverIndex + progress.progress / 100) / servers.length) * 20;
+            const speed = this.formatBytes(progress.speed) + "/s";
+            const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
+
+            await prisma.mediaRequest.update({
+              where: { id: requestId },
+              data: {
+                progress: stageProgress,
+                currentStep: `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
+              },
+            });
+          },
+        });
+
+        if (result.success) {
+          deliveredServers.push(server.id);
+          await this.logActivity(
+            requestId,
+            ActivityType.SUCCESS,
+            `Delivered to ${server.name} in ${this.formatDuration(result.duration)}`,
+            {
+              server: server.name,
+              bytesTransferred: result.bytesTransferred,
+              duration: result.duration,
+              libraryScanTriggered: result.libraryScanTriggered,
+            }
+          );
+
+          // Add to library cache
+          await prisma.libraryItem.upsert({
+            where: {
+              tmdbId_type_serverId: {
+                tmdbId,
+                type: mediaType as MediaType,
+                serverId: server.id,
+              },
+            },
+            create: {
+              tmdbId,
+              type: mediaType as MediaType,
+              serverId: server.id,
+              quality: `${resolution} ${codec}`,
+              addedAt: new Date(),
+            },
+            update: {
+              quality: `${resolution} ${codec}`,
+              syncedAt: new Date(),
+            },
+          });
+        } else {
+          failedServers.push(server.id);
+          await this.logActivity(requestId, ActivityType.ERROR, `Failed to deliver to ${server.name}: ${result.error}`);
+        }
+
+        serverIndex++;
+      }
+    }
+
+    // Determine overall success
+    const requireAllSuccess = cfg.requireAllServersSuccess !== false;
+    const success = requireAllSuccess ? failedServers.length === 0 : deliveredServers.length > 0;
+
+    if (success) {
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.COMPLETED,
+          progress: 100,
+          currentStep: null,
+          error: null,
+          completedAt: new Date(),
+        },
+      });
+
+      await this.logActivity(requestId, ActivityType.SUCCESS, "Request completed successfully");
+
+      return {
+        success: true,
+        nextStep: null,
+        data: {
+          deliveredServers,
+          failedServers,
+          completedAt: new Date().toISOString(),
+        },
+      };
+    } else {
+      const error =
+        deliveredServers.length === 0
+          ? "Failed to deliver to all servers"
+          : `Delivered to ${deliveredServers.length} servers, failed ${failedServers.length}`;
+
+      if (deliveredServers.length > 0) {
+        // Partial success
+        await prisma.mediaRequest.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.COMPLETED,
+            progress: 100,
+            currentStep: error,
+            completedAt: new Date(),
+          },
+        });
+      }
+
+      return {
+        success: deliveredServers.length > 0,
+        shouldRetry: failedServers.length > 0,
+        nextStep: null,
+        error,
+        data: {
+          deliveredServers,
+          failedServers,
+        },
+      };
+    }
+  }
+
+  private async logActivity(requestId: string, type: ActivityType, message: string, details?: object): Promise<void> {
+    await prisma.activityLog.create({
+      data: {
+        requestId,
+        type,
+        message,
+        details: details || undefined,
+      },
+    });
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  }
+
+  private formatDuration(seconds: number): string {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+  }
+}

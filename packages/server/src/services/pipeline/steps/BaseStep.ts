@@ -4,6 +4,9 @@
 import type { StepType } from '@prisma/client';
 import type { PipelineContext, ConditionRule, StepOutput } from '../PipelineContext';
 
+// Re-export StepOutput for convenience
+export type { StepOutput };
+
 export abstract class BaseStep {
   abstract readonly type: StepType;
 

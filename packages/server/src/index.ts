@@ -10,6 +10,7 @@ import { getJobQueueService } from "./services/jobQueue.js";
 import { verifySession, registerAuthTasks } from "./services/auth.js";
 import { registerLegacyMoviePipelineHandlers } from "./services/legacyMoviePipeline.js";
 import { registerLegacyTvPipelineHandlers } from "./services/legacyTvPipeline.js";
+import { registerPipelineSteps } from "./services/pipeline/registerSteps.js";
 import { getIrcAnnounceMonitor } from "./services/ircAnnounce.js";
 import { getRssAnnounceMonitor } from "./services/rssAnnounce.js";
 import { getEncoderDispatchService, type EncoderWebSocketData } from "./services/encoderDispatch.js";
@@ -49,6 +50,7 @@ const jobQueue = getJobQueueService();
 const scheduler = getSchedulerService();
 
 // Register pipeline handlers for request processing
+registerPipelineSteps();
 registerLegacyMoviePipelineHandlers();
 registerLegacyTvPipelineHandlers();
 

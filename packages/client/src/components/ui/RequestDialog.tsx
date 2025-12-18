@@ -62,7 +62,8 @@ function RequestDialog({
       createMovieMutation.reset();
       createTvMutation.reset();
     }
-  }, [isOpen, createMovieMutation, createTvMutation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- createMovieMutation and createTvMutation are stable tRPC refs
+  }, [isOpen]);
 
   const toggleServer = (serverId: string) => {
     setServerSelections((prev) => {
