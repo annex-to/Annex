@@ -195,7 +195,7 @@ async function updateOverallProgress(requestId: string): Promise<void> {
  * Initialize TvEpisode records for a TV request based on Trakt data
  * Also checks library availability and marks episodes as SKIPPED if already in library
  */
-export async function initializeTvEpisodes(requestId: string): Promise<number> {
+export async function initializeLegacyTvEpisodes(requestId: string): Promise<number> {
   const request = await prisma.mediaRequest.findUnique({
     where: { id: requestId },
   });
@@ -441,7 +441,7 @@ export async function handleTvSearch(payload: TvSearchPayload, jobId: string): P
 
   // Initialize episodes if not already done
   if (request.tvEpisodes.length === 0) {
-    await initializeTvEpisodes(requestId);
+    await initializeLegacyTvEpisodes(requestId);
   }
 
   // Get pending episodes grouped by season
@@ -1832,7 +1832,7 @@ async function handleCheckNewEpisodes(): Promise<void> {
     });
 
     try {
-      await initializeTvEpisodes(request.id);
+      await initializeLegacyTvEpisodes(request.id);
 
       // Check for pending episodes
       const pendingEpisodes = await prisma.tvEpisode.findMany({
@@ -1911,7 +1911,7 @@ async function handleDownloadHealthCheck(): Promise<void> {
 /**
  * Register TV pipeline handlers with the job queue
  */
-export function registerTvPipelineHandlers(): void {
+export function registerLegacyTvPipelineHandlers(): void {
   const jobQueue = getJobQueueService();
 
   jobQueue.registerHandler("tv:search" as JobType, async (payload, jobId) => {
@@ -1948,7 +1948,7 @@ export function registerTvPipelineHandlers(): void {
 /**
  * Start the TV pipeline for a request
  */
-export async function startTvPipeline(requestId: string): Promise<void> {
+export async function startLegacyTvPipeline(requestId: string): Promise<void> {
   const jobQueue = getJobQueueService();
 
   // Enable monitoring by default for TV shows
@@ -1976,7 +1976,7 @@ export async function startTvPipeline(requestId: string): Promise<void> {
  * 3. If found: queue encode job directly
  * 4. If not: reset episode to search for new download
  */
-export async function reprocessTvEpisode(episodeId: string): Promise<{ step: string; sourceExists: boolean }> {
+export async function reprocessLegacyTvEpisode(episodeId: string): Promise<{ step: string; sourceExists: boolean }> {
   const jobQueue = getJobQueueService();
   const { existsSync, readdirSync, statSync } = await import("fs");
   const { join } = await import("path");
@@ -2174,7 +2174,7 @@ export async function reprocessTvEpisode(episodeId: string): Promise<{ step: str
 /**
  * Reprocess all episodes in a specific season
  */
-export async function reprocessTvSeason(requestId: string, seasonNumber: number): Promise<{ episodesReprocessed: number; sourcesFound: number }> {
+export async function reprocessLegacyTvSeason(requestId: string, seasonNumber: number): Promise<{ episodesReprocessed: number; sourcesFound: number }> {
   const episodes = await prisma.tvEpisode.findMany({
     where: {
       requestId,
@@ -2190,7 +2190,7 @@ export async function reprocessTvSeason(requestId: string, seasonNumber: number)
   let sourcesFound = 0;
 
   for (const episode of episodes) {
-    const result = await reprocessTvEpisode(episode.id);
+    const result = await reprocessLegacyTvEpisode(episode.id);
     if (result.sourceExists) {
       sourcesFound++;
     }
@@ -2207,7 +2207,7 @@ export async function reprocessTvSeason(requestId: string, seasonNumber: number)
 /**
  * Reprocess all episodes in a TV request
  */
-export async function reprocessTvRequest(requestId: string): Promise<{ episodesReprocessed: number; sourcesFound: number }> {
+export async function reprocessLegacyTvRequest(requestId: string): Promise<{ episodesReprocessed: number; sourcesFound: number }> {
   const episodes = await prisma.tvEpisode.findMany({
     where: {
       requestId,
@@ -2222,7 +2222,7 @@ export async function reprocessTvRequest(requestId: string): Promise<{ episodesR
   let sourcesFound = 0;
 
   for (const episode of episodes) {
-    const result = await reprocessTvEpisode(episode.id);
+    const result = await reprocessLegacyTvEpisode(episode.id);
     if (result.sourceExists) {
       sourcesFound++;
     }

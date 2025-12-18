@@ -8,8 +8,8 @@ import type { Context } from "./trpc.js";
 import { initConfig } from "./config/index.js";
 import { getJobQueueService } from "./services/jobQueue.js";
 import { verifySession, registerAuthTasks } from "./services/auth.js";
-import { registerPipelineHandlers } from "./services/pipeline.js";
-import { registerTvPipelineHandlers } from "./services/tvPipeline.js";
+import { registerLegacyMoviePipelineHandlers } from "./services/legacyMoviePipeline.js";
+import { registerLegacyTvPipelineHandlers } from "./services/legacyTvPipeline.js";
 import { getIrcAnnounceMonitor } from "./services/ircAnnounce.js";
 import { getRssAnnounceMonitor } from "./services/rssAnnounce.js";
 import { getEncoderDispatchService, type EncoderWebSocketData } from "./services/encoderDispatch.js";
@@ -49,8 +49,8 @@ const jobQueue = getJobQueueService();
 const scheduler = getSchedulerService();
 
 // Register pipeline handlers for request processing
-registerPipelineHandlers();
-registerTvPipelineHandlers();
+registerLegacyMoviePipelineHandlers();
+registerLegacyTvPipelineHandlers();
 
 // Cookie name for auth token
 const AUTH_COOKIE_NAME = "annex_session";

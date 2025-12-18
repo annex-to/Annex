@@ -2,8 +2,8 @@ import { z } from "zod";
 import { router, publicProcedure } from "../trpc.js";
 import { prisma } from "../db/client.js";
 import { MediaType, RequestStatus, Prisma, TvEpisodeStatus } from "@prisma/client";
-import { startPipeline, cancelPipeline, retryPipeline, reprocessPipeline } from "../services/pipeline.js";
-import { initializeTvEpisodes, reprocessTvEpisode, reprocessTvSeason, reprocessTvRequest } from "../services/tvPipeline.js";
+import { startLegacyMoviePipeline, cancelLegacyMoviePipeline, retryLegacyMoviePipeline, reprocessLegacyMoviePipeline } from "../services/legacyMoviePipeline.js";
+import { initializeLegacyTvEpisodes, reprocessLegacyTvEpisode, reprocessLegacyTvSeason, reprocessLegacyTvRequest } from "../services/legacyTvPipeline.js";
 import { getDownloadService } from "../services/download.js";
 
 // =============================================================================
@@ -171,7 +171,7 @@ export const requestsRouter = router({
       });
 
       // Start the request processing pipeline
-      await startPipeline(request.id);
+      await startLegacyMoviePipeline(request.id);
 
       return { id: request.id };
     }),
@@ -216,7 +216,7 @@ export const requestsRouter = router({
       });
 
       // Start the request processing pipeline
-      await startPipeline(request.id);
+      await startLegacyMoviePipeline(request.id);
 
       return { id: request.id };
     }),
@@ -404,7 +404,7 @@ export const requestsRouter = router({
    */
   cancel: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     // Cancel any running pipeline jobs
-    await cancelPipeline(input.id);
+    await cancelLegacyMoviePipeline(input.id);
 
     return { success: true };
   }),
@@ -423,7 +423,7 @@ export const requestsRouter = router({
     }
 
     // Cancel any running pipeline jobs first
-    await cancelPipeline(input.id);
+    await cancelLegacyMoviePipeline(input.id);
 
     // TODO: Cancel torrent downloads and delete downloaded media from qBittorrent
     // - Get all torrent hashes from downloads (for TV) or the request itself (for movies)
@@ -458,7 +458,7 @@ export const requestsRouter = router({
    */
   retry: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     // Use smart retry that resumes from where we left off
-    const result = await retryPipeline(input.id);
+    const result = await retryLegacyMoviePipeline(input.id);
 
     return { success: true, step: result.step };
   }),
@@ -477,7 +477,7 @@ export const requestsRouter = router({
 
     if (request.type === MediaType.TV) {
       // For TV shows, reprocess all delivered episodes
-      const result = await reprocessTvRequest(input.id);
+      const result = await reprocessLegacyTvRequest(input.id);
       return {
         success: true,
         step: "encoding",
@@ -487,7 +487,7 @@ export const requestsRouter = router({
     }
 
     // For movies
-    const result = await reprocessPipeline(input.id);
+    const result = await reprocessLegacyMoviePipeline(input.id);
     return {
       success: true,
       step: result.step,
@@ -501,7 +501,7 @@ export const requestsRouter = router({
   reprocessEpisode: publicProcedure
     .input(z.object({ episodeId: z.string() }))
     .mutation(async ({ input }) => {
-      const result = await reprocessTvEpisode(input.episodeId);
+      const result = await reprocessLegacyTvEpisode(input.episodeId);
       return {
         success: true,
         step: result.step,
@@ -515,7 +515,7 @@ export const requestsRouter = router({
   reprocessSeason: publicProcedure
     .input(z.object({ requestId: z.string(), seasonNumber: z.number() }))
     .mutation(async ({ input }) => {
-      const result = await reprocessTvSeason(input.requestId, input.seasonNumber);
+      const result = await reprocessLegacyTvSeason(input.requestId, input.seasonNumber);
       return {
         success: true,
         episodesReprocessed: result.episodesReprocessed,
@@ -559,7 +559,7 @@ export const requestsRouter = router({
       // Initialize TV episodes on-demand if they don't exist
       if (episodes.length === 0) {
         try {
-          await initializeTvEpisodes(input.requestId);
+          await initializeLegacyTvEpisodes(input.requestId);
           episodes = await prisma.tvEpisode.findMany({
             where: { requestId: input.requestId },
             orderBy: [{ season: "asc" }, { episode: "asc" }],
@@ -819,7 +819,7 @@ export const requestsRouter = router({
       });
 
       // Re-start pipeline with the selected release
-      await startPipeline(input.id);
+      await startLegacyMoviePipeline(input.id);
 
       return { success: true };
     }),
@@ -855,7 +855,7 @@ export const requestsRouter = router({
         },
       });
 
-      await startPipeline(input.id);
+      await startLegacyMoviePipeline(input.id);
       return { success: true };
     }),
 });

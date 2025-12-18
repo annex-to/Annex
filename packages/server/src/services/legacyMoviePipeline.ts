@@ -1203,7 +1203,7 @@ async function handleRetryAwaiting(): Promise<void> {
 /**
  * Register pipeline handlers with the job queue
  */
-export function registerPipelineHandlers(): void {
+export function registerLegacyMoviePipelineHandlers(): void {
   const jobQueue = getJobQueueService();
 
   // Register all pipeline handlers
@@ -1237,7 +1237,7 @@ export function registerPipelineHandlers(): void {
 /**
  * Start a new request in the pipeline
  */
-export async function startPipeline(requestId: string): Promise<void> {
+export async function startLegacyMoviePipeline(requestId: string): Promise<void> {
   const jobQueue = getJobQueueService();
 
   // Check request type and if there's a pre-selected release
@@ -1555,7 +1555,7 @@ async function retryTvPipeline(requestId: string, request: MediaRequest): Promis
  * Retry a failed/awaiting request, resuming from the appropriate step
  * based on saved pipeline state.
  */
-export async function retryPipeline(requestId: string): Promise<{ step: string }> {
+export async function retryLegacyMoviePipeline(requestId: string): Promise<{ step: string }> {
   const jobQueue = getJobQueueService();
 
   const request = await prisma.mediaRequest.findUnique({
@@ -1788,7 +1788,7 @@ export async function retryPipeline(requestId: string): Promise<{ step: string }
 /**
  * Cancel a running pipeline
  */
-export async function cancelPipeline(requestId: string): Promise<boolean> {
+export async function cancelLegacyMoviePipeline(requestId: string): Promise<boolean> {
   const jobQueue = getJobQueueService();
 
   // First, mark the request as cancelled so any new jobs won't start
@@ -1848,7 +1848,7 @@ export async function cancelPipeline(requestId: string): Promise<boolean> {
  * 2. If yes: queue encode job directly
  * 3. If no: start fresh from search step
  */
-export async function reprocessPipeline(requestId: string): Promise<{ step: string; sourceExists: boolean }> {
+export async function reprocessLegacyMoviePipeline(requestId: string): Promise<{ step: string; sourceExists: boolean }> {
   const jobQueue = getJobQueueService();
   const { existsSync } = await import("fs");
 
