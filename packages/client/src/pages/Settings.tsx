@@ -2,6 +2,9 @@ import { useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import { trpc } from "../trpc";
 import { Button, Input, Select, Card, Badge, Label, SidebarNav, EmptyState, ToggleGroup } from "../components/ui";
+import Pipelines from "./Settings/Pipelines";
+import PipelineEditor from "./Settings/PipelineEditor";
+import Notifications from "./Settings/Notifications";
 
 const settingsNavItems = [
   { to: "/settings", label: "General", end: true },
@@ -9,6 +12,8 @@ const settingsNavItems = [
   { to: "/settings/indexers", label: "Indexers" },
   { to: "/settings/encoding", label: "Encoding" },
   { to: "/settings/encoders", label: "Remote Encoders" },
+  { to: "/settings/pipelines", label: "Pipelines" },
+  { to: "/settings/notifications", label: "Notifications" },
   { to: "/settings/jobs", label: "Jobs" },
   { to: "/settings/scheduler", label: "Scheduler" },
 ];
@@ -3494,6 +3499,9 @@ export default function SettingsPage() {
           <Route path="indexers" element={<IndexersSettings />} />
           <Route path="encoding" element={<EncodingSettings />} />
           <Route path="encoders" element={<EncodersSettings />} />
+          <Route path="pipelines" element={<Pipelines />} />
+          <Route path="pipelines/:id" element={<PipelineEditor />} />
+          <Route path="notifications" element={<Notifications />} />
           <Route path="jobs" element={<JobsSettings />} />
           <Route path="scheduler" element={<SchedulerSettings />} />
         </Routes>

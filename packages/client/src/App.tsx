@@ -8,6 +8,7 @@ import SettingsPage from "./pages/Settings";
 import PreferencesPage from "./pages/Preferences";
 import LoginPage from "./pages/Login";
 import SetupPage from "./pages/Setup";
+import ApprovalsPage from "./pages/Approvals";
 import { NavButton } from "./components/ui/NavButton";
 import { AuthProvider } from "./components/AuthProvider";
 import { useAuthStore } from "./hooks/useAuth";
@@ -162,6 +163,7 @@ function AppLayout() {
               <NavButton to="/" end>Discover</NavButton>
               <NavButton to="/requests">Requests</NavButton>
               <NavButton to="/library">Library</NavButton>
+              <NavButton to="/approvals">Approvals</NavButton>
               <NavButton to="/settings">Settings</NavButton>
             </nav>
           </div>
@@ -178,6 +180,7 @@ function AppLayout() {
             <Route path="/tv/:id" element={<MediaDetailPage />} />
             <Route path="/requests" element={<RequestsPage />} />
             <Route path="/library" element={<LibraryPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/settings/*" element={<SettingsPage />} />
             <Route path="/preferences" element={<PreferencesPage />} />
           </Routes>
