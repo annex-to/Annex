@@ -3,10 +3,10 @@ import { router, publicProcedure } from "../trpc.js";
 import { prisma } from "../db/client.js";
 import { StepType, MediaType } from "@prisma/client";
 
-interface ConditionRuleType {
+export interface ConditionRuleType {
   field: string;
   operator: "==" | "!=" | ">" | "<" | ">=" | "<=" | "in" | "not_in" | "contains" | "matches";
-  value: unknown;
+  value?: unknown;
   logicalOp?: "AND" | "OR";
   conditions?: ConditionRuleType[];
 }
