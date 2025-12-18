@@ -70,7 +70,7 @@ jobs:
         run: bun run --filter @annex/shared build
 
       - name: Run tests
-        run: bun run --filter @annex/server test
+        run: bun run test
 
   build:
     name: Build
