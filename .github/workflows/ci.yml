@@ -71,14 +71,14 @@ jobs:
 
       - name: Generate encoder version file
         run: |
-          cat > packages/encoder/src/version.ts << 'EOF'
+          cat > packages/encoder/src/version.ts << EOF
           /**
            * Version information
            * Auto-generated during build
            */
 
           export const VERSION = "0.1.0";
-          export const BUILD_DATE = "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)";
+          export const BUILD_DATE = "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)";
           export const BUILD_TIMESTAMP = $(date +%s)000;
           EOF
 
