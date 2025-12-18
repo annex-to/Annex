@@ -293,3 +293,44 @@ Conventional Commits: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`
 feat(encoding): add HDR10+ tonemapping support
 fix(delivery): handle SFTP timeout gracefully
 ```
+
+## Request Pipeline System Project
+
+GitHub Project: https://github.com/users/WeHaveNoEyes/projects/2
+
+### Commit Rules
+
+Every commit for this project MUST:
+
+1. **Reference the task** - Include task title in commit message for traceability
+2. **Pass all validation** before committing:
+   - `bun run lint` - No linting errors
+   - `bun run typecheck` - No type errors
+   - `bun run build` - Build succeeds
+3. **Zero errors allowed** - ANY errors must be fixed before pushing to GitHub
+
+### Validation Workflow
+
+```bash
+# Before every commit, run:
+bun run lint && bun run typecheck && bun run build
+
+# If all pass, then commit:
+git add .
+git commit -m "type(scope): description
+
+Task: Phase X - Task description"
+git push
+```
+
+### Project Phases
+
+- **Phase 0**: Preparation - Rename existing pipelines to legacy
+- **Phase 1**: Foundation - Database & core services
+- **Phase 2**: Step Refactoring - Extract logic into steps
+- **Phase 3**: New Step Types - Approval & notification
+- **Phase 4**: tRPC API - API endpoints
+- **Phase 5**: UI Development - React components
+- **Phase 6**: Testing & Migration - End-to-end testing
+- **Phase 7**: Documentation - Docs and rollout
+- **Phase 8**: Cleanup - Remove legacy code
