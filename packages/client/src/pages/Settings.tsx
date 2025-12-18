@@ -2995,67 +2995,73 @@ function EncodersSettings() {
 
                       {/* Capabilities */}
                       {encoder.capabilities && (
-                        <div className="mt-2 pt-2 border-t border-white/10">
-                          <div className="text-xs text-white/40 mb-1 font-medium">Capabilities</div>
-                          <div className="space-y-1">
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <div className="text-xs font-semibold text-white/60 mb-2 uppercase tracking-wide">Capabilities</div>
+                          <div className="space-y-2.5 text-xs">
                             {/* Video Encoders */}
                             {Object.keys(encoder.capabilities.videoEncoders || {}).length > 0 && (
-                              <div className="flex gap-2 flex-wrap">
-                                <span className="text-white/60">Video:</span>
-                                {Object.entries(encoder.capabilities.videoEncoders).map(([codec, encoders]) => {
-                                  const hw = encoders.hardware || [];
-                                  const sw = encoders.software || [];
-                                  if (hw.length === 0 && sw.length === 0) return null;
-                                  return (
-                                    <span key={codec} className="inline-flex items-center gap-1">
-                                      <span className="text-white/70 uppercase text-[10px] font-medium">{codec}</span>
-                                      <span className="text-white/50">
-                                        ({hw.length > 0 ? `HW: ${hw.join(", ")}` : ""}
-                                        {hw.length > 0 && sw.length > 0 ? " | " : ""}
-                                        {sw.length > 0 ? `SW: ${sw.join(", ")}` : ""})
-                                      </span>
-                                    </span>
-                                  );
-                                })}
+                              <div>
+                                <div className="text-white/50 font-medium mb-1">Video:</div>
+                                <div className="pl-3 space-y-1">
+                                  {Object.entries(encoder.capabilities.videoEncoders).map(([codec, encoders]) => {
+                                    const hw = encoders.hardware || [];
+                                    const sw = encoders.software || [];
+                                    if (hw.length === 0 && sw.length === 0) return null;
+                                    return (
+                                      <div key={codec} className="flex items-start gap-2">
+                                        <span className="text-annex-400 font-semibold uppercase min-w-[45px]">{codec}</span>
+                                        <span className="text-white/40 leading-relaxed">
+                                          ({hw.length > 0 && <><span className="text-green-400">HW:</span> {hw.join(", ")}</>}
+                                          {hw.length > 0 && sw.length > 0 && <span className="text-white/30"> | </span>}
+                                          {sw.length > 0 && <><span className="text-blue-400">SW:</span> {sw.join(", ")}</>})
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             )}
 
                             {/* Hardware Acceleration */}
                             {encoder.capabilities.hwaccel && encoder.capabilities.hwaccel.length > 0 && (
-                              <div className="flex gap-2 flex-wrap">
-                                <span className="text-white/60">HW Accel:</span>
-                                <span className="text-white/50">{encoder.capabilities.hwaccel.join(", ")}</span>
+                              <div>
+                                <span className="text-white/50 font-medium">HW Accel: </span>
+                                <span className="text-white/40">{encoder.capabilities.hwaccel.join(", ")}</span>
                               </div>
                             )}
 
                             {/* Audio Encoders */}
                             {encoder.capabilities.audioEncoders && encoder.capabilities.audioEncoders.length > 0 && (
-                              <div className="flex gap-2 flex-wrap">
-                                <span className="text-white/60">Audio:</span>
-                                <span className="text-white/50">{encoder.capabilities.audioEncoders.join(", ")}</span>
+                              <div>
+                                <span className="text-white/50 font-medium">Audio: </span>
+                                <span className="text-white/40">{encoder.capabilities.audioEncoders.join(", ")}</span>
                               </div>
                             )}
 
                             {/* GPU Info */}
                             {encoder.capabilities.gpu && (
-                              <div className="flex gap-2 flex-wrap">
-                                <span className="text-white/60">GPU:</span>
-                                <span className="text-white/50">
+                              <div>
+                                <span className="text-white/50 font-medium">GPU: </span>
+                                <span className="text-white/40">
                                   {encoder.capabilities.gpu.device}
-                                  {encoder.capabilities.gpu.driver ? ` (${encoder.capabilities.gpu.driver})` : ""}
-                                  {encoder.capabilities.gpu.accessible ? "" : " - Not Accessible"}
+                                  {encoder.capabilities.gpu.driver && (
+                                    <span className="text-white/30"> ({encoder.capabilities.gpu.driver})</span>
+                                  )}
+                                  {!encoder.capabilities.gpu.accessible && (
+                                    <span className="text-red-400"> - Not Accessible</span>
+                                  )}
                                 </span>
                               </div>
                             )}
 
                             {/* System Info */}
                             {encoder.capabilities.system && (
-                              <div className="flex gap-2 flex-wrap">
-                                <span className="text-white/60">System:</span>
-                                <span className="text-white/50">
-                                  {encoder.capabilities.system.cpuCores ? `${encoder.capabilities.system.cpuCores} cores` : ""}
-                                  {encoder.capabilities.system.cpuCores && encoder.capabilities.system.totalMemory ? " | " : ""}
-                                  {encoder.capabilities.system.totalMemory ? `${Math.round(encoder.capabilities.system.totalMemory / 1024)} GB RAM` : ""}
+                              <div>
+                                <span className="text-white/50 font-medium">System: </span>
+                                <span className="text-white/40">
+                                  {encoder.capabilities.system.cpuCores && `${encoder.capabilities.system.cpuCores} cores`}
+                                  {encoder.capabilities.system.cpuCores && encoder.capabilities.system.totalMemory && " | "}
+                                  {encoder.capabilities.system.totalMemory && `${Math.round(encoder.capabilities.system.totalMemory / 1024)} GB RAM`}
                                 </span>
                               </div>
                             )}
