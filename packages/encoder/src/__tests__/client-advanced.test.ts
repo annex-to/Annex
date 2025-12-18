@@ -15,6 +15,17 @@ describe("client - advanced functionality", () => {
         errors: [],
         warnings: [],
       })),
+      detectCapabilities: mock(async () => ({
+        videoEncoders: {
+          av1: { hardware: ["av1_vaapi"], software: ["libsvtav1"] },
+          hevc: { hardware: ["hevc_vaapi"], software: ["libx265"] },
+          h264: { hardware: ["h264_vaapi"], software: ["libx264"] },
+        },
+        hwaccel: ["vaapi"],
+        audioEncoders: ["aac", "libopus"],
+        gpu: { device: "/dev/dri/renderD128", accessible: true },
+        system: { cpuCores: 4, totalMemory: 8192 },
+      })),
     }));
   });
 
