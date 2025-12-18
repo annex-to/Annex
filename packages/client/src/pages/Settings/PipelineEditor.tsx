@@ -14,6 +14,7 @@ import {
   Edge,
   Connection,
   BackgroundVariant,
+  ConnectionLineType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import StepNode from "../../components/pipeline/StepNode";
@@ -141,6 +142,7 @@ export default function PipelineEditor() {
           target: nodeId,
           type: "smoothstep",
           animated: true,
+          style: { stroke: "rgba(239, 68, 68, 0.5)", strokeWidth: 2 },
         });
 
         yPosition += 150;
@@ -152,7 +154,18 @@ export default function PipelineEditor() {
   }, [pipeline, setNodes, setEdges]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge({ ...params, type: "smoothstep", animated: true }, eds)),
+    (params: Connection) =>
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            type: "smoothstep",
+            animated: true,
+            style: { stroke: "rgba(239, 68, 68, 0.5)", strokeWidth: 2 },
+          },
+          eds
+        )
+      ),
     [setEdges]
   );
 
@@ -360,7 +373,7 @@ export default function PipelineEditor() {
             </div>
           </div>
 
-          <div style={{ height: "600px" }} className="bg-black/40 rounded border border-white/10">
+          <div style={{ height: "600px" }} className="rounded border border-white/10 overflow-hidden">
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -370,12 +383,28 @@ export default function PipelineEditor() {
               onNodeClick={onNodeClick}
               nodeTypes={nodeTypes}
               fitView
-              className="bg-black"
+              className="bg-gradient-to-br from-black via-black to-annex-950/20"
+              style={{
+                background: "linear-gradient(135deg, #000000 0%, #000000 50%, rgba(239, 68, 68, 0.05) 100%)",
+              }}
+              defaultEdgeOptions={{
+                type: "smoothstep",
+                animated: true,
+                style: { stroke: "rgba(239, 68, 68, 0.5)", strokeWidth: 2 },
+              }}
+              connectionLineStyle={{ stroke: "rgba(239, 68, 68, 0.5)", strokeWidth: 2 }}
+              connectionLineType={ConnectionLineType.SmoothStep}
             >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#ffffff20" />
-              <Controls className="bg-white/5 border border-white/10" />
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={16}
+                size={1}
+                color="rgba(239, 68, 68, 0.15)"
+                style={{ opacity: 0.5 }}
+              />
+              <Controls className="bg-black/90 border border-white/10 rounded shadow-xl backdrop-blur-sm" />
               <MiniMap
-                className="bg-white/5 border border-white/10"
+                className="bg-black/90 border border-white/10 rounded shadow-xl backdrop-blur-sm"
                 nodeColor={(node) => {
                   const data = node.data as StepData;
                   const colors: Record<StepType, string> = {
@@ -388,6 +417,10 @@ export default function PipelineEditor() {
                     NOTIFICATION: "#06b6d4",
                   };
                   return colors[data.type] || "#ffffff";
+                }}
+                maskColor="rgba(0, 0, 0, 0.7)"
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.9)",
                 }}
               />
             </ReactFlow>
