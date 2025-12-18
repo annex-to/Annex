@@ -43,7 +43,7 @@
     },
     "packages/encoder": {
       "name": "@annex/encoder",
-      "version": "0.1.0",
+      "version": "0.1.6",
       "dependencies": {
         "@annex/shared": "workspace:*",
         "zod": "^3.23.8",
@@ -52,6 +52,10 @@
         "@types/bun": "^1.1.14",
         "typescript": "^5.9.3",
       },
+    },
+    "packages/landing": {
+      "name": "@annex/landing",
+      "version": "1.0.0",
     },
     "packages/server": {
       "name": "@annex/server",
@@ -90,6 +94,8 @@
     "@annex/client": ["@annex/client@workspace:packages/client"],
 
     "@annex/encoder": ["@annex/encoder@workspace:packages/encoder"],
+
+    "@annex/landing": ["@annex/landing@workspace:packages/landing"],
 
     "@annex/server": ["@annex/server@workspace:packages/server"],
 
