@@ -156,25 +156,16 @@ describe("parseArgs", () => {
   });
 
   describe("non-happy path - missing flag values", () => {
-    test("handles --server without value", () => {
-      const result = parseArgs(["--update", "--server"]);
-      expect(result.command).toBe("update");
-      expect(result.flags.server).toBeUndefined();
-      expect(result.unknown).toEqual([]);
+    test("throws error for --server without value", () => {
+      expect(() => parseArgs(["--update", "--server"])).toThrow("--server requires a value");
     });
 
-    test("handles --user without value", () => {
-      const result = parseArgs(["--setup", "--user"]);
-      expect(result.command).toBe("setup");
-      expect(result.flags.user).toBeUndefined();
-      expect(result.unknown).toEqual([]);
+    test("throws error for --user without value", () => {
+      expect(() => parseArgs(["--setup", "--user"])).toThrow("--user requires a value");
     });
 
-    test("handles --work-dir without value", () => {
-      const result = parseArgs(["--setup", "--work-dir"]);
-      expect(result.command).toBe("setup");
-      expect(result.flags.workDir).toBeUndefined();
-      expect(result.unknown).toEqual([]);
+    test("throws error for --work-dir without value", () => {
+      expect(() => parseArgs(["--setup", "--work-dir"])).toThrow("--work-dir requires a value");
     });
   });
 
