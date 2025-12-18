@@ -156,7 +156,60 @@ Configuration:
   const envPath = "/etc/annex-encoder.env";
 
   if (options.install) {
-    console.log("[1/4] Installing service files...");
+    console.log("[1/5] Setting up user and directories...");
+
+    // Create user if it doesn't exist
+    try {
+      const proc = Bun.spawn(["id", options.user], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await proc.exited;
+
+      if (proc.exitCode !== 0) {
+        // User doesn't exist, create it
+        const createUserProc = Bun.spawn(
+          ["useradd", "-r", "-s", "/bin/false", options.user],
+          {
+            stdout: "inherit",
+            stderr: "inherit",
+          }
+        );
+        await createUserProc.exited;
+        console.log(`  ✓ Created user: ${options.user}`);
+      } else {
+        console.log(`  ✓ User ${options.user} already exists`);
+      }
+    } catch (error) {
+      console.error(`  ✗ Failed to create user:`, error);
+      process.exit(1);
+    }
+
+    // Create working directory
+    try {
+      if (!fs.existsSync(options.workDir)) {
+        fs.mkdirSync(options.workDir, { recursive: true });
+        console.log(`  ✓ Created directory: ${options.workDir}`);
+      } else {
+        console.log(`  ✓ Directory ${options.workDir} already exists`);
+      }
+
+      // Set ownership
+      const chownProc = Bun.spawn(
+        ["chown", `${options.user}:${options.user}`, options.workDir],
+        {
+          stdout: "inherit",
+          stderr: "inherit",
+        }
+      );
+      await chownProc.exited;
+      console.log(`  ✓ Set ownership: ${options.user}:${options.user}`);
+    } catch (error) {
+      console.error(`  ✗ Failed to create directory:`, error);
+      process.exit(1);
+    }
+
+    console.log("\n[2/5] Installing service files...");
 
     // Write service file
     try {
@@ -182,7 +235,7 @@ Configuration:
     }
 
     // Reload systemd
-    console.log("\n[2/4] Reloading systemd...");
+    console.log("\n[3/5] Reloading systemd...");
     try {
       const proc = Bun.spawn(["systemctl", "daemon-reload"], {
         stdout: "inherit",
@@ -196,7 +249,7 @@ Configuration:
     }
 
     // Enable service
-    console.log("\n[3/4] Enabling service...");
+    console.log("\n[4/5] Enabling service...");
     try {
       const proc = Bun.spawn(["systemctl", "enable", "annex-encoder"], {
         stdout: "inherit",
@@ -216,10 +269,9 @@ Configuration:
 
 Next steps:
   1. Edit configuration: sudo nano /etc/annex-encoder.env
-  2. Ensure encoder binary is at: ${options.workDir}/annex-encoder
-  3. Start service: sudo systemctl start annex-encoder
-  4. Check status: sudo systemctl status annex-encoder
-  5. View logs: sudo journalctl -u annex-encoder -f
+  2. Start service: sudo systemctl start annex-encoder
+  3. Check status: sudo systemctl status annex-encoder
+  4. View logs: sudo journalctl -u annex-encoder -f
 `);
   } else {
     // Generate files only
