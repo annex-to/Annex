@@ -366,6 +366,7 @@ class JobQueueService {
   private async startScheduledJobs(): Promise<void> {
     await this.startAllServerSyncSchedulers();
     await this.startAwaitingRetryScheduler();
+    await this.startApprovalTimeoutScheduler();
   }
 
   /**
@@ -427,6 +428,40 @@ class JobQueueService {
     const intervalMs = intervalHours * 60 * 60 * 1000;
     scheduler.updateInterval("awaiting-retry", intervalMs);
     console.log(`[JobQueue] Updated awaiting retry interval to ${intervalHours}h`);
+  }
+
+  /**
+   * Register the approval timeout checker with scheduler
+   * Runs every 5 minutes to check for timed-out approvals
+   */
+  async startApprovalTimeoutScheduler(): Promise<void> {
+    const scheduler = getSchedulerService();
+    const intervalMs = 5 * 60 * 1000; // 5 minutes
+
+    scheduler.register(
+      "approval-timeout",
+      "Approval Timeout Check",
+      intervalMs,
+      async () => {
+        await this.checkApprovalTimeouts();
+      }
+    );
+
+    console.log("[JobQueue] Registered approval timeout task (5m interval)");
+  }
+
+  /**
+   * Check for timed-out approvals and execute auto-actions
+   */
+  private async checkApprovalTimeouts(): Promise<void> {
+    const { getApprovalService } = await import("./approvals/ApprovalService.js");
+    const approvalService = getApprovalService();
+
+    try {
+      await approvalService.checkTimeouts();
+    } catch (error) {
+      console.error("[JobQueue] Approval timeout check failed:", error);
+    }
   }
 
   /**
