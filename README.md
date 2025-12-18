@@ -123,16 +123,50 @@ This starts:
 
 ### Deploying Remote Encoders
 
+Remote encoders are distributed as standalone executables (no Bun runtime required). Download platform-specific binaries from GitHub Releases.
+
+**Linux:**
 ```bash
-# Full setup on a fresh Ubuntu 24.04 VM with Intel Arc GPU
-curl -fsSL http://ANNEX_SERVER:3000/deploy-encoder | sudo bash -s -- \
-  --server ws://ANNEX_SERVER:3000/encoder \
-  --encoder-id encoder-vm-1 \
-  --nfs-server NFS_HOST:/path/to/downloads \
-  --gpu-device /dev/dri/renderD128
+# Download binary
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder
+chmod +x annex-encoder
+
+# Setup and install service
+sudo ./annex-encoder --setup --install
+
+# Configure
+sudo nano /etc/annex-encoder.env
+
+# Start
+sudo systemctl start annex-encoder
 ```
 
-See [docs/](docs/) for more details.
+**Windows (run as Administrator):**
+```powershell
+# Download binary
+Invoke-WebRequest -Uri "https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
+
+# Setup and install service
+.\annex-encoder.exe --setup --install
+
+# Start
+Start-Service AnnexEncoder
+```
+
+**macOS:**
+```bash
+# Download binary (use darwin-arm64 for Apple Silicon)
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-darwin-arm64 -o annex-encoder
+chmod +x annex-encoder
+
+# Setup and install service
+./annex-encoder --setup --install
+
+# Start
+launchctl start com.annex.encoder
+```
+
+See [docs/deployment.md](docs/deployment.md) for more details.
 
 ## Project Structure
 

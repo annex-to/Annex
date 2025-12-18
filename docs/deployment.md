@@ -196,21 +196,92 @@ docker build -t annex .
 
 ## External Encoder Nodes
 
-For distributed encoding, deploy encoder nodes on separate machines:
+For distributed encoding, deploy encoder nodes on separate machines. Encoders are distributed as standalone executables (no Bun runtime required).
 
-1. On the Annex server, get the setup script URL from the web UI (Settings > Encoders)
+### Quick Setup
 
-2. On each encoder node:
-   ```bash
-   curl -fsSL http://annex-server/deploy-encoder | sudo bash
-   ```
+**Linux:**
+```bash
+# Download the binary
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder
+chmod +x annex-encoder
 
-3. Configure the encoder to connect to your Annex server:
-   ```bash
-   export ANNEX_SERVER_URL=ws://annex-server:80/encoder
-   export ANNEX_ENCODER_ID=encoder-1
-   annex-encoder
-   ```
+# Setup and install systemd service
+sudo ./annex-encoder --setup --install
+
+# Edit configuration
+sudo nano /etc/annex-encoder.env
+# Set ANNEX_SERVER_URL=ws://annex-server:80/encoder
+# Set ANNEX_ENCODER_ID=encoder-1
+# Set ANNEX_NFS_BASE_PATH=/mnt/downloads
+
+# Start the service
+sudo systemctl start annex-encoder
+sudo systemctl status annex-encoder
+```
+
+**Windows (run PowerShell as Administrator):**
+```powershell
+# Download the binary
+Invoke-WebRequest -Uri "https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
+
+# Setup and install Windows service
+.\annex-encoder.exe --setup --install
+
+# Edit environment variables in System Properties or modify the service
+
+# Start the service
+Start-Service AnnexEncoder
+Get-Service AnnexEncoder
+```
+
+**macOS:**
+```bash
+# Download the binary (use darwin-arm64 for Apple Silicon, darwin-x64 for Intel)
+curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-darwin-arm64 -o annex-encoder
+chmod +x annex-encoder
+
+# Setup and install launchd service
+./annex-encoder --setup --install
+
+# Edit configuration
+nano ~/Library/LaunchAgents/com.annex.encoder.plist
+
+# Start the service
+launchctl start com.annex.encoder
+```
+
+### Configuration
+
+All platforms use environment variables for configuration:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `ANNEX_SERVER_URL` | WebSocket URL to Annex server | `ws://192.168.1.50:80/encoder` |
+| `ANNEX_ENCODER_ID` | Unique identifier for this encoder | `encoder-1` |
+| `ANNEX_GPU_DEVICE` | GPU device path (Linux only) | `/dev/dri/renderD128` |
+| `ANNEX_NFS_BASE_PATH` | Path to shared media storage | `/mnt/downloads` |
+| `ANNEX_LOG_LEVEL` | Logging verbosity | `info` |
+| `ANNEX_MAX_CONCURRENT` | Max concurrent encoding jobs | `1` |
+
+### Available Binaries
+
+- `annex-encoder-linux-x64`
+- `annex-encoder-linux-arm64`
+- `annex-encoder-windows-x64.exe`
+- `annex-encoder-darwin-x64`
+- `annex-encoder-darwin-arm64`
+
+### CLI Commands
+
+```bash
+annex-encoder                    # Run encoder
+annex-encoder --help             # Show help
+annex-encoder --version          # Show version
+annex-encoder --update           # Self-update from server
+annex-encoder --setup            # Generate service files
+annex-encoder --setup --install  # Generate and install service
+```
 
 ## Backup and Restore
 

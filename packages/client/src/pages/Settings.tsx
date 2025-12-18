@@ -3161,15 +3161,29 @@ function EncodersSettings() {
       <Card className="p-4 bg-white/[0.02]">
         <h4 className="font-medium mb-2">Deploy New Encoder</h4>
         <p className="text-sm text-white/50 mb-3">
-          Run this command on a fresh Ubuntu VM to set up a remote encoder:
+          Download the encoder binary and install as a service:
         </p>
-        <code className="block text-xs bg-black/30 p-3 rounded overflow-x-auto">
-          curl -fsSL http://YOUR_SERVER:3000/deploy-encoder | sudo bash -s -- \<br />
-          &nbsp;&nbsp;--server ws://YOUR_SERVER:3000/encoder \<br />
-          &nbsp;&nbsp;--encoder-id encoder-NAME \<br />
-          &nbsp;&nbsp;--nfs-server YOUR_NFS_IP:/media \<br />
-          &nbsp;&nbsp;--skip-gpu-drivers
-        </code>
+        <div className="space-y-2">
+          <div>
+            <p className="text-xs text-white/40 mb-1">Linux:</p>
+            <code className="block text-xs bg-black/30 p-3 rounded overflow-x-auto">
+              curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder<br />
+              chmod +x annex-encoder<br />
+              sudo ./annex-encoder --setup --install<br />
+              sudo nano /etc/annex-encoder.env
+            </code>
+          </div>
+          <div>
+            <p className="text-xs text-white/40 mb-1">Windows:</p>
+            <code className="block text-xs bg-black/30 p-3 rounded overflow-x-auto">
+              Invoke-WebRequest -Uri "https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"<br />
+              .\annex-encoder.exe --setup --install
+            </code>
+          </div>
+          <p className="text-xs text-white/40 mt-2">
+            Configure ANNEX_SERVER_URL and ANNEX_ENCODER_ID in the environment file after installation.
+          </p>
+        </div>
       </Card>
     </div>
   );
