@@ -12,7 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { getConfig } from "./config.js";
-import type { EncoderCapabilities } from "@annex/shared/types/encoder.js";
+import type { EncoderCapabilities } from "@annex/shared";
 
 export interface ValidationResult {
   valid: boolean;
