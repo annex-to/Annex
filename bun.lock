@@ -53,10 +53,6 @@
         "typescript": "^5.9.3",
       },
     },
-    "packages/landing": {
-      "name": "@annex/landing",
-      "version": "1.0.0",
-    },
     "packages/server": {
       "name": "@annex/server",
       "version": "0.1.0",
@@ -94,8 +90,6 @@
     "@annex/client": ["@annex/client@workspace:packages/client"],
 
     "@annex/encoder": ["@annex/encoder@workspace:packages/encoder"],
-
-    "@annex/landing": ["@annex/landing@workspace:packages/landing"],
 
     "@annex/server": ["@annex/server@workspace:packages/server"],
 
