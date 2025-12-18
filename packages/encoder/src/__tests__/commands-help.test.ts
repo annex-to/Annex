@@ -2,6 +2,7 @@
  * Tests for help command
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { describe, test, expect, mock, spyOn } from "bun:test";
 

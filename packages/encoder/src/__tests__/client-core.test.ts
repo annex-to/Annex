@@ -4,10 +4,11 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 
 describe("client - core functionality", () => {
   let mockWs: any;
+  let wsHandlers: any = {};
 
   beforeEach(() => {
     // Mock WebSocket
@@ -22,12 +23,17 @@ describe("client - core functionality", () => {
     };
 
     // Intercept WebSocket constructor
-    (global as any).WebSocket = mock(function (_url: string) {
+    (global as any).WebSocket = mock(function (url: string) {
       setTimeout(() => {
         if (mockWs.onopen) mockWs.onopen({});
       }, 10);
       return mockWs;
     });
+  });
+
+  afterEach(() => {
+    mockWs = null;
+    wsHandlers = {};
   });
 
   describe("message handling", () => {

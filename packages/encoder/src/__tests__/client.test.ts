@@ -2,8 +2,9 @@
  * Tests for WebSocket encoder client
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, spyOn, beforeEach, afterEach } from "bun:test";
 
 describe("client", () => {
   describe("EncoderClient", () => {
