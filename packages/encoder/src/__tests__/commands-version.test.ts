@@ -79,15 +79,15 @@ describe("commands/version", () => {
       consoleSpy.mockRestore();
     });
 
-    test("includes node version", async () => {
+    test("includes platform information", async () => {
       const consoleSpy = spyOn(console, "log");
 
       const { version } = await import("../commands/version.js");
       version();
 
       const output = consoleSpy.mock.calls.map(call => call[0]).join("\n");
-      expect(output).toContain("Node Version:");
-      expect(output).toContain(process.version);
+      expect(output).toContain("Platform:");
+      expect(output).toMatch(/Platform:\s+\w+-\w+/);
 
       consoleSpy.mockRestore();
     });
@@ -106,7 +106,6 @@ describe("commands/version", () => {
         "Build Date:",
         "Build Time:",
         "Platform:",
-        "Node Version:",
       ];
 
       for (const section of requiredSections) {
@@ -168,7 +167,7 @@ describe("commands/version", () => {
       const output = consoleSpy.mock.calls.map(call => call[0]).join("\n");
 
       // Check for consistent label format
-      const labels = ["Build Date:", "Build Time:", "Platform:", "Node Version:"];
+      const labels = ["Build Date:", "Build Time:", "Platform:"];
       for (const label of labels) {
         expect(output).toContain(label);
       }
