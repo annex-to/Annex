@@ -233,27 +233,6 @@ function RequestDialog({
             </div>
           ) : (
             <>
-              {/* Advanced Settings Toggle */}
-              <button
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-2 text-xs text-white/50 hover:text-white/70 transition-colors"
-              >
-                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                  showAdvanced ? "bg-annex-500/20 border-annex-500/50" : "border-white/30"
-                }`}>
-                  {showAdvanced && (
-                    <svg className="w-3 h-3 text-annex-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </div>
-                Advanced
-              </button>
-
               {/* Pipeline Template Selector - Advanced Only */}
               {showAdvanced && pipelines && pipelines.length > 0 && (
                 <div>
@@ -441,24 +420,48 @@ function RequestDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 p-4 border-t border-white/10 bg-black/20">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={selectedServerCount === 0 || isSubmitting}
+        <div className="flex justify-between items-center gap-3 p-4 border-t border-white/10 bg-black/20">
+          {/* Advanced Settings Toggle */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-xs text-white/50 hover:text-white/70 transition-colors"
           >
-            {isSubmitting ? (
-              <>
-                <div className="animate-spin w-4 h-4 border-2 border-current/30 border-t-current rounded-full mr-2" />
-                Requesting...
-              </>
-            ) : (
-              <>Request {type === "movie" ? "Movie" : "TV Show"}</>
-            )}
-          </Button>
+            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+              showAdvanced ? "bg-annex-500/20 border-annex-500/50" : "border-white/30"
+            }`}>
+              {showAdvanced && (
+                <svg className="w-3 h-3 text-annex-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </div>
+            Advanced
+          </button>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={selectedServerCount === 0 || isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="animate-spin w-4 h-4 border-2 border-current/30 border-t-current rounded-full mr-2" />
+                  Requesting...
+                </>
+              ) : (
+                <>Request {type === "movie" ? "Movie" : "TV Show"}</>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>
