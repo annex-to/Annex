@@ -27,7 +27,7 @@ const config = initConfig();
 
 // Initialize crypto service and migrate env secrets to encrypted storage
 // This must happen before any service that might use secrets
-(async () => {
+const secretsInitPromise = (async () => {
   try {
     const crypto = getCryptoService();
     await crypto.initialize();
@@ -249,6 +249,9 @@ const encoderDispatch = getEncoderDispatchService();
 // =============================================================================
 // Bun Server
 // =============================================================================
+
+// Wait for secrets migration before starting server
+await secretsInitPromise;
 
 const { port, host } = config.server;
 
