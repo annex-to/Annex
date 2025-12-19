@@ -21,8 +21,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run ESLint
-        run: bun run lint
+      - name: Run Biome lint
+        run: biome lint --reporter=github .
 
   typecheck:
     name: Type Check
@@ -46,7 +46,76 @@ jobs:
         run: bun run --filter @annex/shared build
 
       - name: Run type check
-        run: bun run typecheck
+        id: typecheck
+        run: |
+          set +e
+          bun run typecheck 2>&1 | tee typecheck.log
+          TYPECHECK_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          # Parse TypeScript errors
+          bun run - <<'SCRIPT'
+          import { readFileSync } from 'fs';
+
+          try {
+            const log = readFileSync('typecheck.log', 'utf-8');
+            const lines = log.split('\n');
+
+            // Match TypeScript error pattern: path/file.ts(line,col): error TSxxxx: message
+            const errorPattern = /^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS(\d+):\s+(.+)$/;
+            const errors = [];
+
+            for (const line of lines) {
+              const match = line.match(errorPattern);
+              if (match) {
+                errors.push({
+                  file: match[1],
+                  line: parseInt(match[2]),
+                  col: parseInt(match[3]),
+                  level: match[4],
+                  code: match[5],
+                  message: match[6]
+                });
+              }
+            }
+
+            let summary = '# Type Check Results\n\n';
+
+            if (errors.length === 0) {
+              summary += '✅ No type errors found!\n';
+            } else {
+              const errorCount = errors.filter(e => e.level === 'error').length;
+              const warningCount = errors.filter(e => e.level === 'warning').length;
+
+              summary += `**Total Issues:** ${errors.length}\n`;
+              summary += `- ❌ Errors: ${errorCount}\n`;
+              summary += `- ⚠️ Warnings: ${warningCount}\n\n`;
+
+              summary += '## Issues\n\n';
+              summary += '| Type | File | Line:Col | Code | Message |\n';
+              summary += '|------|------|----------|------|----------|\n';
+
+              for (const err of errors.slice(0, 50)) {
+                const icon = err.level === 'error' ? '❌' : '⚠️';
+                const msg = err.message.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+                summary += `| ${icon} | \`${err.file}\` | ${err.line}:${err.col} | TS${err.code} | ${msg} |\n`;
+
+                // Create annotation
+                console.log(`::${err.level} file=${err.file},line=${err.line},col=${err.col}::TS${err.code}: ${msg}`);
+              }
+
+              if (errors.length > 50) {
+                summary += `\n*...and ${errors.length - 50} more issues*\n`;
+              }
+            }
+
+            await Bun.write(process.env.GITHUB_STEP_SUMMARY, summary);
+          } catch (err) {
+            console.error('Failed to parse typecheck output:', err);
+          }
+          SCRIPT
+
+          exit $TYPECHECK_EXIT
 
   test:
     name: Test
@@ -83,7 +152,79 @@ jobs:
           EOF
 
       - name: Run tests
-        run: bun run test
+        id: test
+        run: |
+          set +e
+          bun run test 2>&1 | tee test.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          # Parse test output and create summary
+          bun run - <<'SCRIPT'
+          import { readFileSync } from 'fs';
+
+          try {
+            const log = readFileSync('test.log', 'utf-8');
+            const lines = log.split('\n');
+
+            let totalTests = 0;
+            let passedTests = 0;
+            let failedTests = 0;
+            let skippedTests = 0;
+            const failures = [];
+
+            // Parse bun test output
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+
+              // Match test result lines
+              if (line.includes('✓') || line.includes('✔')) {
+                passedTests++;
+                totalTests++;
+              } else if (line.includes('✗') || line.includes('×')) {
+                failedTests++;
+                totalTests++;
+                // Capture failure details
+                failures.push(line.trim());
+              } else if (line.includes('⊘') || line.includes('skip')) {
+                skippedTests++;
+                totalTests++;
+              }
+            }
+
+            let summary = '# Test Results\n\n';
+
+            if (failedTests === 0 && totalTests > 0) {
+              summary += `✅ All ${totalTests} tests passed!\n\n`;
+            } else if (totalTests === 0) {
+              summary += '⚠️ No tests found\n\n';
+            } else {
+              summary += `**Total Tests:** ${totalTests}\n`;
+              summary += `- ✅ Passed: ${passedTests}\n`;
+              summary += `- ❌ Failed: ${failedTests}\n`;
+              if (skippedTests > 0) {
+                summary += `- ⊘ Skipped: ${skippedTests}\n`;
+              }
+              summary += '\n';
+
+              if (failures.length > 0) {
+                summary += '## Failed Tests\n\n';
+                summary += '```\n';
+                summary += failures.slice(0, 20).join('\n');
+                if (failures.length > 20) {
+                  summary += `\n... and ${failures.length - 20} more failures`;
+                }
+                summary += '\n```\n';
+              }
+            }
+
+            await Bun.write(process.env.GITHUB_STEP_SUMMARY, summary);
+          } catch (err) {
+            console.error('Failed to parse test output:', err);
+          }
+          SCRIPT
+
+          exit $TEST_EXIT
 
   build:
     name: Build
@@ -104,4 +245,71 @@ jobs:
         working-directory: packages/server
 
       - name: Build all packages
-        run: bun run build
+        id: build
+        run: |
+          set +e
+          bun run build 2>&1 | tee build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          # Parse build output and create summary
+          bun run - <<'SCRIPT'
+          import { readFileSync } from 'fs';
+
+          try {
+            const log = readFileSync('build.log', 'utf-8');
+            const lines = log.split('\n');
+
+            const errors = [];
+            const warnings = [];
+
+            for (const line of lines) {
+              // Match common build error/warning patterns
+              if (line.includes('error') || line.includes('ERROR') || line.includes('failed')) {
+                errors.push(line.trim());
+              } else if (line.includes('warning') || line.includes('WARNING')) {
+                warnings.push(line.trim());
+              }
+            }
+
+            let summary = '# Build Results\n\n';
+
+            if (errors.length === 0 && warnings.length === 0) {
+              summary += '✅ Build completed successfully with no errors or warnings!\n';
+            } else {
+              if (errors.length > 0) {
+                summary += `**Errors:** ${errors.length}\n`;
+              }
+              if (warnings.length > 0) {
+                summary += `**Warnings:** ${warnings.length}\n`;
+              }
+              summary += '\n';
+
+              if (errors.length > 0) {
+                summary += '## Errors\n\n';
+                summary += '```\n';
+                summary += errors.slice(0, 20).join('\n');
+                if (errors.length > 20) {
+                  summary += `\n... and ${errors.length - 20} more errors`;
+                }
+                summary += '\n```\n\n';
+              }
+
+              if (warnings.length > 0) {
+                summary += '## Warnings\n\n';
+                summary += '```\n';
+                summary += warnings.slice(0, 20).join('\n');
+                if (warnings.length > 20) {
+                  summary += `\n... and ${warnings.length - 20} more warnings`;
+                }
+                summary += '\n```\n';
+              }
+            }
+
+            await Bun.write(process.env.GITHUB_STEP_SUMMARY, summary);
+          } catch (err) {
+            console.error('Failed to parse build output:', err);
+          }
+          SCRIPT
+
+          exit $BUILD_EXIT
