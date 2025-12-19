@@ -6,14 +6,14 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { EncodingProfileData, JobProgressMessage } from "@annex/shared";
+import type { EncodingConfig, JobProgressMessage } from "@annex/shared";
 import { getConfig } from "./config.js";
 
 export interface EncodeJob {
   jobId: string;
   inputPath: string;
   outputPath: string;
-  profile: EncodingProfileData;
+  encodingConfig: EncodingConfig;
   onProgress: (progress: JobProgressMessage) => void;
   abortSignal?: AbortSignal;
 }
@@ -134,7 +134,7 @@ export async function probeMedia(filePath: string): Promise<MediaInfo> {
 function buildFfmpegArgs(
   inputPath: string,
   outputPath: string,
-  profile: EncodingProfileData,
+  encodingConfig: EncodingConfig,
   mediaInfo: MediaInfo,
   gpuDevice: string
 ): string[] {
@@ -146,8 +146,8 @@ function buildFfmpegArgs(
 
   // Hardware acceleration for both decode and encode
   // Note: hwAccel comes from DB as uppercase enum value (VAAPI, QSV, etc.)
-  const hwAccel = profile.hwAccel?.toUpperCase();
-  console.log(`[Encoder] hwAccel from profile: "${profile.hwAccel}" (normalized: "${hwAccel}")`);
+  const hwAccel = encodingConfig.hwAccel?.toUpperCase();
+  console.log(`[Encoder] hwAccel from profile: "${encodingConfig.hwAccel}" (normalized: "${hwAccel}")`);
   if (hwAccel === "VAAPI") {
     console.log(`[Encoder] Using VAAPI hardware decode + encode on ${gpuDevice}`);
     // Hardware decode
@@ -172,11 +172,11 @@ function buildFfmpegArgs(
   }
 
   // Video encoding
-  const videoArgs = buildVideoArgs(profile, mediaInfo, gpuDevice);
+  const videoArgs = buildVideoArgs(encodingConfig, mediaInfo, gpuDevice);
   args.push(...videoArgs);
 
   // Audio encoding
-  const audioArgs = buildAudioArgs(profile);
+  const audioArgs = buildAudioArgs(encodingConfig);
   args.push(...audioArgs);
 
   // Subtitle codec settings
@@ -233,15 +233,15 @@ function buildSubtitleMapping(mediaInfo: MediaInfo): { subArgs: string[]; hasCom
  * Build video encoding arguments
  */
 function buildVideoArgs(
-  profile: EncodingProfileData,
+  encodingConfig: EncodingConfig,
   mediaInfo: MediaInfo,
   _gpuDevice: string
 ): string[] {
   const args: string[] = [];
-  const hwAccel = profile.hwAccel?.toUpperCase();
+  const hwAccel = encodingConfig.hwAccel?.toUpperCase();
 
   // Calculate target resolution
-  const targetRes = getTargetResolution(profile.videoMaxResolution, mediaInfo);
+  const targetRes = getTargetResolution(encodingConfig.maxResolution, mediaInfo);
 
   // Video filter chain
   const filters: string[] = [];
@@ -267,23 +267,23 @@ function buildVideoArgs(
   if (hwAccel === "VAAPI") {
     args.push("-c:v", "av1_vaapi");
     args.push("-rc_mode", "CQP");
-    args.push("-qp", String(profile.videoQuality));
+    args.push("-qp", String(encodingConfig.crf));
   } else {
     // Software encoding fallback
     args.push("-c:v", "libsvtav1");
-    args.push("-crf", String(profile.videoQuality));
+    args.push("-crf", String(encodingConfig.crf));
     args.push("-preset", "6");
   }
 
   // Max bitrate if set
-  if (profile.videoMaxBitrate) {
-    args.push("-maxrate", `${profile.videoMaxBitrate}k`);
-    args.push("-bufsize", `${profile.videoMaxBitrate * 2}k`);
+  if (encodingConfig.maxBitrate) {
+    args.push("-maxrate", `${encodingConfig.maxBitrate}k`);
+    args.push("-bufsize", `${encodingConfig.maxBitrate * 2}k`);
   }
 
   // Additional video flags from profile
-  if (profile.videoFlags && typeof profile.videoFlags === "object") {
-    for (const [key, value] of Object.entries(profile.videoFlags)) {
+  if (encodingConfig.videoFlags && typeof encodingConfig.videoFlags === "object") {
+    for (const [key, value] of Object.entries(encodingConfig.videoFlags)) {
       // Skip rc_mode since it's already set above for VAAPI
       if (key === "rc_mode") continue;
       if (value !== null && value !== undefined && value !== "") {
@@ -311,17 +311,17 @@ function buildVideoArgs(
 /**
  * Build audio encoding arguments
  */
-function buildAudioArgs(profile: EncodingProfileData): string[] {
+function buildAudioArgs(encodingConfig: EncodingConfig): string[] {
   const args: string[] = [];
 
-  if (profile.audioEncoder === "copy" || profile.audioEncoder === "passthrough") {
+  if (encodingConfig.audioEncoder === "copy" || encodingConfig.audioEncoder === "passthrough") {
     args.push("-c:a", "copy");
   } else {
-    args.push("-c:a", profile.audioEncoder);
+    args.push("-c:a", encodingConfig.audioEncoder);
 
     // Apply audio flags from profile
-    if (profile.audioFlags && typeof profile.audioFlags === "object") {
-      for (const [key, value] of Object.entries(profile.audioFlags)) {
+    if (encodingConfig.audioFlags && typeof encodingConfig.audioFlags === "object") {
+      for (const [key, value] of Object.entries(encodingConfig.audioFlags)) {
         if (value !== null && value !== undefined && value !== "") {
           args.push(`-${key}`, String(value));
         }
@@ -437,7 +437,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   const args = buildFfmpegArgs(
     job.inputPath,
     job.outputPath,
-    job.profile,
+    job.encodingConfig,
     mediaInfo,
     config.gpuDevice
   );

@@ -1,6 +1,6 @@
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 import type { PipelineContext } from "../PipelineContext.js";
-import { StepType, RequestStatus, ActivityType, AssignmentStatus } from "@prisma/client";
+import { StepType, RequestStatus, ActivityType, AssignmentStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { getEncoderDispatchService } from "../../encoderDispatch.js";
 
@@ -155,7 +155,7 @@ export class EncodeStep extends BaseStep {
           mediaType,
           inputPath: sourceFilePath,
           encodingConfig,
-        },
+        } as Prisma.JsonObject,
         dedupeKey: `encode:${requestId}`,
       },
     });

@@ -339,7 +339,7 @@ class EncoderDispatchService {
         jobId: job.jobId,
         inputPath: translateToRemotePath(job.inputPath),
         outputPath: translateToRemotePath(job.outputPath),
-        encodingConfig: encodingConfig as EncodingConfig,
+        encodingConfig: encodingConfig as unknown as EncodingConfig,
       };
 
       this.send(connection.ws, assignMsg);
@@ -765,7 +765,7 @@ class EncoderDispatchService {
     jobId: string,
     inputPath: string,
     outputPath: string,
-    encodingConfig: Record<string, unknown>
+    _encodingConfig: Record<string, unknown>
   ): Promise<EncoderAssignment> {
     // Check for existing active assignment for same input file (deduplication)
     const existingAssignment = await prisma.encoderAssignment.findFirst({

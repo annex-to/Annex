@@ -10,12 +10,10 @@ import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
 // =============================================================================
 
 /**
- * Target server with optional encoding profile override.
- * If encodingProfileId is not specified, uses the server's default profile.
+ * Target server for request delivery.
  */
 export interface RequestTarget {
   serverId: string;
-  encodingProfileId?: string;
 }
 
 // =============================================================================
@@ -28,13 +26,10 @@ const episodeRequestSchema = z.object({
 });
 
 /**
- * Target schema for per-server profile selection.
- * Each target specifies a server and optionally an encoding profile.
- * If no profile is specified, the server's default profile is used.
+ * Target schema for request delivery.
  */
 const targetSchema = z.object({
   serverId: z.string(),
-  encodingProfileId: z.string().optional(),
 });
 
 /**
@@ -107,48 +102,6 @@ async function getDefaultTemplate(mediaType: "MOVIE" | "TV"): Promise<string> {
   return template.id;
 }
 
-/**
- * Resolve encoding profile for each target.
- * If target has no profile specified, use server's default profile.
- * If server has no default profile, use system default profile.
- */
-async function resolveTargetProfiles(targets: RequestTarget[]): Promise<RequestTarget[]> {
-  const resolvedTargets: RequestTarget[] = [];
-
-  // Get all servers in one query
-  const serverIds = targets.map((t) => t.serverId);
-  const servers = await prisma.storageServer.findMany({
-    where: { id: { in: serverIds } },
-    select: { id: true, encodingProfileId: true },
-  });
-
-  const serverMap = new Map(servers.map((s) => [s.id, s]));
-
-  // Get system default profile
-  const defaultProfile = await prisma.encodingProfile.findFirst({
-    where: { isDefault: true },
-    select: { id: true },
-  });
-
-  for (const target of targets) {
-    const server = serverMap.get(target.serverId);
-    if (!server) {
-      throw new Error(`Server not found: ${target.serverId}`);
-    }
-
-    // Priority: target profile > server profile > system default
-    const profileId =
-      target.encodingProfileId || server.encodingProfileId || defaultProfile?.id;
-
-    resolvedTargets.push({
-      serverId: target.serverId,
-      encodingProfileId: profileId,
-    });
-  }
-
-  return resolvedTargets;
-}
-
 // =============================================================================
 // Router
 // =============================================================================
@@ -170,9 +123,6 @@ export const requestsRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      // Resolve profiles for each target
-      const resolvedTargets = await resolveTargetProfiles(input.targets);
-
       const request = await prisma.mediaRequest.create({
         data: {
           type: MediaType.MOVIE,
@@ -180,7 +130,7 @@ export const requestsRouter = router({
           title: input.title,
           year: input.year,
           posterPath: input.posterPath ?? null,
-          targets: resolvedTargets as unknown as Prisma.JsonArray,
+          targets: input.targets as unknown as Prisma.JsonArray,
           status: RequestStatus.PENDING,
           progress: 0,
           // Store manually selected release if provided
@@ -234,9 +184,6 @@ export const requestsRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      // Resolve profiles for each target
-      const resolvedTargets = await resolveTargetProfiles(input.targets);
-
       const request = await prisma.mediaRequest.create({
         data: {
           type: MediaType.TV,
@@ -246,7 +193,7 @@ export const requestsRouter = router({
           posterPath: input.posterPath ?? null,
           requestedSeasons: input.seasons ?? [],
           requestedEpisodes: input.episodes ?? Prisma.JsonNull,
-          targets: resolvedTargets as unknown as Prisma.JsonArray,
+          targets: input.targets as unknown as Prisma.JsonArray,
           status: RequestStatus.PENDING,
           progress: 0,
           // Store manually selected release if provided
@@ -321,17 +268,13 @@ export const requestsRouter = router({
         },
       });
 
-      // Get server and profile names for display
+      // Get server names for display
       const serverIds = new Set<string>();
-      const profileIds = new Set<string>();
 
       for (const r of results) {
         const targets = r.targets as unknown as RequestTarget[];
         for (const target of targets) {
           serverIds.add(target.serverId);
-          if (target.encodingProfileId) {
-            profileIds.add(target.encodingProfileId);
-          }
         }
       }
 
@@ -341,13 +284,9 @@ export const requestsRouter = router({
         (r) => `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`
       );
 
-      const [servers, profiles, mediaItems] = await Promise.all([
+      const [servers, mediaItems] = await Promise.all([
         prisma.storageServer.findMany({
           where: { id: { in: Array.from(serverIds) } },
-          select: { id: true, name: true },
-        }),
-        prisma.encodingProfile.findMany({
-          where: { id: { in: Array.from(profileIds) } },
           select: { id: true, name: true },
         }),
         mediaItemIds.length > 0
@@ -359,7 +298,6 @@ export const requestsRouter = router({
       ]);
 
       const serverMap = new Map(servers.map((s) => [s.id, s.name]));
-      const profileMap = new Map(profiles.map((p) => [p.id, p.name]));
       const posterMap = new Map(mediaItems.map((m) => [m.id, m.posterPath]));
 
       return results.map((r) => {
@@ -378,10 +316,6 @@ export const requestsRouter = router({
           targets: targets.map((t) => ({
             serverId: t.serverId,
             serverName: serverMap.get(t.serverId) || "Unknown",
-            encodingProfileId: t.encodingProfileId,
-            encodingProfileName: t.encodingProfileId
-              ? profileMap.get(t.encodingProfileId) || "Unknown"
-              : "Default",
           })),
           requestedSeasons: r.requestedSeasons,
           requestedEpisodes: r.requestedEpisodes as { season: number; episode: number }[] | null,
@@ -414,25 +348,15 @@ export const requestsRouter = router({
 
     const targets = r.targets as unknown as RequestTarget[];
 
-    // Get server and profile names
+    // Get server names
     const serverIds = targets.map((t) => t.serverId);
-    const profileIds = targets
-      .filter((t) => t.encodingProfileId)
-      .map((t) => t.encodingProfileId!);
 
-    const [servers, profiles] = await Promise.all([
-      prisma.storageServer.findMany({
-        where: { id: { in: serverIds } },
-        select: { id: true, name: true },
-      }),
-      prisma.encodingProfile.findMany({
-        where: { id: { in: profileIds } },
-        select: { id: true, name: true },
-      }),
-    ]);
+    const servers = await prisma.storageServer.findMany({
+      where: { id: { in: serverIds } },
+      select: { id: true, name: true },
+    });
 
     const serverMap = new Map(servers.map((s) => [s.id, s.name]));
-    const profileMap = new Map(profiles.map((p) => [p.id, p.name]));
 
     return {
       id: r.id,
@@ -443,10 +367,6 @@ export const requestsRouter = router({
       targets: targets.map((t) => ({
         serverId: t.serverId,
         serverName: serverMap.get(t.serverId) || "Unknown",
-        encodingProfileId: t.encodingProfileId,
-        encodingProfileName: t.encodingProfileId
-          ? profileMap.get(t.encodingProfileId) || "Unknown"
-          : "Default",
       })),
       requestedSeasons: r.requestedSeasons,
       requestedEpisodes: r.requestedEpisodes as { season: number; episode: number }[] | null,

@@ -248,8 +248,6 @@ interface RequestCardProps {
     targets: {
       serverId: string;
       serverName: string;
-      encodingProfileId: string | undefined;
-      encodingProfileName: string;
     }[];
     requestedSeasons: number[];
     requestedEpisodes: { season: number; episode: number }[] | null;
@@ -497,7 +495,6 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
                 {request.targets.map((target, i) => (
                   <div key={i} className="text-white/70">
                     {target.serverName}
-                    <span className="text-white/30 ml-1 text-xs">({target.encodingProfileName})</span>
                   </div>
                 ))}
               </div>

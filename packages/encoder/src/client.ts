@@ -310,7 +310,7 @@ Server: ${this.config.serverUrl}
    * Handle job assignment
    */
   private async handleJobAssign(msg: JobAssignMessage): Promise<void> {
-    const { jobId, inputPath, outputPath, profileId, profile } = msg;
+    const { jobId, inputPath, outputPath, encodingConfig } = msg;
 
     // Check capacity
     if (this.activeJobs.size >= this.config.maxConcurrent) {
@@ -332,8 +332,7 @@ Server: ${this.config.serverUrl}
     console.log(`[Client] Received job ${jobId}`);
     console.log(`  Input: ${inputPath}`);
     console.log(`  Output: ${outputPath}`);
-    console.log(`  Profile: ${profileId} (${profile.name})`);
-    console.log(`  hwAccel: "${profile.hwAccel}" | videoEncoder: "${profile.videoEncoder}"`);
+    console.log(`  Config: videoEncoder="${encodingConfig.videoEncoder}" hwAccel="${encodingConfig.hwAccel}"`);
 
     // Accept the job
     const abortController = new AbortController();
@@ -361,7 +360,7 @@ Server: ${this.config.serverUrl}
         jobId,
         inputPath,
         outputPath,
-        profile,
+        encodingConfig,
         onProgress: (progress) => this.send(progress),
         abortSignal: abortController.signal,
       });

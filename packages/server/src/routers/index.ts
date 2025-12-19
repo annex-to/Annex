@@ -7,7 +7,6 @@ import { indexersRouter } from "./indexers.js";
 import { libraryRouter } from "./library.js";
 import { systemRouter } from "./system.js";
 import { syncRouter } from "./sync.js";
-import { profilesRouter } from "./profiles.js";
 import { jobSubscriptionsRouter } from "./jobSubscriptions.js";
 import { encodersRouter } from "./encoders.js";
 import { secretsRouter } from "./secrets.js";
@@ -24,7 +23,6 @@ export const appRouter = router({
   library: libraryRouter,
   system: systemRouter,
   sync: syncRouter,
-  profiles: profilesRouter,
   jobs: jobSubscriptionsRouter,
   encoders: encodersRouter,
   secrets: secretsRouter,
