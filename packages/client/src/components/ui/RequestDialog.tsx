@@ -32,6 +32,7 @@ function RequestDialog({
   const [serverSelections, setServerSelections] = useState<Map<string, ServerSelection>>(new Map());
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Fetch available targets (servers and encoding profiles)
   const { data: targets, isLoading: targetsLoading } = trpc.requests.getAvailableTargets.useQuery(
@@ -67,6 +68,7 @@ function RequestDialog({
       setServerSelections(new Map());
       setExpandedServer(null);
       setSelectedPipelineId(null);
+      setShowAdvanced(false);
       createMovieMutation.reset();
       createTvMutation.reset();
     }
@@ -231,8 +233,29 @@ function RequestDialog({
             </div>
           ) : (
             <>
-              {/* Pipeline Template Selector */}
-              {pipelines && pipelines.length > 0 && (
+              {/* Advanced Settings Toggle */}
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center gap-2 text-xs text-white/50 hover:text-white/70 transition-colors"
+              >
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                  showAdvanced ? "bg-annex-500/20 border-annex-500/50" : "border-white/30"
+                }`}>
+                  {showAdvanced && (
+                    <svg className="w-3 h-3 text-annex-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </div>
+                Advanced
+              </button>
+
+              {/* Pipeline Template Selector - Advanced Only */}
+              {showAdvanced && pipelines && pipelines.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-white/70 mb-3">Pipeline Template</h3>
                   <div className="space-y-2">
