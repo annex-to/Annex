@@ -36,8 +36,8 @@ COPY . .
 # Build all packages (server builds first to generate Prisma types)
 RUN bun run build
 
-# Prune dev dependencies for smaller image
-RUN rm -rf node_modules && bun install --production --omit=optional
+# Note: Skipping production-only install to preserve generated Prisma Client
+# This increases image size but ensures all generated types are available
 
 # =============================================================================
 # Stage 2: Runtime
@@ -60,11 +60,9 @@ RUN useradd --system --create-home --shell /bin/bash annex
 WORKDIR /app
 
 # Copy built artifacts from builder
-COPY --from=builder /app/packages/server/src ./server/src/
-COPY --from=builder /app/packages/server/prisma ./server/prisma/
-COPY --from=builder /app/packages/server/node_modules ./server/node_modules/
-COPY --from=builder /app/packages/client/dist ./client/
+COPY --from=builder /app/packages ./packages/
 COPY --from=builder /app/node_modules ./node_modules/
+COPY --from=builder /app/package.json ./package.json
 
 # Copy entrypoint
 COPY docker-entrypoint.sh /docker-entrypoint.sh
@@ -78,12 +76,12 @@ server {
     server_name _;
 
     # Client static files
-    root /app/client;
+    root /app/packages/client/dist;
     index index.html;
 
     # API and WebSocket proxy
     location /trpc {
-        proxy_pass http://127.0.0.1:3001;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -95,7 +93,7 @@ server {
 
     # Encoder WebSocket
     location /encoder {
-        proxy_pass http://127.0.0.1:3001;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -105,7 +103,7 @@ server {
 
     # API routes
     location /api {
-        proxy_pass http://127.0.0.1:3001;
+        proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -113,7 +111,7 @@ server {
 
     # Deploy encoder route
     location /deploy-encoder {
-        proxy_pass http://127.0.0.1:3001;
+        proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -136,7 +134,7 @@ RUN mkdir -p /data/postgres /data/config /downloads \
     && chown -R annex:annex /data/config /downloads
 
 # Environment defaults
-ENV PORT=3001
+ENV PORT=3000
 ENV NODE_ENV=production
 ENV ANNEX_CONFIG_DIR=/data/config
 

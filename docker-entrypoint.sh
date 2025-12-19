@@ -10,6 +10,10 @@ set -e
 USE_INTERNAL_POSTGRES=true
 USE_INTERNAL_ENCODER=true
 
+# Add PostgreSQL binaries to PATH
+PG_VERSION=$(ls /usr/lib/postgresql/ | head -n 1)
+export PATH="/usr/lib/postgresql/${PG_VERSION}/bin:$PATH"
+
 # Check for external database
 if [ -n "$DATABASE_URL" ]; then
   echo "[Annex] Using external PostgreSQL"
@@ -58,11 +62,8 @@ mkdir -p "$ANNEX_CONFIG_DIR"
 
 # Run database migrations
 echo "[Annex] Running database migrations..."
-cd /app/server
-bunx prisma migrate deploy --schema=./prisma/schema.prisma
-
-# Set internal server port (nginx proxies from 80)
-export PORT="${PORT:-3001}"
+cd /app/packages/server
+bunx prisma@6.19.1 migrate deploy --schema=./prisma/schema.prisma
 
 # Start internal encoder in background if enabled
 if [ "$USE_INTERNAL_ENCODER" = "true" ]; then
@@ -83,7 +84,7 @@ if [ "$USE_INTERNAL_ENCODER" = "true" ]; then
   fi
 
   # Start encoder in background
-  bun /app/encoder/encoder.js &
+  bun /app/packages/encoder/src/index.ts &
   ENCODER_PID=$!
   echo "[Annex] Internal encoder started (PID: $ENCODER_PID)"
 fi
@@ -112,6 +113,6 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # Start server
-echo "[Annex] Starting server on port ${PORT:-3001}..."
-cd /app/server
+echo "[Annex] Starting server on port ${PORT:-3000}..."
+cd /app/packages/server
 exec bun src/index.ts
