@@ -31,10 +31,17 @@ function RequestDialog({
 }: RequestDialogProps) {
   const [serverSelections, setServerSelections] = useState<Map<string, ServerSelection>>(new Map());
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
 
   // Fetch available targets (servers and encoding profiles)
   const { data: targets, isLoading: targetsLoading } = trpc.requests.getAvailableTargets.useQuery(
     undefined,
+    { enabled: isOpen }
+  );
+
+  // Fetch available pipeline templates for this media type
+  const { data: pipelines, isLoading: pipelinesLoading } = trpc.pipelines.list.useQuery(
+    { mediaType: type === "movie" ? "MOVIE" : "TV" },
     { enabled: isOpen }
   );
 
@@ -54,16 +61,27 @@ function RequestDialog({
   const isSubmitting = createMovieMutation.isPending || createTvMutation.isPending;
   const error = createMovieMutation.error || createTvMutation.error;
 
-  // Reset selections when dialog opens
+  // Reset selections when dialog opens, set default pipeline when loaded
   useEffect(() => {
     if (isOpen) {
       setServerSelections(new Map());
       setExpandedServer(null);
+      setSelectedPipelineId(null);
       createMovieMutation.reset();
       createTvMutation.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- createMovieMutation and createTvMutation are stable tRPC refs
   }, [isOpen]);
+
+  // Auto-select default pipeline when pipelines load
+  useEffect(() => {
+    if (pipelines && !selectedPipelineId) {
+      const defaultPipeline = pipelines.find((p) => p.isDefault);
+      if (defaultPipeline) {
+        setSelectedPipelineId(defaultPipeline.id);
+      }
+    }
+  }, [pipelines, selectedPipelineId]);
 
   const toggleServer = (serverId: string) => {
     setServerSelections((prev) => {
@@ -125,6 +143,7 @@ function RequestDialog({
         year,
         posterPath,
         targets,
+        pipelineTemplateId: selectedPipelineId || undefined,
       });
     } else {
       createTvMutation.mutate({
@@ -133,6 +152,7 @@ function RequestDialog({
         year,
         posterPath,
         targets,
+        pipelineTemplateId: selectedPipelineId || undefined,
         // TODO: Add season/episode selection for TV
       });
     }
@@ -198,7 +218,7 @@ function RequestDialog({
 
         {/* Content */}
         <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-          {targetsLoading ? (
+          {targetsLoading || pipelinesLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin w-6 h-6 border-2 border-annex-500/30 border-t-annex-500 rounded-full" />
             </div>
@@ -211,6 +231,42 @@ function RequestDialog({
             </div>
           ) : (
             <>
+              {/* Pipeline Template Selector */}
+              {pipelines && pipelines.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-white/70 mb-3">Pipeline Template</h3>
+                  <div className="space-y-2">
+                    <select
+                      value={selectedPipelineId || ""}
+                      onChange={(e) => setSelectedPipelineId(e.target.value || null)}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded text-sm text-white focus:outline-none focus:border-annex-500/50 transition-colors"
+                    >
+                      {pipelines.map((pipeline) => (
+                        <option key={pipeline.id} value={pipeline.id} className="bg-zinc-900">
+                          {pipeline.name}
+                          {pipeline.isDefault ? " (Default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Pipeline Preview */}
+                    {selectedPipelineId && (() => {
+                      const selected = pipelines.find((p) => p.id === selectedPipelineId);
+                      return selected ? (
+                        <div className="p-3 bg-white/5 border border-white/10 rounded">
+                          <div className="text-xs text-white/70">
+                            {selected.description}
+                          </div>
+                          <div className="text-xs text-white/40 mt-1">
+                            {selected.stepCount} step{selected.stepCount !== 1 ? "s" : ""} in pipeline
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h3 className="text-sm font-medium text-white/70 mb-3">Select Destination Servers</h3>
                 <div className="space-y-2">
