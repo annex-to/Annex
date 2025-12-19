@@ -51,22 +51,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: annex_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/annex_test
     steps:
       - uses: actions/checkout@v4
 
@@ -80,10 +64,6 @@ jobs:
 
       - name: Generate Prisma client
         run: bunx prisma generate
-        working-directory: packages/server
-
-      - name: Run database migrations
-        run: bunx prisma migrate deploy
         working-directory: packages/server
 
       - name: Build shared types
