@@ -39,7 +39,6 @@ export const secretsRouter = router({
     // Check each service's secrets
     const services: Record<string, boolean> = {};
     const serviceSecrets = [
-      "tmdb.apiKey",
       "mdblist.apiKey",
       "qbittorrent.url",
       "plex.serverUrl",
@@ -235,7 +234,7 @@ export const secretsRouter = router({
   testConnection: adminProcedure
     .input(
       z.object({
-        service: z.enum(["qbittorrent", "tmdb", "mdblist", "trakt"]),
+        service: z.enum(["qbittorrent", "mdblist", "trakt"]),
       })
     )
     .mutation(async ({ input }) => {
@@ -264,27 +263,6 @@ export const secretsRouter = router({
             if (response.ok) {
               const version = await response.text();
               return { success: true, message: `Connected! Version: ${version}` };
-            } else {
-              return { success: false, error: `HTTP ${response.status}` };
-            }
-          } catch (error) {
-            return { success: false, error: (error as Error).message };
-          }
-        }
-
-        case "tmdb": {
-          const apiKey = await secrets.getSecret("tmdb.apiKey");
-          if (!apiKey) {
-            return { success: false, error: "TMDB API key not configured" };
-          }
-
-          try {
-            const response = await fetch(
-              `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`
-            );
-
-            if (response.ok) {
-              return { success: true, message: "Connected to TMDB!" };
             } else {
               return { success: false, error: `HTTP ${response.status}` };
             }

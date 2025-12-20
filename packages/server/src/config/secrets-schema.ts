@@ -22,17 +22,6 @@ export interface SecretDefinition {
 export const SECRET_DEFINITIONS: SecretDefinition[] = [
   // Metadata APIs
   {
-    key: "tmdb.apiKey",
-    label: "TMDB API Key",
-    description: "Required for movie and TV metadata",
-    group: "metadata",
-    required: false,
-    sensitive: true,
-    placeholder: "Enter your TMDB API key",
-    helpUrl: "https://www.themoviedb.org/settings/api",
-    validate: (v) => v.length >= 20,
-  },
-  {
     key: "mdblist.apiKey",
     label: "MDBList API Key",
     description: "Required for aggregated ratings (IMDb, Rotten Tomatoes, etc.)",

@@ -1,7 +1,6 @@
 import { MediaType } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
-import { TMDBService } from "../services/tmdb.js";
 import { publicProcedure, router } from "../trpc.js";
 
 export const libraryRouter = router({
@@ -75,8 +74,8 @@ export const libraryRouter = router({
           overview: item.overview,
           posterPath: item.posterPath,
           backdropPath: item.backdropPath,
-          posterUrl: TMDBService.getImageUrl(item.posterPath, "w342"),
-          backdropUrl: TMDBService.getImageUrl(item.backdropPath, "w780"),
+          posterUrl: item.posterPath,
+          backdropUrl: item.backdropPath,
           genres: item.genres,
           runtime: item.runtime,
           status: item.status,
@@ -130,8 +129,8 @@ export const libraryRouter = router({
         overview: item.overview,
         posterPath: item.posterPath,
         backdropPath: item.backdropPath,
-        posterUrl: TMDBService.getImageUrl(item.posterPath, "w500"),
-        backdropUrl: TMDBService.getImageUrl(item.backdropPath, "original"),
+        posterUrl: item.posterPath,
+        backdropUrl: item.backdropPath,
         genres: item.genres,
         runtime: item.runtime,
         status: item.status,
@@ -171,7 +170,7 @@ export const libraryRouter = router({
         tmdbId: item.tmdbId,
         title: item.title,
         type: item.type.toLowerCase(),
-        posterUrl: TMDBService.getImageUrl(item.posterPath, "w185"),
+        posterUrl: item.posterPath,
         addedAt: item.createdAt,
       })),
     };

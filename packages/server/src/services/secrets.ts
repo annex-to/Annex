@@ -270,8 +270,6 @@ export function resetSecretsService(): void {
  * Environment variable to secret key mapping
  */
 const ENV_TO_SECRET_MAP: Record<string, string> = {
-  TMDB_API_KEY: "tmdb.apiKey",
-  ANNEX_TMDB_API_KEY: "tmdb.apiKey",
   MDBLIST_API_KEY: "mdblist.apiKey",
   ANNEX_MDBLIST_API_KEY: "mdblist.apiKey",
   TRAKT_CLIENT_ID: "trakt.clientId",
@@ -325,7 +323,6 @@ export async function migrateEnvSecretsIfNeeded(): Promise<{
   // Then, get from config (lower priority than env)
   // Note: only include properties that exist in the config schema
   const configMappings: Record<string, string | undefined> = {
-    "tmdb.apiKey": config.tmdb?.apiKey,
     "mdblist.apiKey": config.mdblist?.apiKey,
     "trakt.clientId": config.trakt?.clientId,
     // trakt.clientSecret is only in env vars, not in config schema

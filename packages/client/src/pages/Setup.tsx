@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Input, Label } from "../components/ui";
 import { trpc } from "../trpc";
 
-type SetupStep = "welcome" | "tmdb" | "trakt" | "downloads" | "complete";
+type SetupStep = "welcome" | "trakt" | "downloads" | "complete";
 
 export default function SetupPage() {
   const navigate = useNavigate();
@@ -28,7 +28,7 @@ export default function SetupPage() {
     setSecrets((prev) => ({ ...prev, [key]: value }));
   };
 
-  const testConnection = async (service: "qbittorrent" | "tmdb" | "mdblist" | "trakt") => {
+  const testConnection = async (service: "qbittorrent" | "mdblist" | "trakt") => {
     try {
       const result = await testConnectionMutation.mutateAsync({ service });
       setTestResults((prev) => ({
@@ -91,7 +91,7 @@ export default function SetupPage() {
         {/* Step indicator */}
         {step !== "welcome" && step !== "complete" && (
           <div className="flex justify-center gap-2 mb-8">
-            {["tmdb", "trakt", "downloads"].map((s) => (
+            {["trakt", "downloads"].map((s) => (
               <div
                 key={s}
                 className={`w-3 h-3 rounded-full transition-colors ${
@@ -116,84 +116,15 @@ export default function SetupPage() {
             <div className="text-left bg-surface-900/50 rounded p-4 space-y-2">
               <p className="text-sm text-surface-300">You'll need:</p>
               <ul className="text-sm text-surface-400 space-y-1 list-disc list-inside">
-                <li>A TMDB API key (free) for movie and TV metadata</li>
-                <li>A Trakt Client ID (free) for discovery lists</li>
+                <li>A Trakt Client ID (free) for all metadata and discovery</li>
                 <li>qBittorrent for downloading (optional now, required later)</li>
                 <li>Indexer access for searching releases (configured in Settings)</li>
               </ul>
             </div>
 
-            <Button onClick={() => setStep("tmdb")} className="w-full">
+            <Button onClick={() => setStep("trakt")} className="w-full">
               Get Started
             </Button>
-          </Card>
-        )}
-
-        {step === "tmdb" && (
-          <Card className="p-8 space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">TMDB API Key</h2>
-              <p className="text-surface-400 text-sm">
-                TMDB provides movie and TV show metadata. This is required for Annex to work.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <Label>API Key</Label>
-                <Input
-                  type="password"
-                  value={secrets["tmdb.apiKey"] || ""}
-                  onChange={(e) => updateSecret("tmdb.apiKey", e.target.value)}
-                  placeholder="Enter your TMDB API key"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => testConnection("tmdb")}
-                  disabled={!secrets["tmdb.apiKey"] || testConnectionMutation.isLoading}
-                >
-                  {testConnectionMutation.isLoading ? "Testing..." : "Test Connection"}
-                </Button>
-                {testResults.tmdb && (
-                  <span
-                    className={
-                      testResults.tmdb.success ? "text-green-400 text-sm" : "text-red-400 text-sm"
-                    }
-                  >
-                    {testResults.tmdb.message}
-                  </span>
-                )}
-              </div>
-
-              <p className="text-xs text-surface-500">
-                Don't have an API key?{" "}
-                <a
-                  href="https://www.themoviedb.org/settings/api"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-annex-400 hover:text-annex-300"
-                >
-                  Get one from TMDB (free)
-                </a>
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setStep("welcome")}>
-                Back
-              </Button>
-              <Button
-                onClick={() => setStep("trakt")}
-                className="flex-1"
-                disabled={!secrets["tmdb.apiKey"]}
-              >
-                Continue
-              </Button>
-            </div>
           </Card>
         )}
 
@@ -202,8 +133,8 @@ export default function SetupPage() {
             <div className="space-y-2">
               <h2 className="text-xl font-semibold">Trakt Client ID</h2>
               <p className="text-surface-400 text-sm">
-                Trakt powers discovery features like trending, popular, and favorited lists. This is
-                required for Annex to work.
+                Trakt provides all movie and TV show metadata, images, discovery lists, and trailers.
+                This is required for Annex to work.
               </p>
             </div>
 
@@ -252,7 +183,7 @@ export default function SetupPage() {
             </div>
 
             <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setStep("tmdb")}>
+              <Button variant="ghost" onClick={() => setStep("welcome")}>
                 Back
               </Button>
               <Button

@@ -44,7 +44,6 @@ export type {
   QBittorrentConfig,
   SchedulerConfig,
   ServerConfig,
-  TmdbConfig,
   TraktConfig,
 } from "./schema.js";
 // Re-export types and schema

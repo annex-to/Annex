@@ -39,14 +39,6 @@ const jobsSchema = z.object({
   pollInterval: z.coerce.number().int().min(1000).max(60000).default(5000),
 });
 
-// TMDB API configuration
-const tmdbSchema = z
-  .object({
-    apiKey: z.string().min(1).optional().describe("TMDB API key"),
-    rateLimit: z.coerce.number().int().min(1).max(100).default(40),
-  })
-  .default({});
-
 // OMDB API configuration (for IMDB/RT/Metacritic ratings)
 const omdbSchema = z
   .object({
@@ -176,7 +168,6 @@ export const configSchema = z.object({
   server: serverSchema.default({}),
   database: databaseSchema,
   jobs: jobsSchema.default({}),
-  tmdb: tmdbSchema.default({}),
   omdb: omdbSchema,
   mdblist: mdblistSchema,
   trakt: traktSchema,
@@ -199,7 +190,6 @@ export type Config = z.infer<typeof configSchema>;
 export type ServerConfig = z.infer<typeof serverSchema>;
 export type DatabaseConfig = z.infer<typeof databaseSchema>;
 export type JobsConfig = z.infer<typeof jobsSchema>;
-export type TmdbConfig = z.infer<typeof tmdbSchema>;
 export type OmdbConfig = z.infer<typeof omdbSchema>;
 export type MdblistConfig = z.infer<typeof mdblistSchema>;
 export type TraktConfig = z.infer<typeof traktSchema>;

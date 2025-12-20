@@ -24,12 +24,6 @@ const ENV_MAPPING: Record<string, string> = {
   JOB_POLL_INTERVAL: "jobs.pollInterval",
   ANNEX_JOB_POLL_INTERVAL: "jobs.pollInterval",
 
-  // TMDB
-  TMDB_API_KEY: "tmdb.apiKey",
-  ANNEX_TMDB_API_KEY: "tmdb.apiKey",
-  TMDB_RATE_LIMIT: "tmdb.rateLimit",
-  ANNEX_TMDB_RATE_LIMIT: "tmdb.rateLimit",
-
   // OMDB
   OMDB_API_KEY: "omdb.apiKey",
   ANNEX_OMDB_API_KEY: "omdb.apiKey",
