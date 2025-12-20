@@ -153,6 +153,14 @@ class MDBListService {
   }
 
   /**
+   * Check if MDBList is configured with an API key
+   */
+  async isConfigured(): Promise<boolean> {
+    const apiKey = await this.getApiKey();
+    return Boolean(apiKey);
+  }
+
+  /**
    * Token bucket rate limiter with proper parallel request handling
    * Refills tokens over time, waits when empty
    */

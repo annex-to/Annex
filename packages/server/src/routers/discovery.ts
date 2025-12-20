@@ -413,18 +413,24 @@ export const discoveryRouter = router({
           }));
 
         if (itemsToHydrate.length > 0) {
-          // Fire and forget - queue job in background
-          const jobQueue = getJobQueueService();
-          jobQueue
-            .addJobIfNotExists(
-              "mdblist:hydrate-discover",
-              { items: itemsToHydrate },
-              `mdblist:hydrate-discover:${input.type}:${input.listType}:${input.page}`,
-              { priority: 1, maxAttempts: 2 }
-            )
-            .catch((err) => {
-              console.error("[Discover] Failed to queue hydration job:", err);
-            });
+          // Fire and forget - queue job in background (only if MDBList is configured)
+          const { getMDBListService } = await import("../services/mdblist.js");
+          const mdblist = getMDBListService();
+          const isMdblistConfigured = await mdblist.isConfigured();
+
+          if (isMdblistConfigured) {
+            const jobQueue = getJobQueueService();
+            jobQueue
+              .addJobIfNotExists(
+                "mdblist:hydrate-discover",
+                { items: itemsToHydrate },
+                `mdblist:hydrate-discover:${input.type}:${input.listType}:${input.page}`,
+                { priority: 1, maxAttempts: 2 }
+              )
+              .catch((err) => {
+                console.error("[Discover] Failed to queue hydration job:", err);
+              });
+          }
         }
 
         return {
@@ -608,7 +614,8 @@ export const discoveryRouter = router({
               });
             }
 
-            if (ratingsAge >= RATINGS_CACHE_TTL) {
+            const isMdblistConfigured = await mdblist.isConfigured();
+            if (isMdblistConfigured && ratingsAge >= RATINGS_CACHE_TTL) {
               const mdbData = await mdblist.getByTmdbId(input.tmdbId, "movie");
               if (mdbData) {
                 const ratings = extractMDBListRatings(mdbData);
@@ -669,19 +676,22 @@ export const discoveryRouter = router({
         update: mediaItemData,
       });
 
-      // Fetch and save ratings from MDBList
-      const mdbData = await mdblist.getByTmdbId(input.tmdbId, "movie");
-      if (mdbData) {
-        const ratings = extractMDBListRatings(mdbData);
-        await prisma.mediaRatings.upsert({
-          where: { mediaId: id },
-          create: { mediaId: id, ...ratings },
-          update: ratings,
-        });
-        await prisma.mediaItem.update({
-          where: { id },
-          data: { mdblistUpdatedAt: new Date() },
-        });
+      // Fetch and save ratings from MDBList (if configured)
+      const isMdblistConfigured = await mdblist.isConfigured();
+      if (isMdblistConfigured) {
+        const mdbData = await mdblist.getByTmdbId(input.tmdbId, "movie");
+        if (mdbData) {
+          const ratings = extractMDBListRatings(mdbData);
+          await prisma.mediaRatings.upsert({
+            where: { mediaId: id },
+            create: { mediaId: id, ...ratings },
+            update: ratings,
+          });
+          await prisma.mediaItem.update({
+            where: { id },
+            data: { mdblistUpdatedAt: new Date() },
+          });
+        }
       }
 
       const fresh = await prisma.mediaItem.findUnique({
@@ -906,7 +916,8 @@ export const discoveryRouter = router({
               }
             }
 
-            if (ratingsAge >= RATINGS_CACHE_TTL) {
+            const isMdblistConfigured = await mdblist.isConfigured();
+            if (isMdblistConfigured && ratingsAge >= RATINGS_CACHE_TTL) {
               const mdbData = await mdblist.getByTmdbId(input.tmdbId, "show");
               if (mdbData) {
                 const ratings = extractMDBListRatings(mdbData);
@@ -1047,19 +1058,22 @@ export const discoveryRouter = router({
         console.error("[JIT] Failed to fetch seasons:", error);
       }
 
-      // Fetch and save ratings from MDBList
-      const mdbData = await mdblist.getByTmdbId(input.tmdbId, "show");
-      if (mdbData) {
-        const ratings = extractMDBListRatings(mdbData);
-        await prisma.mediaRatings.upsert({
-          where: { mediaId: id },
-          create: { mediaId: id, ...ratings },
-          update: ratings,
-        });
-        await prisma.mediaItem.update({
-          where: { id },
-          data: { mdblistUpdatedAt: new Date() },
-        });
+      // Fetch and save ratings from MDBList (if configured)
+      const isMdblistConfigured = await mdblist.isConfigured();
+      if (isMdblistConfigured) {
+        const mdbData = await mdblist.getByTmdbId(input.tmdbId, "show");
+        if (mdbData) {
+          const ratings = extractMDBListRatings(mdbData);
+          await prisma.mediaRatings.upsert({
+            where: { mediaId: id },
+            create: { mediaId: id, ...ratings },
+            update: ratings,
+          });
+          await prisma.mediaItem.update({
+            where: { id },
+            data: { mdblistUpdatedAt: new Date() },
+          });
+        }
       }
 
       const fresh = await prisma.mediaItem.findUnique({

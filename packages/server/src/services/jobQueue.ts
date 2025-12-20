@@ -99,6 +99,14 @@ class JobQueueService {
 
       const { getMDBListService } = await import("./mdblist.js");
       const mdblist = getMDBListService();
+
+      // Skip if MDBList is not configured
+      const isConfigured = await mdblist.isConfigured();
+      if (!isConfigured) {
+        console.log("[MDBList] Skipping hydration - MDBList not configured");
+        return { success: 0, failed: 0, skipped: items.length };
+      }
+
       const result = await mdblist.batchHydrateMediaItems(items);
       console.log(
         `[MDBList] Hydrated discover items: ${result.success} success, ${result.failed} failed, ${result.skipped} skipped`

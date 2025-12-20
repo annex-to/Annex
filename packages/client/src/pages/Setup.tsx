@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Input, Label } from "../components/ui";
 import { trpc } from "../trpc";
 
-type SetupStep = "welcome" | "tmdb" | "trakt" | "downloads" | "optional" | "complete";
+type SetupStep = "welcome" | "tmdb" | "trakt" | "downloads" | "complete";
 
 export default function SetupPage() {
   const navigate = useNavigate();
@@ -91,7 +91,7 @@ export default function SetupPage() {
         {/* Step indicator */}
         {step !== "welcome" && step !== "complete" && (
           <div className="flex justify-center gap-2 mb-8">
-            {["tmdb", "trakt", "downloads", "optional"].map((s) => (
+            {["tmdb", "trakt", "downloads"].map((s) => (
               <div
                 key={s}
                 className={`w-3 h-3 rounded-full transition-colors ${
@@ -336,54 +336,8 @@ export default function SetupPage() {
               <Button variant="ghost" onClick={() => setStep("trakt")}>
                 Back
               </Button>
-              <Button variant="secondary" onClick={() => setStep("optional")} className="flex-1">
-                Skip
-              </Button>
-              <Button onClick={() => setStep("optional")} className="flex-1">
-                Continue
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {step === "optional" && (
-          <Card className="p-8 space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Optional Services</h2>
-              <p className="text-surface-400 text-sm">
-                These services enhance Annex but aren't required. You can configure them later in
-                Settings.
-              </p>
-            </div>
-
-            <div className="space-y-6">
-              {/* MDBList */}
-              <div className="space-y-2">
-                <Label hint="Provides aggregated ratings from IMDb, Rotten Tomatoes, etc.">
-                  MDBList API Key
-                </Label>
-                <Input
-                  type="password"
-                  value={secrets["mdblist.apiKey"] || ""}
-                  onChange={(e) => updateSecret("mdblist.apiKey", e.target.value)}
-                  placeholder="Enter your MDBList API key"
-                />
-                <p className="text-xs text-surface-500">
-                  <a
-                    href="https://mdblist.com/preferences/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-annex-400 hover:text-annex-300"
-                  >
-                    Get an API key from MDBList
-                  </a>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setStep("downloads")}>
-                Back
+              <Button variant="secondary" onClick={handleComplete} className="flex-1" disabled={isSubmitting}>
+                {isSubmitting ? "Setting up..." : "Skip"}
               </Button>
               <Button onClick={handleComplete} className="flex-1" disabled={isSubmitting}>
                 {isSubmitting ? "Setting up..." : "Complete Setup"}
