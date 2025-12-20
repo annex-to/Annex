@@ -263,7 +263,11 @@ function GeneralSettings() {
     }
   };
 
-  const handleSaveConfig = (section: "downloads" | "encoding" | "jobs" | "qbittorrent", key: string, value: string | number) => {
+  const handleSaveConfig = (
+    section: "downloads" | "encoding" | "jobs" | "qbittorrent",
+    key: string,
+    value: string | number
+  ) => {
     setConfigMutation.mutate(
       { section, key, value },
       {
@@ -371,11 +375,18 @@ function GeneralSettings() {
             <Input
               type="text"
               value={configValues.downloads.directory}
-              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, directory: e.target.value } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  downloads: { ...configValues.downloads, directory: e.target.value },
+                })
+              }
               placeholder="./downloads"
             />
             <Button
-              onClick={() => handleSaveConfig("downloads", "directory", configValues.downloads.directory)}
+              onClick={() =>
+                handleSaveConfig("downloads", "directory", configValues.downloads.directory)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -394,11 +405,25 @@ function GeneralSettings() {
               min="0"
               step="0.1"
               value={configValues.downloads.seedRatioLimit}
-              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedRatioLimit: parseFloat(e.target.value) } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  downloads: {
+                    ...configValues.downloads,
+                    seedRatioLimit: parseFloat(e.target.value),
+                  },
+                })
+              }
               className="w-24"
             />
             <Button
-              onClick={() => handleSaveConfig("downloads", "seedRatioLimit", configValues.downloads.seedRatioLimit)}
+              onClick={() =>
+                handleSaveConfig(
+                  "downloads",
+                  "seedRatioLimit",
+                  configValues.downloads.seedRatioLimit
+                )
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -416,11 +441,21 @@ function GeneralSettings() {
               type="number"
               min="0"
               value={configValues.downloads.seedTimeLimit}
-              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedTimeLimit: parseInt(e.target.value, 10) } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  downloads: {
+                    ...configValues.downloads,
+                    seedTimeLimit: parseInt(e.target.value, 10),
+                  },
+                })
+              }
               className="w-32"
             />
             <Button
-              onClick={() => handleSaveConfig("downloads", "seedTimeLimit", configValues.downloads.seedTimeLimit)}
+              onClick={() =>
+                handleSaveConfig("downloads", "seedTimeLimit", configValues.downloads.seedTimeLimit)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -440,11 +475,18 @@ function GeneralSettings() {
             <Input
               type="text"
               value={configValues.encoding.ffmpegPath}
-              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, ffmpegPath: e.target.value } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  encoding: { ...configValues.encoding, ffmpegPath: e.target.value },
+                })
+              }
               placeholder="ffmpeg"
             />
             <Button
-              onClick={() => handleSaveConfig("encoding", "ffmpegPath", configValues.encoding.ffmpegPath)}
+              onClick={() =>
+                handleSaveConfig("encoding", "ffmpegPath", configValues.encoding.ffmpegPath)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -459,11 +501,18 @@ function GeneralSettings() {
             <Input
               type="text"
               value={configValues.encoding.ffprobePath}
-              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, ffprobePath: e.target.value } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  encoding: { ...configValues.encoding, ffprobePath: e.target.value },
+                })
+              }
               placeholder="ffprobe"
             />
             <Button
-              onClick={() => handleSaveConfig("encoding", "ffprobePath", configValues.encoding.ffprobePath)}
+              onClick={() =>
+                handleSaveConfig("encoding", "ffprobePath", configValues.encoding.ffprobePath)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -478,7 +527,12 @@ function GeneralSettings() {
             <Input
               type="text"
               value={configValues.encoding.tempDir}
-              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, tempDir: e.target.value } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  encoding: { ...configValues.encoding, tempDir: e.target.value },
+                })
+              }
               placeholder="/tmp/annex"
             />
             <Button
@@ -492,20 +546,28 @@ function GeneralSettings() {
         </div>
 
         <div>
-          <Label hint="Maximum number of concurrent encoding jobs">
-            Max Concurrent Jobs
-          </Label>
+          <Label hint="Maximum number of concurrent encoding jobs">Max Concurrent Jobs</Label>
           <div className="flex gap-2 items-center">
             <Input
               type="number"
               min="1"
               max="8"
               value={configValues.encoding.maxConcurrent}
-              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, maxConcurrent: parseInt(e.target.value, 10) } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  encoding: {
+                    ...configValues.encoding,
+                    maxConcurrent: parseInt(e.target.value, 10),
+                  },
+                })
+              }
               className="w-24"
             />
             <Button
-              onClick={() => handleSaveConfig("encoding", "maxConcurrent", configValues.encoding.maxConcurrent)}
+              onClick={() =>
+                handleSaveConfig("encoding", "maxConcurrent", configValues.encoding.maxConcurrent)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -520,16 +582,19 @@ function GeneralSettings() {
         <h3 className="text-lg font-medium">Background Jobs</h3>
 
         <div>
-          <Label hint="Number of concurrent worker threads">
-            Concurrency
-          </Label>
+          <Label hint="Number of concurrent worker threads">Concurrency</Label>
           <div className="flex gap-2 items-center">
             <Input
               type="number"
               min="1"
               max="32"
               value={configValues.jobs.concurrency}
-              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, concurrency: parseInt(e.target.value, 10) } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  jobs: { ...configValues.jobs, concurrency: parseInt(e.target.value, 10) },
+                })
+              }
               className="w-24"
             />
             <Button
@@ -543,20 +608,25 @@ function GeneralSettings() {
         </div>
 
         <div>
-          <Label hint="How often to check for new jobs (milliseconds)">
-            Poll Interval (ms)
-          </Label>
+          <Label hint="How often to check for new jobs (milliseconds)">Poll Interval (ms)</Label>
           <div className="flex gap-2 items-center">
             <Input
               type="number"
               min="1000"
               max="60000"
               value={configValues.jobs.pollInterval}
-              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, pollInterval: parseInt(e.target.value, 10) } })}
+              onChange={(e) =>
+                setConfigValues({
+                  ...configValues,
+                  jobs: { ...configValues.jobs, pollInterval: parseInt(e.target.value, 10) },
+                })
+              }
               className="w-32"
             />
             <Button
-              onClick={() => handleSaveConfig("jobs", "pollInterval", configValues.jobs.pollInterval)}
+              onClick={() =>
+                handleSaveConfig("jobs", "pollInterval", configValues.jobs.pollInterval)
+              }
               disabled={setConfigMutation.isLoading}
               size="sm"
             >
@@ -572,18 +642,23 @@ function GeneralSettings() {
           <h3 className="text-lg font-medium">qBittorrent Path Mapping</h3>
 
           <div>
-            <Label hint="Base directory for path mapping (optional)">
-              Base Directory
-            </Label>
+            <Label hint="Base directory for path mapping (optional)">Base Directory</Label>
             <div className="flex gap-2 items-center">
               <Input
                 type="text"
                 value={configValues.qbittorrent.baseDir || ""}
-                onChange={(e) => setConfigValues({ ...configValues, qbittorrent: { ...configValues.qbittorrent, baseDir: e.target.value } })}
+                onChange={(e) =>
+                  setConfigValues({
+                    ...configValues,
+                    qbittorrent: { ...configValues.qbittorrent, baseDir: e.target.value },
+                  })
+                }
                 placeholder="/path/to/downloads"
               />
               <Button
-                onClick={() => handleSaveConfig("qbittorrent", "baseDir", configValues.qbittorrent.baseDir || "")}
+                onClick={() =>
+                  handleSaveConfig("qbittorrent", "baseDir", configValues.qbittorrent.baseDir || "")
+                }
                 disabled={setConfigMutation.isLoading}
                 size="sm"
               >

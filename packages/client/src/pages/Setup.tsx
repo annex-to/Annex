@@ -133,8 +133,8 @@ export default function SetupPage() {
             <div className="space-y-2">
               <h2 className="text-xl font-semibold">Trakt Client ID</h2>
               <p className="text-surface-400 text-sm">
-                Trakt provides all movie and TV show metadata, images, discovery lists, and trailers.
-                This is required for Annex to work.
+                Trakt provides all movie and TV show metadata, images, discovery lists, and
+                trailers. This is required for Annex to work.
               </p>
             </div>
 
@@ -267,7 +267,12 @@ export default function SetupPage() {
               <Button variant="ghost" onClick={() => setStep("trakt")}>
                 Back
               </Button>
-              <Button variant="secondary" onClick={handleComplete} className="flex-1" disabled={isSubmitting}>
+              <Button
+                variant="secondary"
+                onClick={handleComplete}
+                className="flex-1"
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? "Setting up..." : "Skip"}
               </Button>
               <Button onClick={handleComplete} className="flex-1" disabled={isSubmitting}>
