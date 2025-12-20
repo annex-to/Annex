@@ -53,9 +53,13 @@ export default function LoginPage() {
   const [state, setState] = useState<LoginState>({ status: "idle" });
   const pollIntervalRef = useRef<ReturnType<typeof setInterval>>();
 
-  // Check if Emby is configured
+  // Check if Plex/Emby servers exist
+  const { data: plexServers } = trpc.servers.hasPlexServers.useQuery();
+  const { data: embyServers } = trpc.servers.hasEmbyServers.useQuery();
   const { data: embyConfig } = trpc.auth.embyConfigured.useQuery();
-  const isEmbyAvailable = embyConfig?.configured ?? false;
+
+  const isPlexAvailable = plexServers?.exists ?? false;
+  const isEmbyAvailable = (embyServers?.exists && embyConfig?.configured) ?? false;
 
   // Emby form state
   const [embyUsername, setEmbyUsername] = useState("");
@@ -189,18 +193,25 @@ export default function LoginPage() {
             {authMethod === "select" && state.status === "idle" && (
               <>
                 <p className="text-white/60 text-sm">Choose your media server to sign in</p>
+                {!isPlexAvailable && !isEmbyAvailable && (
+                  <p className="text-annex-400 text-sm">
+                    No media servers configured. Please run setup.
+                  </p>
+                )}
                 <div className="space-y-3">
-                  <Button
-                    onClick={() => {
-                      setAuthMethod("plex");
-                      startPlexLogin();
-                    }}
-                    className="w-full flex items-center justify-center gap-3"
-                    size="lg"
-                  >
-                    <PlexLogo className="w-5 h-5" />
-                    Sign in with Plex
-                  </Button>
+                  {isPlexAvailable && (
+                    <Button
+                      onClick={() => {
+                        setAuthMethod("plex");
+                        startPlexLogin();
+                      }}
+                      className="w-full flex items-center justify-center gap-3"
+                      size="lg"
+                    >
+                      <PlexLogo className="w-5 h-5" />
+                      Sign in with Plex
+                    </Button>
+                  )}
                   {isEmbyAvailable && (
                     <Button
                       onClick={() => setAuthMethod("emby")}

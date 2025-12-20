@@ -10,7 +10,8 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Input, Label } from "../components/ui";
 import { trpc } from "../trpc";
 
-type SetupStep = "welcome" | "trakt" | "downloads" | "complete";
+type SetupStep = "welcome" | "trakt" | "server" | "downloads" | "complete";
+type ServerType = "plex" | "emby";
 
 export default function SetupPage() {
   const navigate = useNavigate();
@@ -21,8 +22,19 @@ export default function SetupPage() {
   >({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Server configuration
+  const [serverType, setServerType] = useState<ServerType | null>(null);
+  const [serverConfig, setServerConfig] = useState({
+    name: "",
+    url: "",
+    apiKey: "",
+    username: "",
+    password: "",
+  });
+
   const completeSetupMutation = trpc.secrets.completeSetup.useMutation();
   const testConnectionMutation = trpc.secrets.testConnection.useMutation();
+  const createServerMutation = trpc.servers.create.useMutation();
 
   const updateSecret = (key: string, value: string) => {
     setSecrets((prev) => ({ ...prev, [key]: value }));
@@ -49,6 +61,40 @@ export default function SetupPage() {
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
+      // Create storage server first
+      if (serverType && serverConfig.name && serverConfig.url && serverConfig.apiKey) {
+        await createServerMutation.mutateAsync({
+          name: serverConfig.name,
+          host: new URL(serverConfig.url).hostname,
+          port: parseInt(
+            new URL(serverConfig.url).port || (serverType === "plex" ? "32400" : "8096"),
+            10
+          ),
+          protocol: "sftp",
+          username: "annex",
+          password: "",
+          paths: {
+            movies: "/movies",
+            tv: "/tv",
+          },
+          restrictions: {
+            maxResolution: "4K" as const,
+            maxFileSize: null,
+            preferredCodec: "av1" as const,
+            maxBitrate: null,
+          },
+          mediaServer: {
+            type: serverType,
+            url: serverConfig.url,
+            apiKey: serverConfig.apiKey,
+            libraryIds: {
+              movies: [],
+              tv: [],
+            },
+          },
+        });
+      }
+
       // Filter out empty values
       const filteredSecrets: Record<string, string> = {};
       for (const [key, value] of Object.entries(secrets)) {
@@ -91,7 +137,7 @@ export default function SetupPage() {
         {/* Step indicator */}
         {step !== "welcome" && step !== "complete" && (
           <div className="flex justify-center gap-2 mb-8">
-            {["trakt", "downloads"].map((s) => (
+            {["trakt", "server", "downloads"].map((s) => (
               <div
                 key={s}
                 className={`w-3 h-3 rounded-full transition-colors ${
@@ -187,9 +233,120 @@ export default function SetupPage() {
                 Back
               </Button>
               <Button
-                onClick={() => setStep("downloads")}
+                onClick={() => setStep("server")}
                 className="flex-1"
                 disabled={!secrets["trakt.clientId"]}
+              >
+                Continue
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {step === "server" && (
+          <Card className="p-8 space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Storage Server</h2>
+              <p className="text-surface-400 text-sm">
+                Add a Plex or Emby server for media delivery and authentication. This is required to
+                log in.
+              </p>
+            </div>
+
+            {/* Server Type Selection */}
+            {!serverType && (
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setServerType("plex")}
+                  className="p-6 border border-surface-700 rounded hover:border-annex-500 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-2">📺</div>
+                  <div className="font-semibold">Plex</div>
+                  <div className="text-xs text-surface-400 mt-1">Media Server</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setServerType("emby")}
+                  className="p-6 border border-surface-700 rounded hover:border-annex-500 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-2">🎬</div>
+                  <div className="font-semibold">Emby</div>
+                  <div className="text-xs text-surface-400 mt-1">Media Server</div>
+                </button>
+              </div>
+            )}
+
+            {/* Server Configuration Form */}
+            {serverType && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold capitalize">{serverType} Server</div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setServerType(null);
+                      setServerConfig({
+                        name: "",
+                        url: "",
+                        apiKey: "",
+                        username: "",
+                        password: "",
+                      });
+                    }}
+                  >
+                    Change
+                  </Button>
+                </div>
+
+                <div>
+                  <Label>Server Name</Label>
+                  <Input
+                    type="text"
+                    value={serverConfig.name}
+                    onChange={(e) => setServerConfig({ ...serverConfig, name: e.target.value })}
+                    placeholder="My Media Server"
+                  />
+                </div>
+
+                <div>
+                  <Label>Server URL</Label>
+                  <Input
+                    type="text"
+                    value={serverConfig.url}
+                    onChange={(e) => setServerConfig({ ...serverConfig, url: e.target.value })}
+                    placeholder="http://192.168.1.100:32400"
+                  />
+                </div>
+
+                <div>
+                  <Label>{serverType === "plex" ? "Plex Token" : "API Key"}</Label>
+                  <Input
+                    type="password"
+                    value={serverConfig.apiKey}
+                    onChange={(e) => setServerConfig({ ...serverConfig, apiKey: e.target.value })}
+                    placeholder={serverType === "plex" ? "X-Plex-Token" : "API Key"}
+                  />
+                  <p className="text-xs text-surface-500 mt-1">
+                    {serverType === "plex"
+                      ? "Find your token in Plex settings or use X-Plex-Token from browser dev tools"
+                      : "Find in Emby settings under Advanced → API Keys"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={() => setStep("trakt")}>
+                Back
+              </Button>
+              <Button
+                onClick={() => setStep("downloads")}
+                className="flex-1"
+                disabled={
+                  !serverType || !serverConfig.name || !serverConfig.url || !serverConfig.apiKey
+                }
               >
                 Continue
               </Button>
@@ -264,7 +421,7 @@ export default function SetupPage() {
             </div>
 
             <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setStep("trakt")}>
+              <Button variant="ghost" onClick={() => setStep("server")}>
                 Back
               </Button>
               <Button

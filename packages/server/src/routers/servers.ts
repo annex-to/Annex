@@ -1044,4 +1044,24 @@ export const serversRouter = router({
         isIncremental: !!sinceDate,
       };
     }),
+
+  /**
+   * Check if any Plex servers are configured
+   */
+  hasPlexServers: publicProcedure.query(async () => {
+    const count = await prisma.storageServer.count({
+      where: { mediaServerType: "PLEX" },
+    });
+    return { exists: count > 0 };
+  }),
+
+  /**
+   * Check if any Emby servers are configured
+   */
+  hasEmbyServers: publicProcedure.query(async () => {
+    const count = await prisma.storageServer.count({
+      where: { mediaServerType: "EMBY" },
+    });
+    return { exists: count > 0 };
+  }),
 });
