@@ -221,7 +221,7 @@ function GeneralSettings() {
       pollInterval: 5000,
     },
     qbittorrent: {
-      baseDir: undefined as string | undefined,
+      baseDir: "",
     },
   });
   const [configSaved, setConfigSaved] = useState<Record<string, boolean>>({});
@@ -233,8 +233,13 @@ function GeneralSettings() {
   }
 
   // Load config values when query returns
-  if (configQuery.data && configValues.downloads.directory === "") {
-    setConfigValues(configQuery.data);
+  if (configQuery.data && !configValues.downloads.directory) {
+    setConfigValues({
+      ...configQuery.data,
+      qbittorrent: {
+        baseDir: configQuery.data.qbittorrent.baseDir || "",
+      },
+    });
   }
 
   const setSettingMutation = trpc.system.settings.set.useMutation({
@@ -411,7 +416,7 @@ function GeneralSettings() {
               type="number"
               min="0"
               value={configValues.downloads.seedTimeLimit}
-              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedTimeLimit: parseInt(e.target.value) } })}
+              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedTimeLimit: parseInt(e.target.value, 10) } })}
               className="w-32"
             />
             <Button
@@ -496,7 +501,7 @@ function GeneralSettings() {
               min="1"
               max="8"
               value={configValues.encoding.maxConcurrent}
-              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, maxConcurrent: parseInt(e.target.value) } })}
+              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, maxConcurrent: parseInt(e.target.value, 10) } })}
               className="w-24"
             />
             <Button
@@ -524,7 +529,7 @@ function GeneralSettings() {
               min="1"
               max="32"
               value={configValues.jobs.concurrency}
-              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, concurrency: parseInt(e.target.value) } })}
+              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, concurrency: parseInt(e.target.value, 10) } })}
               className="w-24"
             />
             <Button
@@ -547,7 +552,7 @@ function GeneralSettings() {
               min="1000"
               max="60000"
               value={configValues.jobs.pollInterval}
-              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, pollInterval: parseInt(e.target.value) } })}
+              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, pollInterval: parseInt(e.target.value, 10) } })}
               className="w-32"
             />
             <Button
