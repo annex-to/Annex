@@ -962,8 +962,6 @@ export async function checkPlexServerAccess(
   plexUserId: string
 ): Promise<boolean> {
   try {
-    console.log(`[Plex] Checking access for user ${plexUserId} to server ${serverUrl}`);
-
     // First, get the server's machine identifier and owner
     const identity = await plexFetch<{
       MediaContainer: {
@@ -974,7 +972,6 @@ export async function checkPlexServerAccess(
     }>(serverUrl, serverToken, "/identity");
 
     const machineId = identity.MediaContainer.machineIdentifier;
-    console.log(`[Plex] Server machine ID: ${machineId}`);
 
     // Get the owner's Plex account info to compare
     const accountResponse = await fetch("https://plex.tv/users/account", {
@@ -984,50 +981,36 @@ export async function checkPlexServerAccess(
       },
     });
 
-    console.log(`[Plex] Account API response status: ${accountResponse.status}`);
-
     if (!accountResponse.ok) {
-      const errorText = await accountResponse.text();
-      console.error(`[Plex] Failed to get server owner info: ${accountResponse.status}`, errorText);
       throw new Error(`Failed to get server owner info: ${accountResponse.status}`);
     }
 
     const responseText = await accountResponse.text();
-    console.log(`[Plex] Account API response:`, responseText.substring(0, 200));
 
     // Plex returns XML even when we request JSON, so parse it
     let ownerId: string;
-    let ownerUsername: string | undefined;
 
     if (responseText.startsWith("<?xml")) {
       // Parse XML response
       const idMatch = responseText.match(/id="(\d+)"/);
-      const usernameMatch = responseText.match(/username="([^"]+)"/);
 
       if (!idMatch) {
-        console.error(`[Plex] Could not extract user ID from XML response`);
         throw new Error(`Failed to parse Plex account response`);
       }
 
       ownerId = idMatch[1];
-      ownerUsername = usernameMatch?.[1];
     } else {
       // Try JSON parsing
       try {
         const accountData = JSON.parse(responseText) as { user: { id: number; username: string } };
         ownerId = accountData.user.id.toString();
-        ownerUsername = accountData.user.username;
-      } catch (error) {
-        console.error(`[Plex] Failed to parse account response:`, error);
+      } catch {
         throw new Error(`Failed to parse Plex account response`);
       }
     }
-    console.log(`[Plex] Server owner ID: ${ownerId}, username: ${ownerUsername || "unknown"}`);
-    console.log(`[Plex] Checking user ID: ${plexUserId}`);
 
     // Check if the user is the server owner
     if (plexUserId === ownerId) {
-      console.log(`[Plex] User ${plexUserId} is the server owner - access granted`);
       return true;
     }
 
@@ -1041,9 +1024,6 @@ export async function checkPlexServerAccess(
 
     if (!sharedResponse.ok) {
       // If we can't get shared users, only allow owner
-      console.warn(
-        `[Plex] Failed to get shared users for server ${machineId}: ${sharedResponse.status}`
-      );
       return false;
     }
 
@@ -1051,23 +1031,11 @@ export async function checkPlexServerAccess(
       SharedServer?: Array<{ userID: number; username: string; accessToken: string }>;
     };
 
-    console.log(
-      `[Plex] Shared users:`,
-      sharedData.SharedServer?.map((u) => ({ id: u.userID, username: u.username })) || []
-    );
-
     // Check if the user is in the shared users list
     if (sharedData.SharedServer) {
-      const hasAccess = sharedData.SharedServer.some(
-        (user) => user.userID.toString() === plexUserId
-      );
-      console.log(
-        `[Plex] User ${plexUserId} ${hasAccess ? "found" : "not found"} in shared users list`
-      );
-      return hasAccess;
+      return sharedData.SharedServer.some((user) => user.userID.toString() === plexUserId);
     }
 
-    console.log(`[Plex] No shared users found for server ${machineId} - access denied`);
     return false;
   } catch (error) {
     console.error(`[Plex] Error checking server access:`, error);
