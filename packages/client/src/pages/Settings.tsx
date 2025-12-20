@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
@@ -13,6 +13,8 @@ import {
   ToggleGroup,
 } from "../components/ui";
 import { trpc } from "../trpc";
+import CardigannDefinitions from "./Settings/Cardigann/Definitions";
+import CardigannIndexerForm from "./Settings/Cardigann/IndexerForm";
 import Notifications from "./Settings/Notifications";
 import PipelineEditor from "./Settings/PipelineEditor";
 import Pipelines from "./Settings/Pipelines";
@@ -1887,6 +1889,7 @@ function IndexerForm({
 }
 
 function IndexersSettings() {
+  const navigate = useNavigate();
   const utils = trpc.useUtils();
   const indexers = trpc.indexers.list.useQuery();
   const [showForm, setShowForm] = useState(false);
@@ -1907,6 +1910,12 @@ function IndexersSettings() {
   });
 
   const deleteIndexer = trpc.indexers.delete.useMutation({
+    onSuccess: () => {
+      utils.indexers.list.invalidate();
+    },
+  });
+
+  const deleteCardigannIndexer = trpc.cardigann.deleteIndexer.useMutation({
     onSuccess: () => {
       utils.indexers.list.invalidate();
     },
@@ -1946,9 +1955,13 @@ function IndexersSettings() {
     });
   };
 
-  const handleDelete = (id: string, name: string) => {
+  const handleDelete = (id: string, name: string, type: string, apiKey: string) => {
     if (confirm(`Are you sure you want to delete "${name}"?`)) {
-      deleteIndexer.mutate({ id });
+      if (type === "CARDIGANN") {
+        deleteCardigannIndexer.mutate({ id: apiKey });
+      } else {
+        deleteIndexer.mutate({ id });
+      }
     }
   };
 
@@ -2007,7 +2020,12 @@ function IndexersSettings() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Indexers</h2>
-        <Button onClick={() => setShowForm(true)}>Add Indexer</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => navigate("/settings/indexers/cardigann")}>
+            Browse Cardigann
+          </Button>
+          <Button onClick={() => setShowForm(true)}>Add Indexer</Button>
+        </div>
       </div>
 
       {indexers.isLoading && (
@@ -2046,13 +2064,25 @@ function IndexersSettings() {
                   >
                     Test
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setEditingIndexer(indexer.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (indexer.type === "CARDIGANN") {
+                        navigate(`/settings/indexers/cardigann/edit?indexerId=${indexer.apiKey}`);
+                      } else {
+                        setEditingIndexer(indexer.id);
+                      }
+                    }}
+                  >
                     Edit
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleDelete(indexer.id, indexer.name)}
+                    onClick={() =>
+                      handleDelete(indexer.id, indexer.name, indexer.type, indexer.apiKey)
+                    }
                   >
                     Delete
                   </Button>
@@ -3306,6 +3336,9 @@ export default function SettingsPage() {
           <Route index element={<GeneralSettings />} />
           <Route path="servers" element={<ServersSettings />} />
           <Route path="indexers" element={<IndexersSettings />} />
+          <Route path="indexers/cardigann" element={<CardigannDefinitions />} />
+          <Route path="indexers/cardigann/new" element={<CardigannIndexerForm />} />
+          <Route path="indexers/cardigann/edit" element={<CardigannIndexerForm />} />
           <Route path="encoders" element={<EncodersSettings />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="pipelines/:id" element={<PipelineEditor />} />

@@ -81,6 +81,7 @@ export const indexersRouter = router({
       type: fromIndexerType(i.type),
       url: i.url,
       hasApiKey: !!i.apiKey,
+      apiKey: i.apiKey, // Needed for CARDIGANN indexers (stores CardigannIndexer ID)
       categories: {
         movies: i.categoriesMovies,
         tv: i.categoriesTv,
