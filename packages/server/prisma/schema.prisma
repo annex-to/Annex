@@ -197,6 +197,47 @@ model IndexerRateLimitRequest {
   @@index([requestedAt])
 }
 
+// Cardigann indexers (uses YML definitions from repository)
+model CardigannIndexer {
+  id               String   @id @default(cuid())
+  definitionId     String   // ID of the definition from CardigannRepository
+  name             String   // User-friendly name (can override definition name)
+
+  // User-specific configuration (matches settings fields from Cardigann definition)
+  // Example: { username: "user", password: "pass", cookie: "..." }
+  settings         Json     @default("{}")
+
+  // Indexer configuration
+  categoriesMovies Int[]    // Torznab category IDs for movies
+  categoriesTv     Int[]    // Torznab category IDs for TV
+  priority         Int      @default(50)
+  enabled          Boolean  @default(true)
+
+  // Rate limiting
+  rateLimitEnabled    Boolean  @default(false)
+  rateLimitMax        Int?     // Max requests in time window
+  rateLimitWindowSecs Int?     // Time window in seconds
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  rateLimitRequests   CardigannIndexerRateLimitRequest[]
+
+  @@index([enabled, priority])
+  @@index([definitionId])
+  @@index([definitionId, enabled])
+}
+
+// Rate limit tracking for Cardigann indexers
+model CardigannIndexerRateLimitRequest {
+  id          String   @id @default(cuid())
+  indexerId   String
+  indexer     CardigannIndexer @relation(fields: [indexerId], references: [id], onDelete: Cascade)
+  requestedAt DateTime @default(now())
+
+  @@index([indexerId, requestedAt])
+  @@index([requestedAt])
+}
 
 // =============================================================================
 // Media Requests

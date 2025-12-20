@@ -3,8 +3,9 @@ export { cardigannExecutor } from "./executor";
 export * from "./login";
 export { loginHandler } from "./login";
 export * from "./parser";
-
 export { cardigannParser } from "./parser";
+export * from "./repository";
+export { cardigannRepository } from "./repository";
 export * from "./selectors";
 export { selectorEngine } from "./selectors";
 export * from "./types";

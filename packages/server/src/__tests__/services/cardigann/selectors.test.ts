@@ -64,11 +64,7 @@ describe("CardigannSelectorEngine", () => {
       const $ = require("cheerio").load(html);
       const element = $(".title");
 
-      const result = engine.extractField(
-        element,
-        { selector: "text()" },
-        $
-      );
+      const result = engine.extractField(element, { selector: "text()" }, $);
       expect(result).toBe("Test Title");
     });
 
@@ -77,11 +73,7 @@ describe("CardigannSelectorEngine", () => {
       const $ = require("cheerio").load(html);
       const element = $("div");
 
-      const result = engine.extractField(
-        element,
-        { selector: ".link", attribute: "href" },
-        $
-      );
+      const result = engine.extractField(element, { selector: ".link", attribute: "href" }, $);
       expect(result).toBe("/download/123");
     });
 
@@ -90,24 +82,16 @@ describe("CardigannSelectorEngine", () => {
       const $ = require("cheerio").load(html);
       const element = $(".item");
 
-      const result = engine.extractField(
-        element,
-        { selector: ".title" },
-        $
-      );
+      const result = engine.extractField(element, { selector: ".title" }, $);
       expect(result).toBe("Title");
     });
 
     it("uses static text if provided", () => {
-      const html = '<div>Content</div>';
+      const html = "<div>Content</div>";
       const $ = require("cheerio").load(html);
       const element = $("div");
 
-      const result = engine.extractField(
-        element,
-        { text: "Static Value" },
-        $
-      );
+      const result = engine.extractField(element, { text: "Static Value" }, $);
       expect(result).toBe("Static Value");
     });
 
@@ -132,11 +116,7 @@ describe("CardigannSelectorEngine", () => {
       const $ = require("cheerio").load(html);
       const element = $(".item");
 
-      const result = engine.extractField(
-        element,
-        { selector: ".nonexistent", optional: true },
-        $
-      );
+      const result = engine.extractField(element, { selector: ".nonexistent", optional: true }, $);
       expect(result).toBe("");
     });
   });

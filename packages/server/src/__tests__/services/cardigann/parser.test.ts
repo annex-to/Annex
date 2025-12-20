@@ -80,9 +80,7 @@ id: test-indexer
 name: Test Indexer
 `;
 
-      expect(() => parser.parseDefinition(yml)).toThrow(
-        "Definition must have at least one link"
-      );
+      expect(() => parser.parseDefinition(yml)).toThrow("Definition must have at least one link");
     });
 
     it("throws error if search configuration is missing", () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import type { CardigannContext, CardigannSearchParams } from "../../../services/cardigann/types";
 import { CardigannExecutor } from "../../../services/cardigann/executor";
+import type { CardigannContext, CardigannSearchParams } from "../../../services/cardigann/types";
 
 describe("CardigannExecutor", () => {
   const executor = new CardigannExecutor();
