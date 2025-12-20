@@ -60,9 +60,14 @@ RUN useradd --system --create-home --shell /bin/bash annex
 WORKDIR /app
 
 # Copy built artifacts from builder
-COPY --from=builder /app/packages ./packages/
+COPY --from=builder /app/packages/server ./packages/server/
+COPY --from=builder /app/packages/client/dist ./packages/client/dist/
 COPY --from=builder /app/node_modules ./node_modules/
 COPY --from=builder /app/package.json ./package.json
+
+# Copy only linux-x64 encoder binary for internal encoder
+COPY --from=builder /app/packages/encoder/dist-binaries/annex-encoder-linux-x64 /usr/local/bin/annex-encoder
+RUN chmod +x /usr/local/bin/annex-encoder
 
 # Copy entrypoint
 COPY docker-entrypoint.sh /docker-entrypoint.sh

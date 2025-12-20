@@ -83,10 +83,18 @@ if [ "$USE_INTERNAL_ENCODER" = "true" ]; then
     echo "[Annex] No GPU detected, encoder will use CPU (libsvtav1)"
   fi
 
-  # Start encoder in background
-  bun /app/packages/encoder/src/index.ts &
+  # Start encoder with auto-restart in background (detached session)
+  setsid bash -c '
+    while true; do
+      echo "[Encoder Supervisor] Starting encoder at $(date)"
+      /usr/local/bin/annex-encoder
+      EXIT_CODE=$?
+      echo "[Encoder Supervisor] Encoder exited with code $EXIT_CODE at $(date), restarting in 5 seconds..."
+      sleep 5
+    done
+  ' > /var/log/encoder.log 2>&1 &
   ENCODER_PID=$!
-  echo "[Annex] Internal encoder started (PID: $ENCODER_PID)"
+  echo "[Annex] Internal encoder supervisor started (PID: $ENCODER_PID)"
 fi
 
 # Start nginx for static files
