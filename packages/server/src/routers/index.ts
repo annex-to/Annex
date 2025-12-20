@@ -1,6 +1,7 @@
 import { router } from "../trpc.js";
 import { approvalsRouter } from "./approvals.js";
 import { authRouter } from "./auth.js";
+import { cardigannRouter } from "./cardigann.js";
 import { discoveryRouter } from "./discovery.js";
 import { encodersRouter } from "./encoders.js";
 import { indexersRouter } from "./indexers.js";
@@ -16,6 +17,7 @@ import { systemRouter } from "./system.js";
 
 export const appRouter = router({
   auth: authRouter,
+  cardigann: cardigannRouter,
   discovery: discoveryRouter,
   requests: requestsRouter,
   servers: serversRouter,
