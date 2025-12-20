@@ -1,5 +1,6 @@
 import { type ActivityType, type JobStatus, RequestStatus } from "@prisma/client";
 import { z } from "zod";
+import { getConfig } from "../config/index.js";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
 import { getSchedulerService } from "../services/scheduler.js";
@@ -180,6 +181,62 @@ export const systemRouter = router({
         updatedAt: s.updatedAt,
       }));
     }),
+  }),
+
+  /**
+   * Get/set runtime configuration
+   */
+  config: router({
+    get: publicProcedure.query(async () => {
+      const config = getConfig();
+
+      return {
+        downloads: {
+          directory: config.downloads.directory,
+          seedRatioLimit: config.downloads.seedRatioLimit,
+          seedTimeLimit: config.downloads.seedTimeLimit,
+        },
+        encoding: {
+          ffmpegPath: config.encoding.ffmpegPath,
+          ffprobePath: config.encoding.ffprobePath,
+          tempDir: config.encoding.tempDir,
+          maxConcurrent: config.encoding.maxConcurrent,
+        },
+        jobs: {
+          concurrency: config.jobs.concurrency,
+          pollInterval: config.jobs.pollInterval,
+        },
+        qbittorrent: {
+          baseDir: config.qbittorrent.baseDir,
+        },
+      };
+    }),
+
+    set: publicProcedure
+      .input(
+        z.object({
+          section: z.enum(["downloads", "encoding", "jobs", "qbittorrent"]),
+          key: z.string(),
+          value: z.union([z.string(), z.number()]),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Store config override in database
+        const settingKey = `config.${input.section}.${input.key}`;
+
+        await prisma.setting.upsert({
+          where: { key: settingKey },
+          create: {
+            key: settingKey,
+            value: JSON.stringify(input.value),
+          },
+          update: {
+            value: JSON.stringify(input.value),
+          },
+        });
+
+        return { success: true };
+      }),
   }),
 
   /**

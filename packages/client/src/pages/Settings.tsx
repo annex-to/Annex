@@ -202,10 +202,39 @@ function GeneralSettings() {
   const [retryInterval, setRetryInterval] = useState<string>("6");
   const [retryIntervalSaved, setRetryIntervalSaved] = useState(false);
 
+  // Config values
+  const configQuery = trpc.system.config.get.useQuery();
+  const [configValues, setConfigValues] = useState({
+    downloads: {
+      directory: "",
+      seedRatioLimit: 1.0,
+      seedTimeLimit: 86400,
+    },
+    encoding: {
+      ffmpegPath: "ffmpeg",
+      ffprobePath: "ffprobe",
+      tempDir: "/tmp/annex",
+      maxConcurrent: 1,
+    },
+    jobs: {
+      concurrency: 2,
+      pollInterval: 5000,
+    },
+    qbittorrent: {
+      baseDir: undefined as string | undefined,
+    },
+  });
+  const [configSaved, setConfigSaved] = useState<Record<string, boolean>>({});
+
   // Set initial value when query loads
   const currentInterval = retryIntervalQuery.data?.value as number | undefined;
   if (currentInterval !== undefined && retryInterval === "6" && !retryIntervalSaved) {
     setRetryInterval(String(currentInterval));
+  }
+
+  // Load config values when query returns
+  if (configQuery.data && configValues.downloads.directory === "") {
+    setConfigValues(configQuery.data);
   }
 
   const setSettingMutation = trpc.system.settings.set.useMutation({
@@ -216,11 +245,32 @@ function GeneralSettings() {
     },
   });
 
+  const setConfigMutation = trpc.system.config.set.useMutation({
+    onSuccess: () => {
+      utils.system.config.get.invalidate();
+    },
+  });
+
   const handleSaveRetryInterval = () => {
     const value = parseInt(retryInterval, 10);
     if (value >= 1) {
       setSettingMutation.mutate({ key: "search.retryIntervalHours", value });
     }
+  };
+
+  const handleSaveConfig = (section: "downloads" | "encoding" | "jobs" | "qbittorrent", key: string, value: string | number) => {
+    setConfigMutation.mutate(
+      { section, key, value },
+      {
+        onSuccess: () => {
+          const savedKey = `${section}.${key}`;
+          setConfigSaved((prev) => ({ ...prev, [savedKey]: true }));
+          setTimeout(() => {
+            setConfigSaved((prev) => ({ ...prev, [savedKey]: false }));
+          }, 2000);
+        },
+      }
+    );
   };
 
   // Map secret keys to testable services
@@ -305,6 +355,242 @@ function GeneralSettings() {
           </p>
         </div>
       </Card>
+
+      {/* Downloads Configuration */}
+      <Card className="space-y-5">
+        <h3 className="text-lg font-medium">Downloads</h3>
+
+        <div>
+          <Label>Download Directory</Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="text"
+              value={configValues.downloads.directory}
+              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, directory: e.target.value } })}
+              placeholder="./downloads"
+            />
+            <Button
+              onClick={() => handleSaveConfig("downloads", "directory", configValues.downloads.directory)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["downloads.directory"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label hint="Stop seeding when upload/download ratio reaches this value">
+            Seed Ratio Limit
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min="0"
+              step="0.1"
+              value={configValues.downloads.seedRatioLimit}
+              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedRatioLimit: parseFloat(e.target.value) } })}
+              className="w-24"
+            />
+            <Button
+              onClick={() => handleSaveConfig("downloads", "seedRatioLimit", configValues.downloads.seedRatioLimit)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["downloads.seedRatioLimit"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label hint="Stop seeding after this many seconds (86400 = 24 hours)">
+            Seed Time Limit (seconds)
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min="0"
+              value={configValues.downloads.seedTimeLimit}
+              onChange={(e) => setConfigValues({ ...configValues, downloads: { ...configValues.downloads, seedTimeLimit: parseInt(e.target.value) } })}
+              className="w-32"
+            />
+            <Button
+              onClick={() => handleSaveConfig("downloads", "seedTimeLimit", configValues.downloads.seedTimeLimit)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["downloads.seedTimeLimit"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Encoding Configuration */}
+      <Card className="space-y-5">
+        <h3 className="text-lg font-medium">Encoding</h3>
+
+        <div>
+          <Label>FFmpeg Path</Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="text"
+              value={configValues.encoding.ffmpegPath}
+              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, ffmpegPath: e.target.value } })}
+              placeholder="ffmpeg"
+            />
+            <Button
+              onClick={() => handleSaveConfig("encoding", "ffmpegPath", configValues.encoding.ffmpegPath)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["encoding.ffmpegPath"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label>FFprobe Path</Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="text"
+              value={configValues.encoding.ffprobePath}
+              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, ffprobePath: e.target.value } })}
+              placeholder="ffprobe"
+            />
+            <Button
+              onClick={() => handleSaveConfig("encoding", "ffprobePath", configValues.encoding.ffprobePath)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["encoding.ffprobePath"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label>Temporary Directory</Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="text"
+              value={configValues.encoding.tempDir}
+              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, tempDir: e.target.value } })}
+              placeholder="/tmp/annex"
+            />
+            <Button
+              onClick={() => handleSaveConfig("encoding", "tempDir", configValues.encoding.tempDir)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["encoding.tempDir"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label hint="Maximum number of concurrent encoding jobs">
+            Max Concurrent Jobs
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min="1"
+              max="8"
+              value={configValues.encoding.maxConcurrent}
+              onChange={(e) => setConfigValues({ ...configValues, encoding: { ...configValues.encoding, maxConcurrent: parseInt(e.target.value) } })}
+              className="w-24"
+            />
+            <Button
+              onClick={() => handleSaveConfig("encoding", "maxConcurrent", configValues.encoding.maxConcurrent)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["encoding.maxConcurrent"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Jobs Configuration */}
+      <Card className="space-y-5">
+        <h3 className="text-lg font-medium">Background Jobs</h3>
+
+        <div>
+          <Label hint="Number of concurrent worker threads">
+            Concurrency
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min="1"
+              max="32"
+              value={configValues.jobs.concurrency}
+              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, concurrency: parseInt(e.target.value) } })}
+              className="w-24"
+            />
+            <Button
+              onClick={() => handleSaveConfig("jobs", "concurrency", configValues.jobs.concurrency)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["jobs.concurrency"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <Label hint="How often to check for new jobs (milliseconds)">
+            Poll Interval (ms)
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min="1000"
+              max="60000"
+              value={configValues.jobs.pollInterval}
+              onChange={(e) => setConfigValues({ ...configValues, jobs: { ...configValues.jobs, pollInterval: parseInt(e.target.value) } })}
+              className="w-32"
+            />
+            <Button
+              onClick={() => handleSaveConfig("jobs", "pollInterval", configValues.jobs.pollInterval)}
+              disabled={setConfigMutation.isLoading}
+              size="sm"
+            >
+              {configSaved["jobs.pollInterval"] ? "Saved!" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* qBittorrent Path Mapping */}
+      {secretsByGroup.downloads && (
+        <Card className="space-y-5">
+          <h3 className="text-lg font-medium">qBittorrent Path Mapping</h3>
+
+          <div>
+            <Label hint="Base directory for path mapping (optional)">
+              Base Directory
+            </Label>
+            <div className="flex gap-2 items-center">
+              <Input
+                type="text"
+                value={configValues.qbittorrent.baseDir || ""}
+                onChange={(e) => setConfigValues({ ...configValues, qbittorrent: { ...configValues.qbittorrent, baseDir: e.target.value } })}
+                placeholder="/path/to/downloads"
+              />
+              <Button
+                onClick={() => handleSaveConfig("qbittorrent", "baseDir", configValues.qbittorrent.baseDir || "")}
+                disabled={setConfigMutation.isLoading}
+                size="sm"
+              >
+                {configSaved["qbittorrent.baseDir"] ? "Saved!" : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-surface-500 mt-1">
+              If set, this path will be used instead of qBittorrent's reported content path
+            </p>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
