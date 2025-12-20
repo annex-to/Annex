@@ -352,6 +352,12 @@ export async function migrateEnvSecretsIfNeeded(): Promise<{
     if (exists) {
       skipped.push(secretKey);
     } else {
+      // Skip migrating default session secret value (indicates first run)
+      if (secretKey === "auth.sessionSecret" && value === "change-me-in-production-32-char-min") {
+        skipped.push(secretKey);
+        continue;
+      }
+
       await secrets.setSecret(secretKey, value);
       migrated.push(secretKey);
     }
