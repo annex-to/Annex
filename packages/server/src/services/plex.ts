@@ -984,13 +984,25 @@ export async function checkPlexServerAccess(
       },
     });
 
+    console.log(`[Plex] Account API response status: ${accountResponse.status}`);
+
     if (!accountResponse.ok) {
+      const errorText = await accountResponse.text();
+      console.error(`[Plex] Failed to get server owner info: ${accountResponse.status}`, errorText);
       throw new Error(`Failed to get server owner info: ${accountResponse.status}`);
     }
 
-    const accountData = (await accountResponse.json()) as {
-      user: { id: number; username: string };
-    };
+    const responseText = await accountResponse.text();
+    console.log(`[Plex] Account API response:`, responseText.substring(0, 200));
+
+    let accountData: { user: { id: number; username: string } };
+    try {
+      accountData = JSON.parse(responseText) as { user: { id: number; username: string } };
+    } catch (error) {
+      console.error(`[Plex] Failed to parse account response as JSON:`, error);
+      throw new Error(`Failed to parse Plex account response`);
+    }
+
     const ownerId = accountData.user.id.toString();
     console.log(`[Plex] Server owner ID: ${ownerId}, username: ${accountData.user.username}`);
     console.log(`[Plex] Checking user ID: ${plexUserId}`);
