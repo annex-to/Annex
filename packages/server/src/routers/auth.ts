@@ -6,6 +6,7 @@
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { prisma } from "../db/client.js";
 import {
   authenticateWithEmby,
   checkPlexPin,
@@ -27,6 +28,7 @@ import {
   unlinkPlexAccount,
   updateUserProfile,
 } from "../services/auth.js";
+import { checkPlexServerAccess } from "../services/plex.js";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../trpc.js";
 
 export const authRouter = router({
@@ -94,6 +96,45 @@ export const authRouter = router({
 
       // Get Plex user info
       const plexUser = await getPlexUser(authToken);
+
+      // Check if user has access to any configured Plex servers
+      const plexServers = await prisma.storageServer.findMany({
+        where: { mediaServerType: "PLEX" },
+      });
+
+      if (plexServers.length === 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No Plex servers configured. Contact your administrator.",
+        });
+      }
+
+      // Check access to each server
+      let hasAccess = false;
+      for (const server of plexServers) {
+        if (!server.mediaServerUrl || !server.mediaServerApiKey) {
+          continue;
+        }
+
+        const access = await checkPlexServerAccess(
+          server.mediaServerUrl,
+          server.mediaServerApiKey,
+          plexUser.id.toString()
+        );
+
+        if (access) {
+          hasAccess = true;
+          break;
+        }
+      }
+
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Your Plex account does not have access to any configured servers. Contact your administrator.",
+        });
+      }
 
       // Find or create our user
       const user = await findOrCreateUserFromPlex(plexUser, authToken);
@@ -309,6 +350,45 @@ export const authRouter = router({
 
       // Get Plex user info
       const plexUser = await getPlexUser(authToken);
+
+      // Check if user has access to any configured Plex servers
+      const plexServers = await prisma.storageServer.findMany({
+        where: { mediaServerType: "PLEX" },
+      });
+
+      if (plexServers.length === 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No Plex servers configured. Contact your administrator.",
+        });
+      }
+
+      // Check access to each server
+      let hasAccess = false;
+      for (const server of plexServers) {
+        if (!server.mediaServerUrl || !server.mediaServerApiKey) {
+          continue;
+        }
+
+        const access = await checkPlexServerAccess(
+          server.mediaServerUrl,
+          server.mediaServerApiKey,
+          plexUser.id.toString()
+        );
+
+        if (access) {
+          hasAccess = true;
+          break;
+        }
+      }
+
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "This Plex account does not have access to any configured servers. Contact your administrator.",
+        });
+      }
 
       // Link the account
       try {

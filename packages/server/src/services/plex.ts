@@ -951,3 +951,78 @@ export async function fetchPlexWatchedItems(
 
   return watchedItems;
 }
+
+/**
+ * Check if a Plex user has access to a server
+ * Returns true if the user is the owner or has been granted access
+ */
+export async function checkPlexServerAccess(
+  serverUrl: string,
+  serverToken: string,
+  plexUserId: string
+): Promise<boolean> {
+  try {
+    // First, get the server's machine identifier and owner
+    const identity = await plexFetch<{
+      MediaContainer: {
+        machineIdentifier: string;
+        myPlexUsername?: string;
+        ownerId?: string;
+      };
+    }>(serverUrl, serverToken, "/identity");
+
+    const machineId = identity.MediaContainer.machineIdentifier;
+
+    // Get the owner's Plex account info to compare
+    const accountResponse = await fetch("https://plex.tv/users/account", {
+      headers: {
+        "X-Plex-Token": serverToken,
+        Accept: "application/json",
+      },
+    });
+
+    if (!accountResponse.ok) {
+      throw new Error(`Failed to get server owner info: ${accountResponse.status}`);
+    }
+
+    const accountData = (await accountResponse.json()) as {
+      user: { id: number; username: string };
+    };
+    const ownerId = accountData.user.id.toString();
+
+    // Check if the user is the server owner
+    if (plexUserId === ownerId) {
+      return true;
+    }
+
+    // Get shared users for this server from plex.tv
+    const sharedResponse = await fetch(`https://plex.tv/api/servers/${machineId}/shared_servers`, {
+      headers: {
+        "X-Plex-Token": serverToken,
+        Accept: "application/json",
+      },
+    });
+
+    if (!sharedResponse.ok) {
+      // If we can't get shared users, only allow owner
+      console.warn(
+        `[Plex] Failed to get shared users for server ${machineId}: ${sharedResponse.status}`
+      );
+      return false;
+    }
+
+    const sharedData = (await sharedResponse.json()) as {
+      SharedServer?: Array<{ userID: number; username: string; accessToken: string }>;
+    };
+
+    // Check if the user is in the shared users list
+    if (sharedData.SharedServer) {
+      return sharedData.SharedServer.some((user) => user.userID.toString() === plexUserId);
+    }
+
+    return false;
+  } catch (error) {
+    console.error(`[Plex] Error checking server access:`, error);
+    return false;
+  }
+}
