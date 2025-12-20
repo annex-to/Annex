@@ -995,16 +995,34 @@ export async function checkPlexServerAccess(
     const responseText = await accountResponse.text();
     console.log(`[Plex] Account API response:`, responseText.substring(0, 200));
 
-    let accountData: { user: { id: number; username: string } };
-    try {
-      accountData = JSON.parse(responseText) as { user: { id: number; username: string } };
-    } catch (error) {
-      console.error(`[Plex] Failed to parse account response as JSON:`, error);
-      throw new Error(`Failed to parse Plex account response`);
-    }
+    // Plex returns XML even when we request JSON, so parse it
+    let ownerId: string;
+    let ownerUsername: string | undefined;
 
-    const ownerId = accountData.user.id.toString();
-    console.log(`[Plex] Server owner ID: ${ownerId}, username: ${accountData.user.username}`);
+    if (responseText.startsWith("<?xml")) {
+      // Parse XML response
+      const idMatch = responseText.match(/id="(\d+)"/);
+      const usernameMatch = responseText.match(/username="([^"]+)"/);
+
+      if (!idMatch) {
+        console.error(`[Plex] Could not extract user ID from XML response`);
+        throw new Error(`Failed to parse Plex account response`);
+      }
+
+      ownerId = idMatch[1];
+      ownerUsername = usernameMatch?.[1];
+    } else {
+      // Try JSON parsing
+      try {
+        const accountData = JSON.parse(responseText) as { user: { id: number; username: string } };
+        ownerId = accountData.user.id.toString();
+        ownerUsername = accountData.user.username;
+      } catch (error) {
+        console.error(`[Plex] Failed to parse account response:`, error);
+        throw new Error(`Failed to parse Plex account response`);
+      }
+    }
+    console.log(`[Plex] Server owner ID: ${ownerId}, username: ${ownerUsername || "unknown"}`);
     console.log(`[Plex] Checking user ID: ${plexUserId}`);
 
     // Check if the user is the server owner
