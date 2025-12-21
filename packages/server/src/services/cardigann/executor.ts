@@ -246,6 +246,7 @@ export class CardigannExecutor {
       for (const item of items) {
         const extractedFields: { [key: string]: string } = {};
 
+        // First pass: extract all fields from JSON
         for (const [key, selector] of Object.entries(fields || {})) {
           if (selector.text) {
             extractedFields[key] = selector.text;
@@ -259,6 +260,18 @@ export class CardigannExecutor {
               extractedFields[key],
               selector.filters
             );
+          }
+        }
+
+        // Second pass: process .Result.xxx references in text fields
+        for (const [key, selector] of Object.entries(fields || {})) {
+          if (selector.text && selector.text.includes(".Result.")) {
+            // Build variables object with extracted fields accessible as .Result.xxx
+            const resultVars: { [key: string]: string | number | boolean } = {};
+            for (const [fieldKey, fieldValue] of Object.entries(extractedFields)) {
+              resultVars[fieldKey] = fieldValue;
+            }
+            extractedFields[key] = cardigannParser.replaceVariables(selector.text, resultVars);
           }
         }
 

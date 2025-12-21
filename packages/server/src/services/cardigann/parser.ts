@@ -90,6 +90,10 @@ export class CardigannParser {
         const key = path.substring(8);
         return String(variables[key] || "");
       }
+      if (path.startsWith(".Result.")) {
+        const key = path.substring(8);
+        return String(variables[key] || "");
+      }
       if (path === ".False" || path === ".false") return "false";
       if (path === ".True" || path === ".true") return "true";
       return "";
@@ -137,6 +141,10 @@ export class CardigannParser {
       if (path === ".Categories" || path === "Categories")
         return String(variables.categories || "");
       if (path.startsWith(".Config.")) {
+        const key = path.substring(8);
+        return String(variables[key] || "");
+      }
+      if (path.startsWith(".Result.")) {
         const key = path.substring(8);
         return String(variables[key] || "");
       }
