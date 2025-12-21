@@ -331,9 +331,10 @@ function buildAudioArgs(encodingConfig: EncodingConfig): string[] {
   } else {
     args.push("-c:a", encodingConfig.audioEncoder);
 
-    // Special handling for libopus multi-channel audio
+    // Special handling for libopus - downmix to stereo for compatibility
+    // Opus is optimized for stereo/mono and has issues with surround layouts
     if (encodingConfig.audioEncoder === "libopus") {
-      args.push("-mapping_family", "1");
+      args.push("-ac", "2");
     }
 
     // Apply audio flags from profile
