@@ -88,7 +88,7 @@ export class CardigannLoginHandler {
               : settings[key];
           return acc;
         },
-        {} as Record<string, any>
+        {} as Record<string, string | boolean>
       )
     );
 
@@ -153,7 +153,7 @@ export class CardigannLoginHandler {
           acc[key] = formData[key] ? `${formData[key].substring(0, 3)}***` : "(empty)";
           return acc;
         },
-        {} as Record<string, any>
+        {} as Record<string, string | boolean>
       )
     );
 

@@ -233,7 +233,9 @@ export class CardigannExecutor {
       if (rows?.selector) {
         console.log(`[Cardigann Executor] JSON: Using rows.selector: ${rows.selector}`);
         const extracted = selectorEngine.extractJsonValue(json, rows.selector);
-        console.log(`[Cardigann Executor] JSON: Extracted value type: ${Array.isArray(extracted) ? 'array' : typeof extracted}, length: ${Array.isArray(extracted) ? extracted.length : 'N/A'}`);
+        console.log(
+          `[Cardigann Executor] JSON: Extracted value type: ${Array.isArray(extracted) ? "array" : typeof extracted}, length: ${Array.isArray(extracted) ? extracted.length : "N/A"}`
+        );
         items = Array.isArray(extracted) ? extracted : [extracted];
       } else {
         console.log(`[Cardigann Executor] JSON: No rows.selector found, using fallback`);

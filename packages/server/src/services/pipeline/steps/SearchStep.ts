@@ -275,13 +275,14 @@ export class SearchStep extends BaseStep {
           }
         );
 
+        // Return success=true because we successfully found releases and stored alternatives
+        // The user can manually select a lower quality from the UI
         return {
-          success: false,
-          shouldRetry: false,
-          nextStep: null,
-          error: `No ${resolutionLabel} releases available`,
+          success: true,
+          nextStep: null, // Stop pipeline here, don't proceed to download
           data: {
             qualityMet: false,
+            bestAvailableQuality: bestAvailable,
             alternativeReleases: belowQuality.slice(0, 10),
           },
         };

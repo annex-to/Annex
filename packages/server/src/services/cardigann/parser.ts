@@ -237,7 +237,7 @@ export class CardigannParser {
           try {
             const match = value.match(new RegExp(String(args[0])));
             return match ? match[0] : value;
-          } catch (e) {
+          } catch {
             console.warn(
               `[Cardigann Parser] Invalid regex pattern in regexp filter: ${args[0]}, returning original value`
             );
@@ -250,7 +250,7 @@ export class CardigannParser {
         if (args.length >= 2) {
           try {
             return value.replace(new RegExp(String(args[0]), "g"), String(args[1]));
-          } catch (e) {
+          } catch {
             console.warn(
               `[Cardigann Parser] Invalid regex pattern in re_replace filter: ${args[0]}, returning original value`
             );

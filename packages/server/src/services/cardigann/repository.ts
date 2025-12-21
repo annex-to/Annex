@@ -115,11 +115,14 @@ export class CardigannRepository {
     if (data.length > 0) {
       console.log(
         `[Cardigann] Sample items:`,
-        data.slice(0, 3).map((item: any) => ({
-          name: item.name,
-          type: item.type,
-          download_url: item.download_url,
-        }))
+        data
+          .slice(0, 3)
+          // biome-ignore lint/suspicious/noExplicitAny: GitHub API response type is not typed
+          .map((item: any) => ({
+            name: item.name,
+            type: item.type,
+            download_url: item.download_url,
+          }))
       );
     }
 

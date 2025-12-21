@@ -1,16 +1,15 @@
+import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "bun:test";
-import { CardigannExecutor } from "../../../services/cardigann/executor";
 import { cardigannParser } from "../../../services/cardigann/parser";
-import type { CardigannDefinition } from "../../../services/cardigann/types";
 
 describe("TorrentLeech Integration Test", () => {
-  const executor = new CardigannExecutor();
-
   it("should parse TorrentLeech JSON response correctly", () => {
     // Load the TorrentLeech definition
-    const definitionPath = join(__dirname, "../../../../data/cardigann-definitions/torrentleech.yml");
+    const definitionPath = join(
+      __dirname,
+      "../../../../data/cardigann-definitions/torrentleech.yml"
+    );
     const ymlContent = readFileSync(definitionPath, "utf-8");
     const parsed = cardigannParser.parseDefinition(ymlContent);
     const definition = parsed.definition;
@@ -20,8 +19,12 @@ describe("TorrentLeech Integration Test", () => {
     const jsonResponse = readFileSync(responsePath, "utf-8");
 
     // Get the search configuration
-    const searchConfig = definition.search!;
-    const searchPath = searchConfig.paths![0];
+    const searchConfig = definition.search;
+    expect(searchConfig).toBeDefined();
+    if (!searchConfig) return;
+
+    const searchPath = searchConfig.paths?.[0];
+    expect(searchPath).toBeDefined();
 
     // Parse the JSON response using the private method (we'll need to expose or test differently)
     // For now, let's test the core parsing logic
@@ -35,9 +38,10 @@ describe("TorrentLeech Integration Test", () => {
     // Verify row selector extraction
     const rowSelector = searchConfig.rows?.selector;
     expect(rowSelector).toBe("torrentList");
+    if (!rowSelector) return;
 
     // Manually extract using the selector (mimicking what the executor does)
-    const items = json[rowSelector!];
+    const items = json[rowSelector];
     expect(items).toBeArray();
     expect(items).toHaveLength(3);
 
@@ -50,7 +54,10 @@ describe("TorrentLeech Integration Test", () => {
     expect(firstItem.imdbID).toBe("tt12637874");
 
     // Verify field selectors exist in definition
-    const fields = searchConfig.fields!;
+    const fields = searchConfig.fields;
+    expect(fields).toBeDefined();
+    if (!fields) return;
+
     expect(fields.title).toBeDefined();
     expect(fields._id).toBeDefined();
     expect(fields.seeders).toBeDefined();
@@ -61,16 +68,23 @@ describe("TorrentLeech Integration Test", () => {
     console.log("✓ TorrentLeech definition and sample response validated");
     console.log(`✓ Successfully extracted ${items.length} torrents from JSON`);
     console.log(`✓ First torrent: ${firstItem.name}`);
-    console.log(`✓ Seeders: ${firstItem.seeders}, Size: ${(firstItem.size / 1024 / 1024 / 1024).toFixed(2)} GB`);
+    console.log(
+      `✓ Seeders: ${firstItem.seeders}, Size: ${(firstItem.size / 1024 / 1024 / 1024).toFixed(2)} GB`
+    );
   });
 
   it("should handle the title_test field correctly", () => {
-    const definitionPath = join(__dirname, "../../../../data/cardigann-definitions/torrentleech.yml");
+    const definitionPath = join(
+      __dirname,
+      "../../../../data/cardigann-definitions/torrentleech.yml"
+    );
     const ymlContent = readFileSync(definitionPath, "utf-8");
     const parsed = cardigannParser.parseDefinition(ymlContent);
     const definition = parsed.definition;
 
-    const fields = definition.search!.fields!;
+    const fields = definition.search?.fields;
+    expect(fields).toBeDefined();
+    if (!fields) return;
 
     // TorrentLeech has a title_test field that checks if title is null
     // and a title field that uses the result
@@ -80,12 +94,17 @@ describe("TorrentLeech Integration Test", () => {
   });
 
   it("should extract correct download URL format", () => {
-    const definitionPath = join(__dirname, "../../../../data/cardigann-definitions/torrentleech.yml");
+    const definitionPath = join(
+      __dirname,
+      "../../../../data/cardigann-definitions/torrentleech.yml"
+    );
     const ymlContent = readFileSync(definitionPath, "utf-8");
     const parsed = cardigannParser.parseDefinition(ymlContent);
     const definition = parsed.definition;
 
-    const fields = definition.search!.fields!;
+    const fields = definition.search?.fields;
+    expect(fields).toBeDefined();
+    if (!fields) return;
 
     // Download URL should be /download/{id}/{filename}
     expect(fields.download.text).toContain("/download/");
