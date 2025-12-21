@@ -117,7 +117,7 @@ describe("commands/help", () => {
 
       const output = consoleSpy.mock.calls.map((call) => call[0]).join("\n");
 
-      expect(output).toContain("github.com/WeHaveNoEyes/Annex");
+      expect(output).toContain("github.com/annex-to/annex");
 
       consoleSpy.mockRestore();
     });

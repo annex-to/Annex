@@ -293,6 +293,89 @@ scheduler.register(
   }
 );
 
+// Register download progress sync task (runs every 500ms)
+scheduler.register(
+  "download-progress-sync",
+  "Download Progress Sync",
+  500, // 500ms
+  async () => {
+    const { prisma } = await import("./db/client.js");
+    const { getDownloadService } = await import("./services/download.js");
+    const { DownloadStatus } = await import("@prisma/client");
+
+    // Get all downloads that are actively downloading
+    const activeDownloads = await prisma.download.findMany({
+      where: { status: DownloadStatus.DOWNLOADING },
+    });
+
+    // Skip if no active downloads
+    if (activeDownloads.length === 0) return;
+
+    const qb = getDownloadService();
+
+    // Update progress for each active download
+    for (const download of activeDownloads) {
+      try {
+        const progress = await qb.getProgress(download.torrentHash);
+        if (!progress) continue;
+
+        // Update database with current progress
+        await prisma.download.update({
+          where: { id: download.id },
+          data: {
+            progress: progress.progress,
+            lastProgressAt: new Date(),
+            seedCount: progress.seeds,
+            peerCount: progress.peers,
+            savePath: progress.savePath || null,
+            contentPath: progress.contentPath || null,
+            ...(progress.isComplete && {
+              status: DownloadStatus.COMPLETED,
+              progress: 100,
+              completedAt: new Date(),
+            }),
+          },
+        });
+
+        // Update the associated request's progress
+        if (download.requestId) {
+          const speed =
+            progress.downloadSpeed > 0
+              ? `${(progress.downloadSpeed / (1024 * 1024)).toFixed(1)} MB/s`
+              : "";
+          const eta =
+            progress.eta > 0 ? `ETA: ${Math.floor(progress.eta / 60)}m ${progress.eta % 60}s` : "";
+
+          if (progress.isComplete) {
+            // Download completed
+            const videoFile = await qb.getMainVideoFile(download.torrentHash);
+            await prisma.mediaRequest.update({
+              where: { id: download.requestId },
+              data: {
+                sourceFilePath: videoFile?.path,
+                progress: 50,
+                currentStep: "Download complete",
+              },
+            });
+          } else {
+            // Download in progress
+            const overallProgress = 20 + progress.progress * 0.3; // 20-50%
+            await prisma.mediaRequest.update({
+              where: { id: download.requestId },
+              data: {
+                progress: overallProgress,
+                currentStep: `Downloading: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
+              },
+            });
+          }
+        }
+      } catch (error) {
+        // Ignore errors for individual downloads, continue syncing others
+      }
+    }
+  }
+);
+
 // Start the job queue worker (recovers any stuck jobs from previous run)
 jobQueue.start().catch((error) => {
   console.error("[JobQueue] Failed to start:", error);

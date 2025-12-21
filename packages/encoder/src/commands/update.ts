@@ -19,7 +19,7 @@ interface ManifestResponse {
 }
 
 // GitHub repository for releases
-const GITHUB_REPO = "WeHaveNoEyes/Annex";
+const GITHUB_REPO = "annex-to/annex";
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 /**

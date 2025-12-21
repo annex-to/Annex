@@ -442,6 +442,19 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     params;
   const qb = getDownloadService();
 
+  // Check if a download already exists for this request
+  const existingDownload = await prisma.download.findFirst({
+    where: { requestId },
+    orderBy: { startedAt: "desc" },
+  });
+
+  if (existingDownload) {
+    console.log(
+      `[DownloadManager] Reusing existing download ${existingDownload.id} for ${existingDownload.torrentName}`
+    );
+    return existingDownload;
+  }
+
   // Check if already at max concurrent downloads
   const activeCount = await prisma.download.count({
     where: { status: DownloadStatus.DOWNLOADING },
@@ -512,12 +525,31 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     return null;
   }
 
-  if (!addResult.success) {
-    console.error(`[DownloadManager] Failed to add torrent: ${addResult.error}`);
-    return null;
-  }
-
   let torrentHash = addResult.hash;
+
+  // If adding failed (e.g., "Fails." from qBittorrent), the torrent might already exist
+  // Search for an existing torrent with matching name
+  if (!addResult.success || !torrentHash) {
+    console.log(
+      `[DownloadManager] Failed to add torrent or no hash returned (${addResult.error}), searching for existing torrent`
+    );
+    const allTorrents = await qb.getAllTorrents();
+    const normalizedRelease = normalizeTitle(release.title);
+    const existing = allTorrents.find((t) => normalizeTitle(t.name) === normalizedRelease);
+
+    if (existing) {
+      console.log(
+        `[DownloadManager] Found existing torrent with matching name: ${existing.name} (${existing.hash})`
+      );
+      torrentHash = existing.hash;
+    } else if (!addResult.success) {
+      console.error(
+        `[DownloadManager] Failed to add torrent and no existing match found: ${addResult.error}`
+      );
+      console.error(`[DownloadManager] Total torrents in qBittorrent: ${allTorrents.length}`);
+      return null;
+    }
+  }
 
   // If hash wasn't returned, find by unique tag or by name
   if (!torrentHash) {
@@ -637,24 +669,32 @@ export async function createDownloadFromExisting(
   }
 
   // Create new Download record for existing torrent
+  console.log(`[DownloadManager] Creating download from existing torrent:`, {
+    hash: match.torrent.hash,
+    name: match.torrent.name,
+    hasName: !!match.torrent.name,
+  });
+
   const download = await prisma.download.create({
     data: {
-      requestId,
       torrentHash: match.torrent.hash,
-      torrentName: match.torrent.name,
+      torrentName: match.torrent.name || match.torrent.hash,
       mediaType,
       status: isComplete ? DownloadStatus.COMPLETED : DownloadStatus.DOWNLOADING,
-      progress: match.torrent.progress * 100,
+      progress: isComplete ? 100 : (match.torrent.progress ?? 0) * 100,
       size: match.torrent.size ? BigInt(match.torrent.size) : null,
-      savePath: match.torrent.savePath,
-      contentPath: match.torrent.contentPath,
+      savePath: match.torrent.savePath || null,
+      contentPath: match.torrent.contentPath || null,
       isSeasonPack: isSeasonPack || false,
       season: season || null,
       startedAt: new Date(),
       completedAt: isComplete ? new Date() : null,
       lastProgressAt: new Date(),
-      seedCount: match.torrent.seeds,
-      peerCount: match.torrent.peers,
+      seedCount: match.torrent.seeds ?? null,
+      peerCount: match.torrent.peers ?? null,
+      request: {
+        connect: { id: requestId },
+      },
     },
   });
 

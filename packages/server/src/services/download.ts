@@ -460,9 +460,13 @@ class DownloadService {
         // Don't set Content-Type header - fetch will set it with boundary for multipart
       });
 
+      const responseText = await response.text();
+      console.log(
+        `[QBittorrent] addTorrentFile response: status=${response.status}, body="${responseText}"`
+      );
+
       if (!response.ok) {
-        const text = await response.text();
-        return { success: false, error: text || `HTTP ${response.status}` };
+        return { success: false, error: responseText || `HTTP ${response.status}` };
       }
 
       // qBittorrent doesn't return the hash when adding files
@@ -500,12 +504,21 @@ class DownloadService {
       }
 
       const contentType = response.headers.get("content-type") || "";
+      const contentLength = response.headers.get("content-length") || "unknown";
+      console.log(
+        `[QBittorrent] fetchTorrentFile response: status=${response.status}, content-type="${contentType}", size=${contentLength}`
+      );
+
       // Check if we got a torrent file (not an error page)
       if (
         !contentType.includes("application/x-bittorrent") &&
         !contentType.includes("application/octet-stream")
       ) {
         const text = await response.text();
+        console.log(
+          `[QBittorrent] Non-torrent response received (${contentType}):`,
+          text.substring(0, 500)
+        );
         return {
           success: false,
           error: `Unexpected content type: ${contentType}. Response: ${text.slice(0, 200)}`,
@@ -513,6 +526,7 @@ class DownloadService {
       }
 
       const data = await response.arrayBuffer();
+      console.log(`[QBittorrent] Successfully fetched torrent file: ${data.byteLength} bytes`);
       if (data.byteLength === 0) {
         return { success: false, error: "Received empty torrent file" };
       }

@@ -57,6 +57,6 @@ EXAMPLES:
   annex-encoder --setup            # Generate service files
   annex-encoder --setup --install  # Generate and install service
 
-For more information, visit: https://github.com/WeHaveNoEyes/Annex
+For more information, visit: https://github.com/annex-to/annex
 `);
 }

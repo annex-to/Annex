@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getDownloadService } from "../services/download.js";
 import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
+import { getTraktService } from "../services/trakt.js";
 import { publicProcedure, router } from "../trpc.js";
 
 // =============================================================================
@@ -205,6 +206,170 @@ export const requestsRouter = router({
         },
       });
 
+      // Fetch latest episode data from Trakt
+      const trakt = getTraktService();
+
+      // Get or create MediaItem
+      let mediaItem = await prisma.mediaItem.findFirst({
+        where: { tmdbId: input.tmdbId },
+      });
+
+      if (!mediaItem) {
+        // Create basic MediaItem if it doesn't exist
+        mediaItem = await prisma.mediaItem.create({
+          data: {
+            tmdbId: input.tmdbId,
+            type: MediaType.TV,
+            title: input.title,
+            year: input.year,
+            posterPath: input.posterPath,
+          },
+        });
+      }
+
+      // Fetch and update seasons from Trakt
+      try {
+        const traktSeasons = await trakt.getSeasons(input.tmdbId);
+
+        // Update numberOfSeasons
+        const seasonCount = traktSeasons.filter((s) => s.number > 0).length;
+        await prisma.mediaItem.update({
+          where: { id: mediaItem.id },
+          data: { numberOfSeasons: seasonCount },
+        });
+
+        // Determine which seasons we need to fetch episodes for
+        const seasonsToFetch = new Set<number>();
+        if (input.episodes && input.episodes.length > 0) {
+          // Fetch only the seasons that contain requested episodes
+          for (const ep of input.episodes) {
+            seasonsToFetch.add(ep.season);
+          }
+        } else if (input.seasons && input.seasons.length > 0) {
+          // Fetch the requested seasons
+          for (const season of input.seasons) {
+            seasonsToFetch.add(season);
+          }
+        } else {
+          // No specific seasons/episodes requested - fetch all available seasons (excluding specials)
+          for (const season of traktSeasons) {
+            if (season.number > 0) {
+              // Exclude season 0 (specials)
+              seasonsToFetch.add(season.number);
+            }
+          }
+        }
+
+        // Fetch and save episodes for each needed season
+        const episodesToCreate: Array<{
+          season: number;
+          episode: number;
+          title?: string;
+          airDate?: Date;
+        }> = [];
+
+        for (const seasonNumber of seasonsToFetch) {
+          const traktSeason = traktSeasons.find((s) => s.number === seasonNumber);
+          if (!traktSeason) continue;
+
+          // Upsert season
+          const savedSeason = await prisma.season.upsert({
+            where: {
+              mediaItemId_seasonNumber: {
+                mediaItemId: mediaItem.id,
+                seasonNumber,
+              },
+            },
+            create: {
+              mediaItemId: mediaItem.id,
+              seasonNumber,
+              name: traktSeason.title || `Season ${seasonNumber}`,
+              overview: traktSeason.overview,
+              episodeCount: traktSeason.episode_count,
+              airDate: traktSeason.first_aired?.split("T")[0] || null,
+            },
+            update: {
+              name: traktSeason.title || `Season ${seasonNumber}`,
+              overview: traktSeason.overview,
+              episodeCount: traktSeason.episode_count,
+              airDate: traktSeason.first_aired?.split("T")[0] || null,
+            },
+          });
+
+          // Fetch and save episodes
+          try {
+            const seasonDetails = await trakt.getSeason(input.tmdbId, seasonNumber);
+            if (seasonDetails.episodes) {
+              for (const ep of seasonDetails.episodes) {
+                // Upsert episode
+                await prisma.episode.upsert({
+                  where: {
+                    seasonId_episodeNumber: {
+                      seasonId: savedSeason.id,
+                      episodeNumber: ep.number,
+                    },
+                  },
+                  create: {
+                    seasonId: savedSeason.id,
+                    seasonNumber,
+                    episodeNumber: ep.number,
+                    name: ep.title || `Episode ${ep.number}`,
+                    overview: ep.overview,
+                    airDate: ep.first_aired?.split("T")[0] || null,
+                  },
+                  update: {
+                    name: ep.title || `Episode ${ep.number}`,
+                    overview: ep.overview,
+                    airDate: ep.first_aired?.split("T")[0] || null,
+                  },
+                });
+
+                // Add to list for TvEpisode creation if this episode is requested
+                if (input.episodes && input.episodes.length > 0) {
+                  // Check if this specific episode was requested
+                  if (
+                    input.episodes.some((e) => e.season === seasonNumber && e.episode === ep.number)
+                  ) {
+                    episodesToCreate.push({
+                      season: seasonNumber,
+                      episode: ep.number,
+                      title: ep.title,
+                      airDate: ep.first_aired ? new Date(ep.first_aired) : undefined,
+                    });
+                  }
+                } else {
+                  // Whole season requested, add all episodes
+                  episodesToCreate.push({
+                    season: seasonNumber,
+                    episode: ep.number,
+                    title: ep.title,
+                    airDate: ep.first_aired ? new Date(ep.first_aired) : undefined,
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to fetch episodes for season ${seasonNumber}:`, error);
+          }
+        }
+
+        // Create TvEpisode records
+        if (episodesToCreate.length > 0) {
+          await prisma.tvEpisode.createMany({
+            data: episodesToCreate.map((ep) => ({
+              requestId: request.id,
+              season: ep.season,
+              episode: ep.episode,
+              title: ep.title,
+              airDate: ep.airDate,
+            })),
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch episode data from Trakt:", error);
+        // Continue anyway - the request will be created but may not have complete episode data
+      }
+
       // Get pipeline template: use provided one or auto-select default
       const templateId = input.pipelineTemplateId || (await getDefaultTemplate("TV"));
 
@@ -277,6 +442,18 @@ export const requestsRouter = router({
           createdAt: true,
           updatedAt: true,
           completedAt: true,
+          tvEpisodes: {
+            select: {
+              id: true,
+              season: true,
+              episode: true,
+              title: true,
+              airDate: true,
+              status: true,
+              progress: true,
+            },
+            orderBy: [{ season: "asc" }, { episode: "asc" }],
+          },
         },
       });
 

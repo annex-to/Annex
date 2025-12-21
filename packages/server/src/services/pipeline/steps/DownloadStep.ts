@@ -95,9 +95,11 @@ export class DownloadStep extends BaseStep {
           success: true,
           nextStep: "encode",
           data: {
-            torrentHash,
-            sourceFilePath: videoFile.path,
-            downloadedAt: new Date().toISOString(),
+            download: {
+              torrentHash,
+              sourceFilePath: videoFile.path,
+              downloadedAt: new Date().toISOString(),
+            },
           },
         };
       }
@@ -280,9 +282,11 @@ export class DownloadStep extends BaseStep {
             success: true,
             nextStep: "encode",
             data: {
-              torrentHash,
-              sourceFilePath: extractedVideoFile.path,
-              downloadedAt: new Date().toISOString(),
+              download: {
+                torrentHash,
+                sourceFilePath: extractedVideoFile.path,
+                downloadedAt: new Date().toISOString(),
+              },
             },
           };
         }
@@ -323,9 +327,11 @@ export class DownloadStep extends BaseStep {
       success: true,
       nextStep: "encode",
       data: {
-        torrentHash,
-        sourceFilePath: videoFile.path,
-        downloadedAt: new Date().toISOString(),
+        download: {
+          torrentHash,
+          sourceFilePath: videoFile.path,
+          downloadedAt: new Date().toISOString(),
+        },
       },
     };
   }

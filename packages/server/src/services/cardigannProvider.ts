@@ -101,8 +101,7 @@ class CardigannProvider {
 
     // Cache cookies if they were obtained/refreshed during login
     if (Object.keys(context.cookies).length > 0) {
-      const cookiesChanged =
-        JSON.stringify(cachedCookies) !== JSON.stringify(context.cookies);
+      const cookiesChanged = JSON.stringify(cachedCookies) !== JSON.stringify(context.cookies);
 
       if (cookiesChanged) {
         console.log(`[Cardigann Search] ${indexerName} - Caching authentication cookies`);

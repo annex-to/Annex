@@ -65,9 +65,9 @@ Annex provides three Docker images for different deployment scenarios:
 
 | Image | Includes | Use Case | Size |
 |-------|----------|----------|------|
-| `ghcr.io/wehavenoeyes/annex:latest` | PostgreSQL, Nginx, Server, Encoder | All-in-one for testing/demos | ~600MB |
-| `ghcr.io/wehavenoeyes/annex-server:latest` | Server only (Bun serves static files) | Production with external DB | ~200MB |
-| `ghcr.io/wehavenoeyes/annex-encoder:latest` | Encoder with FFmpeg and VAAPI | Distributed GPU encoding | ~300MB |
+| `ghcr.io/annex-to/annex:latest` | PostgreSQL, Nginx, Server, Encoder | All-in-one for testing/demos | ~600MB |
+| `ghcr.io/annex-to/annex-server:latest` | Server only (Bun serves static files) | Production with external DB | ~200MB |
+| `ghcr.io/annex-to/annex-encoder:latest` | Encoder with FFmpeg and VAAPI | Distributed GPU encoding | ~300MB |
 
 **Building:**
 ```bash
@@ -164,7 +164,7 @@ annex-encoder --setup --install  # Generate and install service
 **Quick Start (Linux):**
 ```bash
 # Download binary
-curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder
+curl -L https://github.com/annex-to/annex/releases/latest/download/annex-encoder-linux-x64 -o annex-encoder
 chmod +x annex-encoder
 
 # Setup and install service
@@ -180,7 +180,7 @@ sudo systemctl start annex-encoder
 **Quick Start (Windows):**
 ```powershell
 # Download binary
-Invoke-WebRequest -Uri "https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
+Invoke-WebRequest -Uri "https://github.com/annex-to/annex/releases/latest/download/annex-encoder-windows-x64.exe" -OutFile "annex-encoder.exe"
 
 # Setup service (run as Administrator)
 .\annex-encoder.exe --setup --install
@@ -192,7 +192,7 @@ Start-Service AnnexEncoder
 **Quick Start (macOS):**
 ```bash
 # Download binary
-curl -L https://github.com/WeHaveNoEyes/Annex/releases/latest/download/annex-encoder-darwin-arm64 -o annex-encoder
+curl -L https://github.com/annex-to/annex/releases/latest/download/annex-encoder-darwin-arm64 -o annex-encoder
 chmod +x annex-encoder
 
 # Setup service
