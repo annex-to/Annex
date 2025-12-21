@@ -81,6 +81,11 @@ export class CardigannExecutor {
       episode: params.episode || "",
     };
 
+    // Process row selector templates if present
+    const processedRows = this.processRowsSelector(defaultRows, variables);
+    const processedPathRows = this.processRowsSelector(searchPath.rows, variables);
+    const finalRows = processedPathRows || processedRows;
+
     // Process path template BEFORE creating URL
     const processedPath = cardigannParser.replaceVariables(searchPath.path, variables);
     let url = cardigannParser.normalizeUrl(baseUrl, processedPath);
@@ -111,12 +116,27 @@ export class CardigannExecutor {
     const responseType = searchPath.response?.type || "html";
 
     if (responseType === "json") {
-      return this.parseJsonResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
+      return this.parseJsonResponse(responseText, baseUrl, finalRows, defaultFields);
     } else if (responseType === "xml") {
-      return this.parseXmlResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
+      return this.parseXmlResponse(responseText, baseUrl, finalRows, defaultFields);
     } else {
-      return this.parseHtmlResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
+      return this.parseHtmlResponse(responseText, baseUrl, finalRows, defaultFields);
     }
+  }
+
+  private processRowsSelector(
+    rows: CardigannRowsSelector | undefined,
+    variables: { [key: string]: string | number | boolean }
+  ): CardigannRowsSelector | undefined {
+    if (!rows) return undefined;
+
+    const processed: CardigannRowsSelector = { ...rows };
+
+    if (rows.selector) {
+      processed.selector = cardigannParser.replaceVariables(rows.selector, variables);
+    }
+
+    return processed;
   }
 
   private async fetchUrl(
@@ -166,17 +186,12 @@ export class CardigannExecutor {
 
   private parseHtmlResponse(
     html: string,
-    searchPath: CardigannSearchPath,
     baseUrl: string,
-    defaultRows?: CardigannRowsSelector,
-    defaultFields?: { [key: string]: CardigannSelector }
+    rows?: CardigannRowsSelector,
+    fields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const $ = cheerio.load(html);
     const results: CardigannSearchResult[] = [];
-
-    // Use path-specific rows/fields or fall back to search-level defaults
-    const rows = searchPath.rows || defaultRows;
-    const fields = searchPath.fields || defaultFields || {};
 
     if (!rows || !rows.selector) {
       return results;
@@ -188,7 +203,7 @@ export class CardigannExecutor {
       try {
         const $row = $(element);
 
-        const extractedFields = selectorEngine.extractMultipleFields($row, fields, $);
+        const extractedFields = selectorEngine.extractMultipleFields($row, fields || {}, $);
 
         const result = this.buildSearchResult(extractedFields, baseUrl);
         if (result.title && result.downloadUrl) {
@@ -204,19 +219,14 @@ export class CardigannExecutor {
 
   private parseJsonResponse(
     jsonText: string,
-    searchPath: CardigannSearchPath,
     baseUrl: string,
-    defaultRows?: CardigannRowsSelector,
-    defaultFields?: { [key: string]: CardigannSelector }
+    rows?: CardigannRowsSelector,
+    fields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const results: CardigannSearchResult[] = [];
 
     try {
       const json = JSON.parse(jsonText);
-
-      // Use path-specific rows/fields or fall back to search-level defaults
-      const rows = searchPath.rows || defaultRows;
-      const fields = searchPath.fields || defaultFields || {};
 
       // Extract items array using rows.selector if specified
       let items: unknown[];
@@ -236,7 +246,7 @@ export class CardigannExecutor {
       for (const item of items) {
         const extractedFields: { [key: string]: string } = {};
 
-        for (const [key, selector] of Object.entries(fields)) {
+        for (const [key, selector] of Object.entries(fields || {})) {
           if (selector.text) {
             extractedFields[key] = selector.text;
           } else if (selector.selector) {
@@ -266,25 +276,20 @@ export class CardigannExecutor {
 
   private parseXmlResponse(
     xmlText: string,
-    searchPath: CardigannSearchPath,
     baseUrl: string,
-    defaultRows?: CardigannRowsSelector,
-    defaultFields?: { [key: string]: CardigannSelector }
+    rows?: CardigannRowsSelector,
+    fields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const results: CardigannSearchResult[] = [];
 
     try {
       const $ = cheerio.load(xmlText, { xmlMode: true });
 
-      // Use path-specific rows/fields or fall back to search-level defaults
-      const rowsConfig = searchPath.rows || defaultRows;
-      const fields = searchPath.fields || defaultFields || {};
+      const extractedRows = rows?.selector ? $(rows.selector) : $("item");
 
-      const rows = rowsConfig?.selector ? $(rowsConfig.selector) : $("item");
-
-      rows.each((_, element) => {
+      extractedRows.each((_, element) => {
         const $row = $(element);
-        const extractedFields = selectorEngine.extractMultipleFields($row, fields, $);
+        const extractedFields = selectorEngine.extractMultipleFields($row, fields || {}, $);
 
         const result = this.buildSearchResult(extractedFields, baseUrl);
         if (result.title && result.downloadUrl) {
