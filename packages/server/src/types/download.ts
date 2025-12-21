@@ -208,6 +208,7 @@ export interface IndexerRelease {
   leechers: number;
   magnetUri?: string;
   downloadUrl?: string;
+  downloadHeaders?: Record<string, string>; // Auth headers for authenticated downloads
   indexer?: string; // Optional - from internal types
   indexerName?: string; // Optional - from Release type in indexer.ts
   indexerId?: string; // Optional - from Release type in indexer.ts

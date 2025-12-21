@@ -97,8 +97,18 @@ class CardigannProvider {
       });
     }
 
+    // Build Cookie header from login cookies for authenticated downloads
+    const cookieHeader =
+      Object.keys(context.cookies).length > 0
+        ? Object.entries(context.cookies)
+            .map(([name, value]) => `${name}=${value}`)
+            .join("; ")
+        : undefined;
+
     // Transform results to Release format
-    return results.map((result) => this.transformToRelease(result, indexerId, indexerName));
+    return results.map((result) =>
+      this.transformToRelease(result, indexerId, indexerName, cookieHeader)
+    );
   }
 
   /**
@@ -107,7 +117,8 @@ class CardigannProvider {
   private transformToRelease(
     result: CardigannSearchResult,
     indexerId: string,
-    indexerName: string
+    indexerName: string,
+    cookieHeader?: string
   ): Release {
     const title = result.title;
 
@@ -122,11 +133,16 @@ class CardigannProvider {
     // Determine download URL or magnet
     let magnetUri: string | undefined;
     let downloadUrl: string | undefined;
+    let downloadHeaders: Record<string, string> | undefined;
 
     if (result.downloadUrl.startsWith("magnet:")) {
       magnetUri = result.downloadUrl;
     } else {
       downloadUrl = result.downloadUrl;
+      // Include authentication cookies for download
+      if (cookieHeader) {
+        downloadHeaders = { Cookie: cookieHeader };
+      }
     }
 
     return {
@@ -142,6 +158,7 @@ class CardigannProvider {
       leechers: result.leechers || 0,
       magnetUri,
       downloadUrl,
+      downloadHeaders,
       infoUrl: result.infoUrl,
       publishDate: result.publishDate || new Date(),
       score,

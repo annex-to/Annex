@@ -485,7 +485,8 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
       }
     );
     console.log(`[DownloadManager] Fetching torrent file from: ${redactedUrl}`);
-    const fetchResult = await qb.fetchTorrentFile(downloadUrl);
+    // Pass authentication headers from release (e.g., Cardigann cookies)
+    const fetchResult = await qb.fetchTorrentFile(downloadUrl, release.downloadHeaders);
 
     if (fetchResult.success && fetchResult.data) {
       // Upload the torrent file data to qBittorrent

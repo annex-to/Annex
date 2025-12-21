@@ -77,6 +77,7 @@ export interface Release {
   leechers: number;
   magnetUri?: string;
   downloadUrl?: string;
+  downloadHeaders?: Record<string, string>; // Auth headers for authenticated downloads
   infoUrl?: string;
   publishDate: Date;
   score: number;

@@ -29,6 +29,9 @@ export class CardigannExecutor {
 
     const allCookies = { ...context.cookies, ...loginResult.cookies };
 
+    // Store cookies back in context so they can be accessed by caller
+    context.cookies = allCookies;
+
     const results: CardigannSearchResult[] = [];
 
     console.log(`[Cardigann Executor] Executing ${definition.search.paths.length} search path(s)`);
