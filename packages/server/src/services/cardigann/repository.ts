@@ -24,6 +24,12 @@ interface RepositoryInfo {
   definitionsPath: string;
 }
 
+interface GitHubContentItem {
+  name: string;
+  type: string;
+  download_url: string;
+}
+
 export class CardigannRepository {
   private readonly storageDir: string;
   private readonly repositoryInfo: RepositoryInfo;
@@ -115,20 +121,16 @@ export class CardigannRepository {
     if (data.length > 0) {
       console.log(
         `[Cardigann] Sample items:`,
-        data
-          .slice(0, 3)
-          // biome-ignore lint/suspicious/noExplicitAny: GitHub API response type is not typed
-          .map((item: any) => ({
-            name: item.name,
-            type: item.type,
-            download_url: item.download_url,
-          }))
+        data.slice(0, 3).map((item: GitHubContentItem) => ({
+          name: item.name,
+          type: item.type,
+          download_url: item.download_url,
+        }))
       );
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: GitHub API response type is not typed
     const ymlFiles = data.filter(
-      (item: any) =>
+      (item: GitHubContentItem) =>
         item.type === "file" && (item.name.endsWith(".yml") || item.name.endsWith(".yaml"))
     );
     console.log(`[Cardigann] Found ${ymlFiles.length} .yml/.yaml definition files`);

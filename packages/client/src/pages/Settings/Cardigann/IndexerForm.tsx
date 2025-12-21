@@ -268,10 +268,7 @@ export default function CardigannIndexerForm() {
                 <div key={setting.name} className="p-3 bg-white/5 rounded border border-white/10">
                   <p className="text-sm font-medium text-white/90 mb-1">{setting.label}</p>
                   {setting.default && (
-                    <p
-                      className="text-sm text-white/60"
-                      dangerouslySetInnerHTML={{ __html: setting.default.toString() }}
-                    />
+                    <p className="text-sm text-white/60">{setting.default.toString()}</p>
                   )}
                 </div>
               );

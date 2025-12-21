@@ -369,7 +369,7 @@ scheduler.register(
             });
           }
         }
-      } catch (error) {
+      } catch (_error) {
         // Ignore errors for individual downloads, continue syncing others
       }
     }
