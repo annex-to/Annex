@@ -317,5 +317,239 @@ links:
       const result = parser.replaceFilters(value, filters);
       expect(result).toBe("test");
     });
+
+    it("handles invalid regexp pattern gracefully", () => {
+      const value = "test";
+      const filters = [{ name: "regexp", args: ["(?i)"] }]; // Invalid JS regex
+
+      const result = parser.replaceFilters(value, filters);
+      expect(result).toBe("test"); // Should return original value
+    });
+
+    it("handles invalid re_replace pattern gracefully", () => {
+      const value = "test";
+      const filters = [{ name: "re_replace", args: ["(?i)", "x"] }]; // Invalid JS regex
+
+      const result = parser.replaceFilters(value, filters);
+      expect(result).toBe("test"); // Should return original value
+    });
+  });
+
+  describe(".Result variable replacement (inter-field references)", () => {
+    it("replaces .Result.fieldname", () => {
+      const template = "{{ .Result.title }}";
+      const vars = { title: "Test Movie" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("Test Movie");
+    });
+
+    it("replaces multiple .Result variables", () => {
+      const template = "/download/{{ .Result._id }}/{{ .Result._filename }}";
+      const vars = { _id: "12345", _filename: "movie.torrent" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("/download/12345/movie.torrent");
+    });
+
+    it("handles TorrentLeech-style download URL", () => {
+      const template = "/download/{{ .Result._id }}/{{ .Result._filename }}";
+      const vars = {
+        _id: "241257906",
+        _filename: "Fallout.S01.1080p.AMZN.WEB-DL.torrent",
+      };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("/download/241257906/Fallout.S01.1080p.AMZN.WEB-DL.torrent");
+    });
+  });
+
+  describe("join function", () => {
+    it("joins .Categories with separator", () => {
+      const template = '{{ join .Categories "," }}';
+      const vars = { categories: "1,2,3" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("1,2,3");
+    });
+
+    it("joins .Keywords with separator", () => {
+      const template = '{{ join .Keywords " " }}';
+      const vars = { query: "test query" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("test query");
+    });
+  });
+
+  describe("conditional expressions", () => {
+    describe("simple if statements", () => {
+      it("evaluates truthy condition", () => {
+        const template = "{{ if .Config.username }}yes{{ else }}no{{ end }}";
+        const vars = { username: "john" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("yes");
+      });
+
+      it("evaluates falsy condition (empty string)", () => {
+        const template = "{{ if .Config.username }}yes{{ else }}no{{ end }}";
+        const vars = { username: "" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("no");
+      });
+
+      it("evaluates falsy condition (false)", () => {
+        const template = "{{ if .Config.enabled }}yes{{ else }}no{{ end }}";
+        const vars = { enabled: false };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("no");
+      });
+
+      it("handles if without else", () => {
+        const template = "{{ if .Config.username }}User: {{ .Config.username }}{{ end }}";
+        const vars = { username: "john" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("User: john");
+      });
+
+      it("handles if without else - falsy condition", () => {
+        const template = "{{ if .Config.username }}User: {{ .Config.username }}{{ end }}";
+        const vars = { username: "" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("");
+      });
+
+      it("handles variable replacement inside if block", () => {
+        const template =
+          "{{ if .Result.title_test }}{{ .Result.title_test }}{{ else }}No title{{ end }}";
+        const vars = { title_test: "Test Movie" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("Test Movie");
+      });
+    });
+
+    describe("boolean operators", () => {
+      it("handles 'and' operator - both true", () => {
+        const template = "{{ if and .Config.user .Config.pass }}yes{{ else }}no{{ end }}";
+        const vars = { user: "john", pass: "secret" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("yes");
+      });
+
+      it("handles 'and' operator - one false", () => {
+        const template = "{{ if and .Config.user .Config.pass }}yes{{ else }}no{{ end }}";
+        const vars = { user: "john", pass: "" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("no");
+      });
+
+      it("handles 'or' operator - one true", () => {
+        const template = "{{ if or .Config.user .Config.pass }}yes{{ else }}no{{ end }}";
+        const vars = { user: "", pass: "secret" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("yes");
+      });
+
+      it("handles 'or' operator - both false", () => {
+        const template = "{{ if or .Config.user .Config.pass }}yes{{ else }}no{{ end }}";
+        const vars = { user: "", pass: "" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("no");
+      });
+
+      it("handles 'eq' operator - equal", () => {
+        const template = "{{ if eq .Config.type .Config.expected }}yes{{ else }}no{{ end }}";
+        const vars = { type: "movie", expected: "movie" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("yes");
+      });
+
+      it("handles 'eq' operator - not equal", () => {
+        const template = "{{ if eq .Config.type .Config.expected }}yes{{ else }}no{{ end }}";
+        const vars = { type: "movie", expected: "tv" };
+
+        const result = parser.replaceVariables(template, vars);
+        expect(result).toBe("no");
+      });
+    });
+  });
+
+  describe("complex real-world scenarios", () => {
+    it("handles TorrentLeech title field pattern", () => {
+      const template =
+        "{{ if .Result.title_test }}{{ .Result.title_test }}{{ else }}TorrentLeech did not provide a title{{ end }}";
+
+      // With title
+      const resultWithTitle = parser.replaceVariables(template, {
+        title_test: "Fallout S01 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX",
+      });
+      expect(resultWithTitle).toBe("Fallout S01 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX");
+
+      // Without title (empty string)
+      const resultWithoutTitle = parser.replaceVariables(template, { title_test: "" });
+      expect(resultWithoutTitle).toBe("TorrentLeech did not provide a title");
+
+      // Without title (undefined)
+      const resultUndefined = parser.replaceVariables(template, {});
+      expect(resultUndefined).toBe("TorrentLeech did not provide a title");
+    });
+
+    it("handles TorrentLeech details URL pattern", () => {
+      const template = "/torrent/{{ .Result._id }}";
+      const vars = { _id: "241257906" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("/torrent/241257906");
+    });
+
+    it("handles conditional with nested variable replacements", () => {
+      const template = "{{ if .Keywords }}q={{ .Keywords }}{{ end }}";
+      const vars = { query: "test movie" };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("q=test movie");
+    });
+
+    it("handles login with username and password check", () => {
+      const template =
+        "{{ if and .Config.username .Config.password }}login=true&user={{ .Config.username }}{{ else }}anonymous=true{{ end }}";
+
+      const withCredentials = parser.replaceVariables(template, {
+        username: "john",
+        password: "secret",
+      });
+      expect(withCredentials).toBe("login=true&user=john");
+
+      const withoutCredentials = parser.replaceVariables(template, {
+        username: "",
+        password: "",
+      });
+      expect(withoutCredentials).toBe("anonymous=true");
+    });
+
+    it("handles multiple variable types in one template", () => {
+      const template =
+        "/search?q={{ .Keywords }}&cat={{ .Categories }}&imdb={{ .Query.IMDBId }}&user={{ .Config.username }}";
+      const vars = {
+        query: "inception",
+        categories: "1,2",
+        imdbId: "tt1375666",
+        username: "john",
+      };
+
+      const result = parser.replaceVariables(template, vars);
+      expect(result).toBe("/search?q=inception&cat=1,2&imdb=tt1375666&user=john");
+    });
   });
 });

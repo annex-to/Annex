@@ -157,15 +157,23 @@ export class CardigannParser {
       return "";
     };
 
-    // Handle "and" expressions
-    if (condition.includes(" and ")) {
-      const parts = condition.split(" and ");
+    // Handle "and" expressions - Go template format: "and .Var1 .Var2"
+    if (condition.trim().startsWith("and ")) {
+      const parts = condition
+        .trim()
+        .substring(4)
+        .split(/\s+/)
+        .filter((p) => p);
       return parts.every((p) => this.evaluateCondition(p.trim(), variables));
     }
 
-    // Handle "or" expressions
-    if (condition.includes(" or ")) {
-      const parts = condition.split(" or ");
+    // Handle "or" expressions - Go template format: "or .Var1 .Var2"
+    if (condition.trim().startsWith("or ")) {
+      const parts = condition
+        .trim()
+        .substring(3)
+        .split(/\s+/)
+        .filter((p) => p);
       return parts.some((p) => this.evaluateCondition(p.trim(), variables));
     }
 
