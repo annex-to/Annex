@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, Input, Label, Select, Skeleton } from "../../../components/ui";
+import { Button, Card, Input, Label, Select, Skeleton } from "../../../components/ui";
 import { trpc } from "../../../trpc";
 
 export default function CardigannIndexerForm() {
@@ -149,7 +149,8 @@ export default function CardigannIndexerForm() {
   };
 
   // Only check loading state for enabled queries
-  const isLoading = (definition.isLoading && !!definitionId) || (existingIndexer.isLoading && !!indexerId);
+  const isLoading =
+    (definition.isLoading && !!definitionId) || (existingIndexer.isLoading && !!indexerId);
 
   if (isLoading) {
     return (
@@ -165,7 +166,7 @@ export default function CardigannIndexerForm() {
       <div className="space-y-6">
         <h2 className="text-xl font-semibold text-red-400">Error Loading Definition</h2>
         <Card className="p-4 bg-red-500/10 border-red-500/30">
-          <p className="text-sm text-red-400">{definition.error?.message || 'Unknown error'}</p>
+          <p className="text-sm text-red-400">{definition.error?.message || "Unknown error"}</p>
         </Card>
         <Button onClick={() => navigate("/settings/indexers/cardigann")}>
           Back to Definitions
@@ -418,7 +419,6 @@ export default function CardigannIndexerForm() {
             )}
           </div>
         )}
-
       </Card>
 
       <Card className="p-5 space-y-4">

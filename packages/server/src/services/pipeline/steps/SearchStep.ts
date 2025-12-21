@@ -181,7 +181,7 @@ export class SearchStep extends BaseStep {
       console.log(`[Search] Found ${searchResult.releases.length} total releases:`);
       searchResult.releases.slice(0, 10).forEach((release, idx) => {
         console.log(
-          `[Search]   ${idx + 1}. ${release.title} | ${release.resolution || "Unknown"} | ${release.size || "Unknown"} | ${release.seeders || 0} seeders | ${release.indexer}`
+          `[Search]   ${idx + 1}. ${release.title} | ${release.resolution || "Unknown"} | ${release.size || "Unknown"} | ${release.seeders || 0} seeders | ${release.indexerName}`
         );
       });
       if (searchResult.releases.length > 10) {

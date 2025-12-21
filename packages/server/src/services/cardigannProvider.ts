@@ -77,8 +77,25 @@ class CardigannProvider {
       searchParams.categories = cardigannIndexer.categoriesTv.map(String);
     }
 
+    console.log(`[Cardigann Search] ${indexerName} - Searching with params:`, {
+      query: searchParams.query,
+      categories: searchParams.categories,
+      imdbId: searchParams.imdbId,
+      season: searchParams.season,
+    });
+
     // Execute the search
     const results = await cardigannExecutor.search(context, searchParams);
+
+    console.log(`[Cardigann Search] ${indexerName} - Found ${results.length} results`);
+    if (results.length > 0) {
+      console.log(`[Cardigann Search] ${indexerName} - First 3 results:`);
+      results.slice(0, 3).forEach((r, idx) => {
+        console.log(
+          `[Cardigann Search]   ${idx + 1}. ${r.title} | ${r.size || "?"} | ${r.seeders || 0} seeders`
+        );
+      });
+    }
 
     // Transform results to Release format
     return results.map((result) => this.transformToRelease(result, indexerId, indexerName));

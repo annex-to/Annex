@@ -76,7 +76,9 @@ export class CardigannRepository {
         }
       }
 
-      console.log(`[Cardigann] Sync complete: ${stats.added} added, ${stats.updated} updated, ${stats.errors.length} errors`);
+      console.log(
+        `[Cardigann] Sync complete: ${stats.added} added, ${stats.updated} updated, ${stats.errors.length} errors`
+      );
       await this.saveMetadata({ lastSync: new Date().toISOString(), stats });
     } catch (error) {
       const errorMsg = `Failed to sync from GitHub: ${error instanceof Error ? error.message : "Unknown error"}`;
@@ -111,16 +113,20 @@ export class CardigannRepository {
 
     // Log sample items to debug
     if (data.length > 0) {
-      console.log(`[Cardigann] Sample items:`, data.slice(0, 3).map((item: any) => ({
-        name: item.name,
-        type: item.type,
-        download_url: item.download_url
-      })));
+      console.log(
+        `[Cardigann] Sample items:`,
+        data.slice(0, 3).map((item: any) => ({
+          name: item.name,
+          type: item.type,
+          download_url: item.download_url,
+        }))
+      );
     }
 
     // biome-ignore lint/suspicious/noExplicitAny: GitHub API response type is not typed
-    const ymlFiles = data.filter((item: any) =>
-      item.type === "file" && (item.name.endsWith(".yml") || item.name.endsWith(".yaml"))
+    const ymlFiles = data.filter(
+      (item: any) =>
+        item.type === "file" && (item.name.endsWith(".yml") || item.name.endsWith(".yaml"))
     );
     console.log(`[Cardigann] Found ${ymlFiles.length} .yml/.yaml definition files`);
 

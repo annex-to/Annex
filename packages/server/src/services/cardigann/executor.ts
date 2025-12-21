@@ -29,6 +29,8 @@ export class CardigannExecutor {
 
     const results: CardigannSearchResult[] = [];
 
+    console.log(`[Cardigann Executor] Executing ${definition.search.paths.length} search path(s)`);
+
     for (const searchPath of definition.search.paths) {
       try {
         const pathResults = await this.executeSearchPath(
@@ -38,8 +40,10 @@ export class CardigannExecutor {
           baseUrl,
           allCookies
         );
+        console.log(`[Cardigann Executor] Search path returned ${pathResults.length} results`);
         results.push(...pathResults);
-      } catch (_error) {
+      } catch (error) {
+        console.error(`[Cardigann Executor] Search path failed:`, error);
         // Skip failed search paths and continue with others
       }
     }
@@ -55,10 +59,8 @@ export class CardigannExecutor {
     cookies: { [key: string]: string }
   ): Promise<CardigannSearchResult[]> {
     const method = searchPath.method || "get";
-    const path = searchPath.path;
-    let url = cardigannParser.normalizeUrl(baseUrl, path);
 
-    const inputs = { ...searchPath.inputs };
+    // Build variables for template replacement
     const variables = {
       ...settings,
       query: params.query || "",
@@ -69,6 +71,11 @@ export class CardigannExecutor {
       episode: params.episode || "",
     };
 
+    // Process path template BEFORE creating URL
+    const processedPath = cardigannParser.replaceVariables(searchPath.path, variables);
+    let url = cardigannParser.normalizeUrl(baseUrl, processedPath);
+
+    const inputs = { ...searchPath.inputs };
     for (const [key, value] of Object.entries(inputs)) {
       inputs[key] = cardigannParser.replaceVariables(value, variables);
     }
@@ -83,11 +90,14 @@ export class CardigannExecutor {
     if (method.toLowerCase() === "get") {
       const params = new URLSearchParams(inputs);
       url += `?${params.toString()}`;
+      console.log(`[Cardigann Executor] GET ${url}`);
       responseText = await this.fetchUrl(url, headers, cookies);
     } else {
+      console.log(`[Cardigann Executor] POST ${url} with data:`, inputs);
       responseText = await this.postUrl(url, inputs, headers, cookies);
     }
 
+    console.log(`[Cardigann Executor] Response received (${responseText.length} bytes)`);
     const responseType = searchPath.response?.type || "html";
 
     if (responseType === "json") {
@@ -186,7 +196,18 @@ export class CardigannExecutor {
 
     try {
       const json = JSON.parse(jsonText);
-      const items = Array.isArray(json) ? json : [json];
+
+      // Extract items array using rows.selector if specified
+      let items: unknown[];
+      if (searchPath.rows?.selector) {
+        const extracted = selectorEngine.extractJsonValue(json, searchPath.rows.selector);
+        items = Array.isArray(extracted) ? extracted : [extracted];
+      } else {
+        // Fallback: assume top-level array or single object
+        items = Array.isArray(json) ? json : [json];
+      }
+
+      console.log(`[Cardigann Executor] JSON: Extracted ${items.length} items from response`);
 
       for (const item of items) {
         const fields = searchPath.fields || {};
@@ -212,8 +233,8 @@ export class CardigannExecutor {
           results.push(result);
         }
       }
-    } catch (_error) {
-      // Return empty results on JSON parse failure
+    } catch (error) {
+      console.error(`[Cardigann Executor] JSON parse error:`, error);
     }
 
     return results;

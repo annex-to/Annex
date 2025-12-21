@@ -75,42 +75,100 @@ export class CardigannParser {
   ): string {
     let result = template;
 
+    // Helper to get variable value
+    const getVar = (path: string): string => {
+      if (path === ".Keywords" || path === "Keywords") return String(variables.query || "");
+      if (path === ".Categories" || path === "Categories")
+        return String(variables.categories || "");
+      if (path === ".Query.IMDBID" || path === ".Query.IMDBId")
+        return String(variables.imdbId || "");
+      if (path === ".Query.TMDBID" || path === ".Query.TMDBId")
+        return String(variables.tmdbId || "");
+      if (path === ".Query.Season") return String(variables.season || "");
+      if (path === ".Query.Episode") return String(variables.episode || "");
+      if (path.startsWith(".Config.")) {
+        const key = path.substring(8);
+        return String(variables[key] || "");
+      }
+      if (path === ".False" || path === ".false") return "false";
+      if (path === ".True" || path === ".true") return "true";
+      return "";
+    };
+
+    // Process {{ join .Categories "," }} style joins
+    result = result.replace(
+      /\{\{\s*join\s+([^\s]+)\s+"([^"]+)"\s*\}\}/g,
+      (_, varPath, _separator) => {
+        return getVar(varPath);
+      }
+    );
+
+    // Process {{ if ... }}...{{ else }}...{{ end }} blocks
+    result = result.replace(
+      /\{\{\s*if\s+((?:and|or|\(|\)|\s|\.[\w.]+|eq\s+[\w.]+\s+[\w.]+)+)\s*\}\}([\s\S]*?)(?:\{\{\s*else\s*\}\}([\s\S]*?))?\{\{\s*end\s*\}\}/g,
+      (_, condition, truthyBlock, falsyBlock) => {
+        const isTrue = this.evaluateCondition(condition, variables);
+        return isTrue ? truthyBlock : falsyBlock || "";
+      }
+    );
+
+    // Simple variable replacements
+    result = result.replace(/\{\{\s*\.Keywords\s*\}\}/g, getVar(".Keywords"));
+    result = result.replace(/\{\{\s*\.Categories\s*\}\}/g, getVar(".Categories"));
+    result = result.replace(/\{\{\s*\.Query\.IMDBID\s*\}\}/gi, getVar(".Query.IMDBID"));
+    result = result.replace(/\{\{\s*\.Query\.TMDBId\s*\}\}/gi, getVar(".Query.TMDBID"));
+    result = result.replace(/\{\{\s*\.Query\.Season\s*\}\}/g, getVar(".Query.Season"));
+    result = result.replace(/\{\{\s*\.Query\.Episode\s*\}\}/g, getVar(".Query.Episode"));
+
     for (const [key, value] of Object.entries(variables)) {
       const regex = new RegExp(`\\{\\{\\s*\\.Config\\.${key}\\s*\\}\\}`, "g");
       result = result.replace(regex, String(value));
     }
 
-    const queryRegex = /\{\{\s*\.Keywords\s*\}\}/g;
-    if (variables.query !== undefined) {
-      result = result.replace(queryRegex, String(variables.query));
-    }
-
-    const categoryRegex = /\{\{\s*\.Categories\s*\}\}/g;
-    if (variables.categories !== undefined) {
-      result = result.replace(categoryRegex, String(variables.categories));
-    }
-
-    const imdbRegex = /\{\{\s*\.Query\.IMDBId\s*\}\}/g;
-    if (variables.imdbId !== undefined) {
-      result = result.replace(imdbRegex, String(variables.imdbId));
-    }
-
-    const tmdbRegex = /\{\{\s*\.Query\.TMDBId\s*\}\}/g;
-    if (variables.tmdbId !== undefined) {
-      result = result.replace(tmdbRegex, String(variables.tmdbId));
-    }
-
-    const seasonRegex = /\{\{\s*\.Query\.Season\s*\}\}/g;
-    if (variables.season !== undefined) {
-      result = result.replace(seasonRegex, String(variables.season));
-    }
-
-    const episodeRegex = /\{\{\s*\.Query\.Episode\s*\}\}/g;
-    if (variables.episode !== undefined) {
-      result = result.replace(episodeRegex, String(variables.episode));
-    }
-
     return result;
+  }
+
+  private evaluateCondition(
+    condition: string,
+    variables: { [key: string]: string | number | boolean }
+  ): boolean {
+    const getVar = (path: string): string => {
+      if (path === ".Keywords" || path === "Keywords") return String(variables.query || "");
+      if (path === ".Categories" || path === "Categories")
+        return String(variables.categories || "");
+      if (path.startsWith(".Config.")) {
+        const key = path.substring(8);
+        return String(variables[key] || "");
+      }
+      return "";
+    };
+
+    // Handle "and" expressions
+    if (condition.includes(" and ")) {
+      const parts = condition.split(" and ");
+      return parts.every((p) => this.evaluateCondition(p.trim(), variables));
+    }
+
+    // Handle "or" expressions
+    if (condition.includes(" or ")) {
+      const parts = condition.split(" or ");
+      return parts.some((p) => this.evaluateCondition(p.trim(), variables));
+    }
+
+    // Handle "eq" comparisons
+    const eqMatch = condition.match(/eq\s+([\w.]+)\s+([\w.]+)/);
+    if (eqMatch) {
+      const val1 = getVar(eqMatch[1]);
+      const val2 = getVar(eqMatch[2]);
+      return val1 === val2;
+    }
+
+    // Handle parentheses
+    condition = condition.replace(/[()]/g, "");
+
+    // Simple truthy check
+    const value = getVar(condition.trim());
+    return value !== "" && value !== "false" && value !== "0";
   }
 
   replaceFilters(
