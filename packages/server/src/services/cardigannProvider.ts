@@ -6,6 +6,7 @@
  */
 
 import type { CardigannIndexer } from "@prisma/client";
+import { prisma } from "../db/client.js";
 import { cardigannExecutor, cardigannRepository } from "./cardigann/index.js";
 import type {
   CardigannContext,
@@ -52,11 +53,22 @@ class CardigannProvider {
       }
     }
 
+    // Load cached cookies from settings (if available)
+    const cachedCookies: { [key: string]: string } = {};
+    const cookiesData = storedSettings._cookies;
+    if (cookiesData && typeof cookiesData === "object") {
+      for (const [key, value] of Object.entries(cookiesData as Record<string, unknown>)) {
+        if (typeof value === "string") {
+          cachedCookies[key] = value;
+        }
+      }
+    }
+
     // Build Cardigann context
     const context: CardigannContext = {
       definition,
       settings,
-      cookies: {},
+      cookies: cachedCookies, // Start with cached cookies
       baseUrl,
     };
 
@@ -86,6 +98,25 @@ class CardigannProvider {
 
     // Execute the search
     const results = await cardigannExecutor.search(context, searchParams);
+
+    // Cache cookies if they were obtained/refreshed during login
+    if (Object.keys(context.cookies).length > 0) {
+      const cookiesChanged =
+        JSON.stringify(cachedCookies) !== JSON.stringify(context.cookies);
+
+      if (cookiesChanged) {
+        console.log(`[Cardigann Search] ${indexerName} - Caching authentication cookies`);
+        const updatedSettings = {
+          ...storedSettings,
+          _cookies: context.cookies,
+        };
+
+        await prisma.cardigannIndexer.update({
+          where: { id: cardigannIndexer.id },
+          data: { settings: updatedSettings as never },
+        });
+      }
+    }
 
     console.log(`[Cardigann Search] ${indexerName} - Found ${results.length} results`);
     if (results.length > 0) {

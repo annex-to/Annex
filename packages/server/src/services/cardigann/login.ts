@@ -20,6 +20,24 @@ export class CardigannLoginHandler {
     const loginConfig = definition.login;
 
     try {
+      // If we have cached cookies, test them first
+      if (Object.keys(context.cookies).length > 0) {
+        console.log("[Cardigann Login] Testing cached cookies...");
+        if (loginConfig.test) {
+          const testSuccess = await this.testLogin(loginConfig.test, baseUrl, context.cookies);
+          if (testSuccess) {
+            console.log("[Cardigann Login] Cached cookies are valid, skipping login");
+            return { success: true, cookies: context.cookies };
+          }
+          console.log("[Cardigann Login] Cached cookies expired, re-authenticating...");
+        } else {
+          // No test defined, assume cached cookies are valid
+          console.log("[Cardigann Login] No test defined, using cached cookies");
+          return { success: true, cookies: context.cookies };
+        }
+      }
+
+      // Perform fresh login
       const cookieJar = new CookieJar();
       const cookies = await this.performLogin(loginConfig, settings, baseUrl, cookieJar);
 
