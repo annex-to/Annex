@@ -4,9 +4,11 @@ import { cardigannParser } from "./parser";
 import { selectorEngine } from "./selectors";
 import type {
   CardigannContext,
+  CardigannRowsSelector,
   CardigannSearchParams,
   CardigannSearchPath,
   CardigannSearchResult,
+  CardigannSelector,
 } from "./types";
 
 export class CardigannExecutor {
@@ -31,6 +33,10 @@ export class CardigannExecutor {
 
     console.log(`[Cardigann Executor] Executing ${definition.search.paths.length} search path(s)`);
 
+    // Get search-level rows and fields as defaults
+    const searchRows = definition.search.rows;
+    const searchFields = definition.search.fields;
+
     for (const searchPath of definition.search.paths) {
       try {
         const pathResults = await this.executeSearchPath(
@@ -38,7 +44,9 @@ export class CardigannExecutor {
           params,
           settings,
           baseUrl,
-          allCookies
+          allCookies,
+          searchRows,
+          searchFields
         );
         console.log(`[Cardigann Executor] Search path returned ${pathResults.length} results`);
         results.push(...pathResults);
@@ -56,7 +64,9 @@ export class CardigannExecutor {
     params: CardigannSearchParams,
     settings: { [key: string]: string | boolean },
     baseUrl: string,
-    cookies: { [key: string]: string }
+    cookies: { [key: string]: string },
+    defaultRows?: CardigannRowsSelector,
+    defaultFields?: { [key: string]: CardigannSelector }
   ): Promise<CardigannSearchResult[]> {
     const method = searchPath.method || "get";
 
@@ -101,11 +111,11 @@ export class CardigannExecutor {
     const responseType = searchPath.response?.type || "html";
 
     if (responseType === "json") {
-      return this.parseJsonResponse(responseText, searchPath, baseUrl);
+      return this.parseJsonResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
     } else if (responseType === "xml") {
-      return this.parseXmlResponse(responseText, searchPath, baseUrl);
+      return this.parseXmlResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
     } else {
-      return this.parseHtmlResponse(responseText, searchPath, baseUrl);
+      return this.parseHtmlResponse(responseText, searchPath, baseUrl, defaultRows, defaultFields);
     }
   }
 
@@ -157,21 +167,26 @@ export class CardigannExecutor {
   private parseHtmlResponse(
     html: string,
     searchPath: CardigannSearchPath,
-    baseUrl: string
+    baseUrl: string,
+    defaultRows?: CardigannRowsSelector,
+    defaultFields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const $ = cheerio.load(html);
     const results: CardigannSearchResult[] = [];
 
-    if (!searchPath.rows || !searchPath.rows.selector) {
+    // Use path-specific rows/fields or fall back to search-level defaults
+    const rows = searchPath.rows || defaultRows;
+    const fields = searchPath.fields || defaultFields || {};
+
+    if (!rows || !rows.selector) {
       return results;
     }
 
-    const rows = selectorEngine.extractRows(html, searchPath.rows);
+    const extractedRows = selectorEngine.extractRows(html, rows);
 
-    rows.each((_, element) => {
+    extractedRows.each((_, element) => {
       try {
         const $row = $(element);
-        const fields = searchPath.fields || {};
 
         const extractedFields = selectorEngine.extractMultipleFields($row, fields, $);
 
@@ -190,19 +205,28 @@ export class CardigannExecutor {
   private parseJsonResponse(
     jsonText: string,
     searchPath: CardigannSearchPath,
-    baseUrl: string
+    baseUrl: string,
+    defaultRows?: CardigannRowsSelector,
+    defaultFields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const results: CardigannSearchResult[] = [];
 
     try {
       const json = JSON.parse(jsonText);
 
+      // Use path-specific rows/fields or fall back to search-level defaults
+      const rows = searchPath.rows || defaultRows;
+      const fields = searchPath.fields || defaultFields || {};
+
       // Extract items array using rows.selector if specified
       let items: unknown[];
-      if (searchPath.rows?.selector) {
-        const extracted = selectorEngine.extractJsonValue(json, searchPath.rows.selector);
+      if (rows?.selector) {
+        console.log(`[Cardigann Executor] JSON: Using rows.selector: ${rows.selector}`);
+        const extracted = selectorEngine.extractJsonValue(json, rows.selector);
+        console.log(`[Cardigann Executor] JSON: Extracted value type: ${Array.isArray(extracted) ? 'array' : typeof extracted}, length: ${Array.isArray(extracted) ? extracted.length : 'N/A'}`);
         items = Array.isArray(extracted) ? extracted : [extracted];
       } else {
+        console.log(`[Cardigann Executor] JSON: No rows.selector found, using fallback`);
         // Fallback: assume top-level array or single object
         items = Array.isArray(json) ? json : [json];
       }
@@ -210,7 +234,6 @@ export class CardigannExecutor {
       console.log(`[Cardigann Executor] JSON: Extracted ${items.length} items from response`);
 
       for (const item of items) {
-        const fields = searchPath.fields || {};
         const extractedFields: { [key: string]: string } = {};
 
         for (const [key, selector] of Object.entries(fields)) {
@@ -244,17 +267,23 @@ export class CardigannExecutor {
   private parseXmlResponse(
     xmlText: string,
     searchPath: CardigannSearchPath,
-    baseUrl: string
+    baseUrl: string,
+    defaultRows?: CardigannRowsSelector,
+    defaultFields?: { [key: string]: CardigannSelector }
   ): CardigannSearchResult[] {
     const results: CardigannSearchResult[] = [];
 
     try {
       const $ = cheerio.load(xmlText, { xmlMode: true });
-      const rows = searchPath.rows?.selector ? $(searchPath.rows.selector) : $("item");
+
+      // Use path-specific rows/fields or fall back to search-level defaults
+      const rowsConfig = searchPath.rows || defaultRows;
+      const fields = searchPath.fields || defaultFields || {};
+
+      const rows = rowsConfig?.selector ? $(rowsConfig.selector) : $("item");
 
       rows.each((_, element) => {
         const $row = $(element);
-        const fields = searchPath.fields || {};
         const extractedFields = selectorEngine.extractMultipleFields($row, fields, $);
 
         const result = this.buildSearchResult(extractedFields, baseUrl);
