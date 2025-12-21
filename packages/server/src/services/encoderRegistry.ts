@@ -73,7 +73,7 @@ export interface VideoEncoderInfo {
 export interface AudioEncoderInfo {
   name: string;
   description: string;
-  codec: "aac" | "opus" | "ac3" | "eac3" | "flac" | "copy";
+  codec: "aac" | "libopus" | "ac3" | "eac3" | "flac" | "copy";
   flags: Record<string, EncoderFlag>;
 }
 
@@ -1287,7 +1287,7 @@ export const audioEncoders: Record<string, AudioEncoderInfo> = {
     name: "Opus",
     description:
       "Modern audio codec with excellent quality at low bitrates. Great for voice and music.",
-    codec: "opus",
+    codec: "libopus",
     flags: {
       "b:a": {
         type: "number",

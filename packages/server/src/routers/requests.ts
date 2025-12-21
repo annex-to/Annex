@@ -218,11 +218,12 @@ export const requestsRouter = router({
         // Create basic MediaItem if it doesn't exist
         mediaItem = await prisma.mediaItem.create({
           data: {
+            id: `tmdb-tv-${input.tmdbId}`,
             tmdbId: input.tmdbId,
             type: MediaType.TV,
             title: input.title,
             year: input.year,
-            posterPath: input.posterPath,
+            posterPath: input.posterPath ?? undefined,
           },
         });
       }
@@ -333,7 +334,7 @@ export const requestsRouter = router({
                     episodesToCreate.push({
                       season: seasonNumber,
                       episode: ep.number,
-                      title: ep.title,
+                      title: ep.title ?? undefined,
                       airDate: ep.first_aired ? new Date(ep.first_aired) : undefined,
                     });
                   }
@@ -342,7 +343,7 @@ export const requestsRouter = router({
                   episodesToCreate.push({
                     season: seasonNumber,
                     episode: ep.number,
-                    title: ep.title,
+                    title: ep.title ?? undefined,
                     airDate: ep.first_aired ? new Date(ep.first_aired) : undefined,
                   });
                 }

@@ -2,7 +2,7 @@
  * Database Test Utilities - Helpers for managing test database state
  */
 
-import { type MediaType, type Prisma, RequestStatus } from "@prisma/client";
+import { type MediaType, type Prisma, RequestStatus, type Resolution } from "@prisma/client";
 import { prisma } from "../../../../db/client.js";
 
 /**
@@ -58,7 +58,7 @@ export async function createTestRequest(data: {
 export async function createTestServer(data?: {
   id?: string;
   name?: string;
-  maxResolution?: "SD" | "HD" | "FULL_HD" | "UHD_4K";
+  maxResolution?: Resolution;
 }) {
   return prisma.storageServer.create({
     data: {
@@ -68,10 +68,11 @@ export async function createTestServer(data?: {
       port: 22,
       protocol: "SFTP",
       username: "test",
-      password: "test",
-      moviePath: "/movies",
-      tvPath: "/tv",
-      maxResolution: data?.maxResolution || "UHD_4K",
+      encryptedPassword: "test",
+      pathMovies: "/movies",
+      pathTv: "/tv",
+      maxResolution: data?.maxResolution || "RES_4K",
+      preferredCodec: "AV1",
       enabled: true,
     },
   });

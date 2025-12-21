@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { MediaType, type Prisma, RequestStatus } from "@prisma/client";
+import { MediaType, Prisma, RequestStatus } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import type { PipelineContext } from "../PipelineContext.js";
 import { SearchStep } from "../steps/SearchStep.js";

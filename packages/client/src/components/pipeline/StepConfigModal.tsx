@@ -217,7 +217,7 @@ export default function StepConfigModal({ nodeData, onClose, onUpdate }: StepCon
               >
                 <option value="copy">Copy (passthrough)</option>
                 <option value="aac">AAC</option>
-                <option value="opus">Opus</option>
+                <option value="libopus">Opus</option>
                 <option value="ac3">AC3 (Dolby Digital)</option>
                 <option value="eac3">EAC3 (Dolby Digital Plus)</option>
               </Select>

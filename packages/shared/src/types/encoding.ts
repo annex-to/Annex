@@ -6,7 +6,7 @@ import type { Resolution } from "./server.js";
 
 export type HdrMode = "preserve" | "tonemap" | "strip";
 export type AudioMode = "passthrough" | "transcode";
-export type AudioCodec = "aac" | "opus" | "passthrough";
+export type AudioCodec = "aac" | "libopus" | "passthrough";
 export type AudioChannels = "stereo" | "5.1" | "7.1" | "original";
 export type SubtitleInclude = "all" | "english" | "none";
 export type Container = "mkv" | "mp4";
