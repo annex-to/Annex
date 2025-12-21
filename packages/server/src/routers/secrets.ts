@@ -23,7 +23,7 @@ import {
   validateSecret,
 } from "../config/secrets-schema.js";
 import { getSecretsService } from "../services/secrets.js";
-import { adminProcedure, publicProcedure, router } from "../trpc.js";
+import { adminProcedure, publicProcedure, router, setupProcedure } from "../trpc.js";
 
 export const secretsRouter = router({
   /**
@@ -229,22 +229,33 @@ export const secretsRouter = router({
 
   /**
    * Test a service connection using its secrets
-   * Admin only
+   * Accessible during setup or requires admin after setup
+   * During setup, accepts secret values directly; otherwise reads from secrets service
    */
-  testConnection: adminProcedure
+  testConnection: setupProcedure
     .input(
       z.object({
         service: z.enum(["qbittorrent", "mdblist", "trakt"]),
+        // Optional: provide secrets directly (used during setup before saving)
+        secrets: z.record(z.string()).optional(),
       })
     )
     .mutation(async ({ input }) => {
-      const secrets = getSecretsService();
+      const secretsService = getSecretsService();
+
+      // Helper to get secret value (from input or service)
+      const getSecretValue = async (key: string): Promise<string | null> => {
+        if (input.secrets?.[key]) {
+          return input.secrets[key];
+        }
+        return await secretsService.getSecret(key);
+      };
 
       switch (input.service) {
         case "qbittorrent": {
-          const url = await secrets.getSecret("qbittorrent.url");
-          const username = await secrets.getSecret("qbittorrent.username");
-          const password = await secrets.getSecret("qbittorrent.password");
+          const url = await getSecretValue("qbittorrent.url");
+          const username = await getSecretValue("qbittorrent.username");
+          const password = await getSecretValue("qbittorrent.password");
 
           if (!url) {
             return { success: false, error: "qBittorrent URL not configured" };
@@ -272,7 +283,7 @@ export const secretsRouter = router({
         }
 
         case "mdblist": {
-          const apiKey = await secrets.getSecret("mdblist.apiKey");
+          const apiKey = await getSecretValue("mdblist.apiKey");
           if (!apiKey) {
             return { success: false, error: "MDBList API key not configured" };
           }
@@ -291,7 +302,7 @@ export const secretsRouter = router({
         }
 
         case "trakt": {
-          const clientId = await secrets.getSecret("trakt.clientId");
+          const clientId = await getSecretValue("trakt.clientId");
           if (!clientId) {
             return { success: false, error: "Trakt Client ID not configured" };
           }
@@ -302,13 +313,29 @@ export const secretsRouter = router({
                 "Content-Type": "application/json",
                 "trakt-api-version": "2",
                 "trakt-api-key": clientId,
+                "User-Agent": "Annex/1.0",
               },
             });
 
             if (response.ok) {
               return { success: true, message: "Connected to Trakt!" };
+            } else if (response.status === 403) {
+              return {
+                success: false,
+                error: "Invalid Client ID. Create an application at trakt.tv/oauth/applications",
+              };
             } else {
-              return { success: false, error: `HTTP ${response.status}` };
+              // Get error details from response
+              let errorMsg = `HTTP ${response.status}`;
+              try {
+                const errorBody = await response.text();
+                if (errorBody) {
+                  errorMsg += `: ${errorBody}`;
+                }
+              } catch (_e) {
+                // Ignore errors reading response body
+              }
+              return { success: false, error: errorMsg };
             }
           } catch (error) {
             return { success: false, error: (error as Error).message };

@@ -20,8 +20,8 @@ export class CardigannParser {
   }
 
   parseDefinitionFromFile(filePath: string): ParsedIndexerDefinition {
-    const fs = require("node:fs");
-    const ymlContent = fs.readFileSync(filePath, "utf-8");
+    const { readFileSync } = require("node:fs");
+    const ymlContent = readFileSync(filePath, "utf-8");
     return this.parseDefinition(ymlContent);
   }
 
@@ -57,10 +57,16 @@ export class CardigannParser {
       return path;
     }
 
-    const base = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-    return `${base}${normalizedPath}`;
+    // Use URL API for proper relative URL resolution
+    // This correctly handles absolute paths (/) relative to the origin
+    try {
+      return new URL(path, baseUrl).href;
+    } catch {
+      // Fallback to simple concatenation if URL parsing fails
+      const base = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+      const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+      return `${base}${normalizedPath}`;
+    }
   }
 
   replaceVariables(
@@ -191,7 +197,6 @@ export class CardigannParser {
         return this.parseFuzzyTime(value);
 
       default:
-        console.warn(`Unknown filter: ${filterName}`);
         return value;
     }
   }
@@ -207,7 +212,7 @@ export class CardigannParser {
         return date.toISOString();
       }
     } catch (_e) {
-      console.error("Failed to parse date:", value);
+      // Silently fall through to return original value
     }
     return value;
   }

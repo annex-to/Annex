@@ -39,8 +39,8 @@ export class CardigannExecutor {
           allCookies
         );
         results.push(...pathResults);
-      } catch (error) {
-        console.error("Search path execution failed:", error);
+      } catch (_error) {
+        // Skip failed search paths and continue with others
       }
     }
 
@@ -169,8 +169,8 @@ export class CardigannExecutor {
         if (result.title && result.downloadUrl) {
           results.push(result);
         }
-      } catch (error) {
-        console.error("Failed to parse row:", error);
+      } catch (_error) {
+        // Skip failed rows and continue parsing
       }
     });
 
@@ -212,8 +212,8 @@ export class CardigannExecutor {
           results.push(result);
         }
       }
-    } catch (error) {
-      console.error("Failed to parse JSON response:", error);
+    } catch (_error) {
+      // Return empty results on JSON parse failure
     }
 
     return results;
@@ -240,8 +240,8 @@ export class CardigannExecutor {
           results.push(result);
         }
       });
-    } catch (error) {
-      console.error("Failed to parse XML response:", error);
+    } catch (_error) {
+      // Return empty results on XML parse failure
     }
 
     return results;

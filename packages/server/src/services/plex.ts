@@ -954,89 +954,53 @@ export async function fetchPlexWatchedItems(
 
 /**
  * Check if a Plex user has access to a server
- * Returns true if the user is the owner or has been granted access
+ * Uses the user's own token to check their server list
  */
 export async function checkPlexServerAccess(
   serverUrl: string,
   serverToken: string,
-  plexUserId: string
+  userToken: string
 ): Promise<boolean> {
   try {
-    // First, get the server's machine identifier and owner
+    // Get the server's machine identifier
     const identity = await plexFetch<{
       MediaContainer: {
         machineIdentifier: string;
-        myPlexUsername?: string;
-        ownerId?: string;
       };
     }>(serverUrl, serverToken, "/identity");
 
     const machineId = identity.MediaContainer.machineIdentifier;
+    console.log(`[Plex] Checking access to server: ${machineId}`);
 
-    // Get the owner's Plex account info to compare
-    const accountResponse = await fetch("https://plex.tv/users/account", {
+    // Get the user's list of accessible servers from plex.tv using their token
+    // Use the simpler /pms/resources XML endpoint instead of v2 API
+    const serversResponse = await fetch("https://plex.tv/pms/resources?includeHttps=1", {
       headers: {
-        "X-Plex-Token": serverToken,
-        Accept: "application/json",
+        "X-Plex-Token": userToken,
       },
     });
 
-    if (!accountResponse.ok) {
-      throw new Error(`Failed to get server owner info: ${accountResponse.status}`);
-    }
-
-    const responseText = await accountResponse.text();
-
-    // Plex returns XML even when we request JSON, so parse it
-    let ownerId: string;
-
-    if (responseText.startsWith("<?xml")) {
-      // Parse XML response
-      const idMatch = responseText.match(/id="(\d+)"/);
-
-      if (!idMatch) {
-        throw new Error(`Failed to parse Plex account response`);
-      }
-
-      ownerId = idMatch[1];
-    } else {
-      // Try JSON parsing
-      try {
-        const accountData = JSON.parse(responseText) as { user: { id: number; username: string } };
-        ownerId = accountData.user.id.toString();
-      } catch {
-        throw new Error(`Failed to parse Plex account response`);
-      }
-    }
-
-    // Check if the user is the server owner
-    if (plexUserId === ownerId) {
-      return true;
-    }
-
-    // Get shared users for this server from plex.tv
-    const sharedResponse = await fetch(`https://plex.tv/api/servers/${machineId}/shared_servers`, {
-      headers: {
-        "X-Plex-Token": serverToken,
-        Accept: "application/json",
-      },
-    });
-
-    if (!sharedResponse.ok) {
-      // If we can't get shared users, only allow owner
+    if (!serversResponse.ok) {
+      console.log(`[Plex] Failed to get user's servers: ${serversResponse.status}`);
       return false;
     }
 
-    const sharedData = (await sharedResponse.json()) as {
-      SharedServer?: Array<{ userID: number; username: string; accessToken: string }>;
-    };
+    const xmlText = await serversResponse.text();
+    console.log(`[Plex] Resources XML response (first 500 chars):`, xmlText.substring(0, 500));
 
-    // Check if the user is in the shared users list
-    if (sharedData.SharedServer) {
-      return sharedData.SharedServer.some((user) => user.userID.toString() === plexUserId);
-    }
+    // Parse XML to check if the server's machine ID is in the user's resources
+    // XML format: <Device ... clientIdentifier="..." provides="server" ...>
+    const searchString = `clientIdentifier="${machineId}"`;
+    const hasClientId = xmlText.includes(searchString);
+    const hasServerProvides = xmlText.includes('provides="server"');
 
-    return false;
+    console.log(`[Plex] Looking for: ${searchString}`);
+    console.log(`[Plex] Found client identifier: ${hasClientId}`);
+    console.log(`[Plex] Found server provider: ${hasServerProvides}`);
+
+    const hasAccess = hasClientId && hasServerProvides;
+    console.log(`[Plex] User has access to server ${machineId}: ${hasAccess}`);
+    return hasAccess;
   } catch (error) {
     console.error(`[Plex] Error checking server access:`, error);
     return false;

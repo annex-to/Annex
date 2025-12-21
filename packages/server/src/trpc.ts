@@ -81,3 +81,47 @@ export const protectedProcedure = t.procedure.use(isAuthenticated);
  * Admin procedure - requires authenticated admin user
  */
 export const adminProcedure = t.procedure.use(isAdmin);
+
+/**
+ * Middleware that allows access during setup or requires admin after setup
+ * Used for endpoints that need to work during initial configuration
+ */
+const isSetupOrAdmin = middleware(async ({ ctx, next }) => {
+  // Check if system is configured by checking for session secret
+  const { getSecretsService } = await import("./services/secrets.js");
+  const secrets = getSecretsService();
+  const isConfigured = await secrets.hasSecret("auth.sessionSecret");
+
+  // If not configured, allow access (setup mode)
+  if (!isConfigured) {
+    return next({ ctx });
+  }
+
+  // If configured, require admin access
+  if (!ctx.user) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to access this resource",
+    });
+  }
+
+  if (!ctx.user.isAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You must be an admin to access this resource",
+    });
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      user: ctx.user,
+    },
+  });
+});
+
+/**
+ * Setup procedure - accessible during setup or requires admin after setup
+ * Use for endpoints that need to work during initial configuration
+ */
+export const setupProcedure = t.procedure.use(isSetupOrAdmin);

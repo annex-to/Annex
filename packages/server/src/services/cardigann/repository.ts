@@ -32,9 +32,9 @@ export class CardigannRepository {
   constructor(storageDir: string = "./data/cardigann-definitions") {
     this.storageDir = storageDir;
     this.repositoryInfo = {
-      url: "https://api.github.com/repos/Prowlarr/Indexers/contents/definitions",
+      url: "https://api.github.com/repos/Prowlarr/Indexers/contents/definitions/v11",
       branch: "master",
-      definitionsPath: "definitions",
+      definitionsPath: "definitions/v11",
     };
   }
 
@@ -50,7 +50,9 @@ export class CardigannRepository {
     const stats = { added: 0, updated: 0, errors: [] as string[] };
 
     try {
+      console.log(`[Cardigann] Fetching definitions from ${this.repositoryInfo.url}`);
       const files = await this.fetchDefinitionsList();
+      console.log(`[Cardigann] Fetched ${files.length} files from GitHub`);
 
       for (const file of files) {
         if (file.name.endsWith(".yml")) {
@@ -68,17 +70,18 @@ export class CardigannRepository {
             }
           } catch (error) {
             const errorMsg = `Failed to sync ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`;
+            console.error(`[Cardigann] ${errorMsg}`);
             stats.errors.push(errorMsg);
-            console.error(errorMsg);
           }
         }
       }
 
+      console.log(`[Cardigann] Sync complete: ${stats.added} added, ${stats.updated} updated, ${stats.errors.length} errors`);
       await this.saveMetadata({ lastSync: new Date().toISOString(), stats });
     } catch (error) {
-      throw new Error(
-        `Failed to sync from GitHub: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
+      const errorMsg = `Failed to sync from GitHub: ${error instanceof Error ? error.message : "Unknown error"}`;
+      console.error(`[Cardigann] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     return stats;
@@ -93,17 +96,35 @@ export class CardigannRepository {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Cardigann] GitHub API error ${response.status}: ${errorText}`);
       throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log(`[Cardigann] GitHub API returned ${Array.isArray(data) ? data.length : 0} items`);
 
     if (!Array.isArray(data)) {
+      console.error(`[Cardigann] Invalid response from GitHub API:`, data);
       throw new Error("Invalid response from GitHub API");
     }
 
+    // Log sample items to debug
+    if (data.length > 0) {
+      console.log(`[Cardigann] Sample items:`, data.slice(0, 3).map((item: any) => ({
+        name: item.name,
+        type: item.type,
+        download_url: item.download_url
+      })));
+    }
+
     // biome-ignore lint/suspicious/noExplicitAny: GitHub API response type is not typed
-    return data.filter((item: any) => item.type === "file" && item.name.endsWith(".yml"));
+    const ymlFiles = data.filter((item: any) =>
+      item.type === "file" && (item.name.endsWith(".yml") || item.name.endsWith(".yaml"))
+    );
+    console.log(`[Cardigann] Found ${ymlFiles.length} .yml/.yaml definition files`);
+
+    return ymlFiles;
   }
 
   private async fetchFileContent(downloadUrl: string): Promise<string> {
@@ -129,7 +150,7 @@ export class CardigannRepository {
       const parsed = cardigannParser.parseDefinition(content);
       this.definitionsCache.set(id, parsed);
     } catch (_error) {
-      console.warn(`Failed to parse definition ${id}, but saved raw content`);
+      // Saved raw content, will try to parse on next load
     }
   }
 
@@ -151,7 +172,7 @@ export class CardigannRepository {
       this.definitionsCache.set(id, parsed);
       return parsed;
     } catch (error) {
-      console.error(`Failed to load definition ${id}:`, error);
+      console.error(`[Cardigann Repository] Failed to parse ${id}:`, error);
       return null;
     }
   }
@@ -176,8 +197,8 @@ export class CardigannRepository {
         if (parsed) {
           definitions.push(this.extractMetadata(id, parsed));
         }
-      } catch (error) {
-        console.warn(`Failed to load definition ${id}:`, error);
+      } catch (_error) {
+        // Skip failed definitions
       }
     }
 
@@ -189,8 +210,8 @@ export class CardigannRepository {
       return [];
     }
 
-    const fs = require("node:fs");
-    const files = fs.readdirSync(this.storageDir);
+    const { readdirSync } = require("node:fs");
+    const files = readdirSync(this.storageDir);
     return files.filter((f: string) => f.endsWith(".yml"));
   }
 

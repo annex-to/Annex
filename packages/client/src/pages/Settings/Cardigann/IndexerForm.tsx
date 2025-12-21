@@ -1,13 +1,21 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, Input, Label, Skeleton } from "../../../components/ui";
+import { Badge, Button, Card, Input, Label, Select, Skeleton } from "../../../components/ui";
 import { trpc } from "../../../trpc";
 
 export default function CardigannIndexerForm() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const definitionId = searchParams.get("definitionId") || "";
   const indexerId = searchParams.get("indexerId");
+
+  // First, load existing indexer if editing
+  const existingIndexer = trpc.cardigann.getIndexer.useQuery(
+    { id: indexerId || "" },
+    { enabled: !!indexerId }
+  );
+
+  // Get definitionId from URL (create mode) or from existing indexer (edit mode)
+  const definitionId = searchParams.get("definitionId") || existingIndexer.data?.definitionId || "";
 
   const [formData, setFormData] = useState({
     name: "",
@@ -21,14 +29,13 @@ export default function CardigannIndexerForm() {
     rateLimitWindowSecs: 60,
   });
 
+  // Separate state for category input strings to allow typing
+  const [movieCategoriesInput, setMovieCategoriesInput] = useState("");
+  const [tvCategoriesInput, setTvCategoriesInput] = useState("");
+
   const definition = trpc.cardigann.getDefinition.useQuery(
     { id: definitionId },
     { enabled: !!definitionId }
-  );
-
-  const existingIndexer = trpc.cardigann.getIndexer.useQuery(
-    { id: indexerId || "" },
-    { enabled: !!indexerId }
   );
 
   const createMutation = trpc.cardigann.createIndexer.useMutation({
@@ -70,6 +77,15 @@ export default function CardigannIndexerForm() {
     }
   }, [definition.data, indexerId]);
 
+  // Sync category inputs when formData changes (from badge clicks)
+  useEffect(() => {
+    setMovieCategoriesInput(formData.categoriesMovies.join(", "));
+  }, [formData.categoriesMovies]);
+
+  useEffect(() => {
+    setTvCategoriesInput(formData.categoriesTv.join(", "));
+  }, [formData.categoriesTv]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -96,11 +112,64 @@ export default function CardigannIndexerForm() {
     }));
   };
 
-  if (definition.isLoading || existingIndexer.isLoading) {
+  const toggleMovieCategory = (categoryId: number) => {
+    setFormData((prev) => {
+      const categories = prev.categoriesMovies.includes(categoryId)
+        ? prev.categoriesMovies.filter((id) => id !== categoryId)
+        : [...prev.categoriesMovies, categoryId].sort((a, b) => a - b);
+      return { ...prev, categoriesMovies: categories };
+    });
+  };
+
+  const toggleTvCategory = (categoryId: number) => {
+    setFormData((prev) => {
+      const categories = prev.categoriesTv.includes(categoryId)
+        ? prev.categoriesTv.filter((id) => id !== categoryId)
+        : [...prev.categoriesTv, categoryId].sort((a, b) => a - b);
+      return { ...prev, categoriesTv: categories };
+    });
+  };
+
+  const handleMovieCategoriesBlur = () => {
+    const categories = movieCategoriesInput
+      .split(",")
+      .map((c) => parseInt(c.trim(), 10))
+      .filter((c) => !Number.isNaN(c))
+      .sort((a, b) => a - b);
+    setFormData((prev) => ({ ...prev, categoriesMovies: categories }));
+  };
+
+  const handleTvCategoriesBlur = () => {
+    const categories = tvCategoriesInput
+      .split(",")
+      .map((c) => parseInt(c.trim(), 10))
+      .filter((c) => !Number.isNaN(c))
+      .sort((a, b) => a - b);
+    setFormData((prev) => ({ ...prev, categoriesTv: categories }));
+  };
+
+  // Only check loading state for enabled queries
+  const isLoading = (definition.isLoading && !!definitionId) || (existingIndexer.isLoading && !!indexerId);
+
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <Skeleton count={1} className="h-8 w-64" />
         <Skeleton count={5} className="h-32" />
+      </div>
+    );
+  }
+
+  if (definition.isError) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-semibold text-red-400">Error Loading Definition</h2>
+        <Card className="p-4 bg-red-500/10 border-red-500/30">
+          <p className="text-sm text-red-400">{definition.error?.message || 'Unknown error'}</p>
+        </Card>
+        <Button onClick={() => navigate("/settings/indexers/cardigann")}>
+          Back to Definitions
+        </Button>
       </div>
     );
   }
@@ -191,18 +260,72 @@ export default function CardigannIndexerForm() {
             Configure credentials and settings for this indexer
           </p>
 
-          {definition.data.definition.settings.map((setting) => (
-            <div key={setting.name}>
-              <Label htmlFor={setting.name}>{setting.label}</Label>
-              <Input
-                id={setting.name}
-                type={setting.type === "password" ? "password" : "text"}
-                value={formData.settings[setting.name] || ""}
-                onChange={(e) => handleSettingChange(setting.name, e.target.value)}
-                placeholder={setting.default?.toString()}
-              />
-            </div>
-          ))}
+          {definition.data.definition.settings.map((setting) => {
+            // Info type - just display text
+            if (setting.type === "info") {
+              return (
+                <div key={setting.name} className="p-3 bg-white/5 rounded border border-white/10">
+                  <p className="text-sm font-medium text-white/90 mb-1">{setting.label}</p>
+                  {setting.default && (
+                    <p
+                      className="text-sm text-white/60"
+                      dangerouslySetInnerHTML={{ __html: setting.default.toString() }}
+                    />
+                  )}
+                </div>
+              );
+            }
+
+            // Checkbox type
+            if (setting.type === "checkbox") {
+              return (
+                <div key={setting.name} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={setting.name}
+                    checked={formData.settings[setting.name] === "true"}
+                    onChange={(e) => handleSettingChange(setting.name, e.target.checked.toString())}
+                  />
+                  <Label htmlFor={setting.name}>{setting.label}</Label>
+                </div>
+              );
+            }
+
+            // Select type
+            if (setting.type === "select" && setting.options) {
+              return (
+                <div key={setting.name}>
+                  <Label htmlFor={setting.name}>{setting.label}</Label>
+                  <Select
+                    id={setting.name}
+                    value={formData.settings[setting.name] || ""}
+                    onChange={(e) => handleSettingChange(setting.name, e.target.value)}
+                  >
+                    <option value="">Select...</option>
+                    {Object.entries(setting.options).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            }
+
+            // Text and password types
+            return (
+              <div key={setting.name}>
+                <Label htmlFor={setting.name}>{setting.label}</Label>
+                <Input
+                  id={setting.name}
+                  type={setting.type === "password" ? "password" : "text"}
+                  value={formData.settings[setting.name] || ""}
+                  onChange={(e) => handleSettingChange(setting.name, e.target.value)}
+                  placeholder={setting.default?.toString()}
+                />
+              </div>
+            );
+          })}
         </Card>
       )}
 
@@ -215,21 +338,41 @@ export default function CardigannIndexerForm() {
             <Label htmlFor="categoriesMovies">Movie Categories</Label>
             <Input
               id="categoriesMovies"
-              value={formData.categoriesMovies.join(", ")}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  categoriesMovies: e.target.value
-                    .split(",")
-                    .map((c) => parseInt(c.trim(), 10))
-                    .filter((c) => !Number.isNaN(c)),
-                })
-              }
-              placeholder="2000, 2010, 2020"
+              value={movieCategoriesInput}
+              onChange={(e) => setMovieCategoriesInput(e.target.value)}
+              onBlur={handleMovieCategoriesBlur}
+              placeholder="8, 9, 11"
             />
             <p className="text-xs text-white/40 mt-1">
-              Common: 2000 (Movies), 2010 (Movies/Foreign), 2020 (Movies/Other)
+              Click categories below to add/remove, or enter IDs manually above
             </p>
+            {definition.data.definition.caps?.categorymappings && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {definition.data.definition.caps.categorymappings
+                  .filter((cat) => cat.cat.startsWith("Movies"))
+                  .map((cat) => {
+                    const categoryId = parseInt(cat.id, 10);
+                    const isSelected = formData.categoriesMovies.includes(categoryId);
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => toggleMovieCategory(categoryId)}
+                        className={`
+                          px-2 py-1 text-xs rounded border transition-all
+                          ${
+                            isSelected
+                              ? "bg-annex-500/20 border-annex-500/50 text-annex-400"
+                              : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                          }
+                        `}
+                      >
+                        {cat.desc}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
@@ -238,36 +381,44 @@ export default function CardigannIndexerForm() {
             <Label htmlFor="categoriesTv">TV Categories</Label>
             <Input
               id="categoriesTv"
-              value={formData.categoriesTv.join(", ")}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  categoriesTv: e.target.value
-                    .split(",")
-                    .map((c) => parseInt(c.trim(), 10))
-                    .filter((c) => !Number.isNaN(c)),
-                })
-              }
-              placeholder="5000, 5030, 5040"
+              value={tvCategoriesInput}
+              onChange={(e) => setTvCategoriesInput(e.target.value)}
+              onBlur={handleTvCategoriesBlur}
+              placeholder="26, 32, 27"
             />
             <p className="text-xs text-white/40 mt-1">
-              Common: 5000 (TV), 5030 (TV/SD), 5040 (TV/HD)
+              Click categories below to add/remove, or enter IDs manually above
             </p>
+            {definition.data.definition.caps?.categorymappings && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {definition.data.definition.caps.categorymappings
+                  .filter((cat) => cat.cat.startsWith("TV"))
+                  .map((cat) => {
+                    const categoryId = parseInt(cat.id, 10);
+                    const isSelected = formData.categoriesTv.includes(categoryId);
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => toggleTvCategory(categoryId)}
+                        className={`
+                          px-2 py-1 text-xs rounded border transition-all
+                          ${
+                            isSelected
+                              ? "bg-annex-500/20 border-annex-500/50 text-annex-400"
+                              : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                          }
+                        `}
+                      >
+                        {cat.desc}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
-        {definition.data.definition.caps?.categorymappings && (
-          <div className="mt-3">
-            <p className="text-xs text-white/50 mb-2">Available categories:</p>
-            <div className="flex flex-wrap gap-2">
-              {definition.data.definition.caps.categorymappings.map((cat) => (
-                <Badge key={cat.id} variant="default" className="text-xs">
-                  {cat.id}: {cat.desc} ({cat.cat})
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
       </Card>
 
       <Card className="p-5 space-y-4">

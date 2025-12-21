@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
 import {
   Badge,
@@ -229,20 +229,24 @@ function GeneralSettings() {
   const [configSaved, setConfigSaved] = useState<Record<string, boolean>>({});
 
   // Set initial value when query loads
-  const currentInterval = retryIntervalQuery.data?.value as number | undefined;
-  if (currentInterval !== undefined && retryInterval === "6" && !retryIntervalSaved) {
-    setRetryInterval(String(currentInterval));
-  }
+  useEffect(() => {
+    const currentInterval = retryIntervalQuery.data?.value as number | undefined;
+    if (currentInterval !== undefined && retryInterval === "6" && !retryIntervalSaved) {
+      setRetryInterval(String(currentInterval));
+    }
+  }, [retryIntervalQuery.data, retryInterval, retryIntervalSaved]);
 
   // Load config values when query returns
-  if (configQuery.data && !configValues.downloads.directory) {
-    setConfigValues({
-      ...configQuery.data,
-      qbittorrent: {
-        baseDir: configQuery.data.qbittorrent.baseDir || "",
-      },
-    });
-  }
+  useEffect(() => {
+    if (configQuery.data && !configValues.downloads.directory) {
+      setConfigValues({
+        ...configQuery.data,
+        qbittorrent: {
+          baseDir: configQuery.data.qbittorrent.baseDir || "",
+        },
+      });
+    }
+  }, [configQuery.data, configValues.downloads.directory]);
 
   const setSettingMutation = trpc.system.settings.set.useMutation({
     onSuccess: () => {
@@ -1957,7 +1961,7 @@ function IndexersSettings() {
 
   const handleDelete = (id: string, name: string, type: string, apiKey: string) => {
     if (confirm(`Are you sure you want to delete "${name}"?`)) {
-      if (type === "CARDIGANN") {
+      if (type.toUpperCase() === "CARDIGANN") {
         deleteCardigannIndexer.mutate({ id: apiKey });
       } else {
         deleteIndexer.mutate({ id });
@@ -2068,7 +2072,7 @@ function IndexersSettings() {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      if (indexer.type === "CARDIGANN") {
+                      if (indexer.type.toUpperCase() === "CARDIGANN") {
                         navigate(`/settings/indexers/cardigann/edit?indexerId=${indexer.apiKey}`);
                       } else {
                         setEditingIndexer(indexer.id);

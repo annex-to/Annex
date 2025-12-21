@@ -55,7 +55,7 @@ export class CardigannSelectorEngine {
       selector.selector === "text()" ? element : element.find(selector.selector).first();
 
     if (target.length === 0) {
-      return selector.optional ? "" : "";
+      return "";
     }
 
     let value: string;
@@ -171,7 +171,7 @@ export class CardigannSelectorEngine {
         return date;
       }
     } catch (_e) {
-      console.error("Failed to parse date:", dateStr);
+      // Silently fall through to return null
     }
     return null;
   }

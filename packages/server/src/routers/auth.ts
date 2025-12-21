@@ -119,7 +119,7 @@ export const authRouter = router({
         const access = await checkPlexServerAccess(
           server.mediaServerUrl,
           server.mediaServerApiKey,
-          plexUser.id.toString()
+          authToken
         );
 
         if (access) {
@@ -373,7 +373,7 @@ export const authRouter = router({
         const access = await checkPlexServerAccess(
           server.mediaServerUrl,
           server.mediaServerApiKey,
-          plexUser.id.toString()
+          authToken
         );
 
         if (access) {

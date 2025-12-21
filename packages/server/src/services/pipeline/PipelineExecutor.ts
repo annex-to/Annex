@@ -59,6 +59,11 @@ export class PipelineExecutor {
         targets: request.targets as Array<{ serverId: string; encodingProfileId?: string }>,
       };
 
+      // Delete any existing execution for this request (in case of retry)
+      await prisma.pipelineExecution.deleteMany({
+        where: { requestId },
+      });
+
       // Create pipeline execution
       const execution = await prisma.pipelineExecution.create({
         data: {
@@ -151,6 +156,15 @@ export class PipelineExecutor {
 
           if (result.shouldSkip) {
             logger.info(`Step ${stepDef.name} chose to skip`);
+            return currentContext;
+          }
+
+          if (result.shouldRetry) {
+            // Step needs retry (e.g., no releases found yet)
+            // Complete execution gracefully - request is in AWAITING/QUALITY_UNAVAILABLE status
+            // Background job will retry later
+            logger.info(`Step ${stepDef.name} will retry later: ${result.error}`);
+            await this.completeExecution(executionId);
             return currentContext;
           }
 

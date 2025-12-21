@@ -53,6 +53,25 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+// Admin route wrapper
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuthStore();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-annex-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 // User menu component with dropdown
 function UserMenu() {
   const { user, logout } = useAuthStore();
@@ -142,6 +161,7 @@ function UserMenu() {
 
 function AppLayout() {
   const location = useLocation();
+  const { user } = useAuthStore();
   const isMediaDetailPage =
     location.pathname.startsWith("/movie/") || location.pathname.startsWith("/tv/");
 
@@ -163,8 +183,12 @@ function AppLayout() {
               </NavButton>
               <NavButton to="/requests">Requests</NavButton>
               <NavButton to="/library">Library</NavButton>
-              <NavButton to="/approvals">Approvals</NavButton>
-              <NavButton to="/settings">Settings</NavButton>
+              {user?.isAdmin && (
+                <>
+                  <NavButton to="/approvals">Approvals</NavButton>
+                  <NavButton to="/settings">Settings</NavButton>
+                </>
+              )}
             </nav>
           </div>
           <UserMenu />
@@ -180,8 +204,22 @@ function AppLayout() {
             <Route path="/tv/:id" element={<MediaDetailPage />} />
             <Route path="/requests" element={<RequestsPage />} />
             <Route path="/library" element={<LibraryPage />} />
-            <Route path="/approvals" element={<ApprovalsPage />} />
-            <Route path="/settings/*" element={<SettingsPage />} />
+            <Route
+              path="/approvals"
+              element={
+                <AdminRoute>
+                  <ApprovalsPage />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/settings/*"
+              element={
+                <AdminRoute>
+                  <SettingsPage />
+                </AdminRoute>
+              }
+            />
             <Route path="/preferences" element={<PreferencesPage />} />
           </Routes>
         </div>

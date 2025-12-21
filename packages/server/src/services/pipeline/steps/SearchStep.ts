@@ -176,6 +176,19 @@ export class SearchStep extends BaseStep {
       }
     );
 
+    // Log all releases found for debugging
+    if (searchResult.releases.length > 0) {
+      console.log(`[Search] Found ${searchResult.releases.length} total releases:`);
+      searchResult.releases.slice(0, 10).forEach((release, idx) => {
+        console.log(
+          `[Search]   ${idx + 1}. ${release.title} | ${release.resolution || "Unknown"} | ${release.size || "Unknown"} | ${release.seeders || 0} seeders | ${release.indexer}`
+        );
+      });
+      if (searchResult.releases.length > 10) {
+        console.log(`[Search]   ... and ${searchResult.releases.length - 10} more`);
+      }
+    }
+
     // Filter and rank releases by quality
     if (searchResult.releases.length === 0) {
       await prisma.mediaRequest.update({
@@ -211,6 +224,27 @@ export class SearchStep extends BaseStep {
       ActivityType.INFO,
       `Quality filter: ${matching.length} releases meet ${resolutionLabel} requirement, ${belowQuality.length} below threshold`
     );
+
+    // Log filtering results
+    console.log(
+      `[Search] Quality filter results: ${matching.length} matching ${resolutionLabel}, ${belowQuality.length} below quality`
+    );
+    if (matching.length > 0) {
+      console.log(`[Search] Releases meeting quality (${resolutionLabel}):`);
+      matching.slice(0, 5).forEach((release, idx) => {
+        console.log(
+          `[Search]   ✓ ${idx + 1}. ${release.title} | ${release.resolution} | ${release.seeders} seeders`
+        );
+      });
+    }
+    if (belowQuality.length > 0) {
+      console.log(`[Search] Releases below quality threshold:`);
+      belowQuality.slice(0, 5).forEach((release, idx) => {
+        console.log(
+          `[Search]   ✗ ${idx + 1}. ${release.title} | ${release.resolution || "Unknown"} (need ${resolutionLabel})`
+        );
+      });
+    }
 
     // No releases meet quality
     if (matching.length === 0) {

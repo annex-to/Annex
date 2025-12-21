@@ -179,10 +179,12 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white tracking-tight">
-            <span className="text-annex-400">A</span>NNEX
+          <h1 className="text-4xl font-bold flex items-center justify-center gap-3">
+            <span>🍿</span>
+            <span className="bg-gradient-to-r from-annex-500 to-gold-500 bg-clip-text text-transparent">
+              Annex
+            </span>
           </h1>
-          <p className="text-white/50 mt-2">Media Acquisition Platform</p>
         </div>
 
         <Card className="p-8">
@@ -324,10 +326,6 @@ export default function LoginPage() {
             )}
           </div>
         </Card>
-
-        <p className="text-center text-white/30 text-xs mt-6">
-          First user to sign in will become the administrator
-        </p>
       </div>
     </div>
   );

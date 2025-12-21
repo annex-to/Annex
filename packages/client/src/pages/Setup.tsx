@@ -42,7 +42,7 @@ export default function SetupPage() {
 
   const testConnection = async (service: "qbittorrent" | "mdblist" | "trakt") => {
     try {
-      const result = await testConnectionMutation.mutateAsync({ service });
+      const result = await testConnectionMutation.mutateAsync({ service, secrets });
       setTestResults((prev) => ({
         ...prev,
         [service]: { success: result.success, message: result.message || result.error },

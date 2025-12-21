@@ -76,13 +76,67 @@ export class CardigannLoginHandler {
     const path = loginConfig.path || "/login";
     const url = cardigannParser.normalizeUrl(baseUrl, path);
 
+    console.log('[Cardigann Login] Base URL:', baseUrl);
+    console.log('[Cardigann Login] Login URL:', url);
+    console.log('[Cardigann Login] Settings:', Object.keys(settings).reduce((acc, key) => {
+      acc[key] = typeof settings[key] === 'string' ? `${settings[key].substring(0, 3)}***` : settings[key];
+      return acc;
+    }, {} as Record<string, any>));
+
     const formData: { [key: string]: string } = {};
+
+    // If method is 'form', scrape the form first to get hidden fields and action URL
+    let formAction: string | undefined;
+    if (loginConfig.method === 'form' && loginConfig.form) {
+      console.log('[Cardigann Login] Scraping form:', loginConfig.form);
+      // Use a separate cookie jar for form scraping to avoid cookie conflicts
+      const scrapeCookieJar = new CookieJar();
+      const formHtml = await this.fetchPage(url, scrapeCookieJar);
+      const $ = cheerio.load(formHtml);
+      const form = $(loginConfig.form);
+
+      if (form.length === 0) {
+        console.log('[Cardigann Login] WARNING: Form not found with selector:', loginConfig.form);
+      } else {
+        // Get form action if present
+        const action = form.attr('action');
+        if (action) {
+          formAction = action;
+          console.log('[Cardigann Login] Form action:', action);
+        }
+
+        // Dump the form HTML for debugging
+        const formOuterHtml = $.html(form);
+        console.log('[Cardigann Login] Form HTML:', formOuterHtml.substring(0, 1000));
+
+        // Extract all input fields from the form
+        form.find('input').each((_, input) => {
+          const $input = $(input);
+          const name = $input.attr('name');
+          const value = $input.attr('value') || '';
+          const type = $input.attr('type') || 'text';
+
+          if (name && type !== 'submit' && type !== 'button') {
+            formData[name] = value;
+            console.log(`[Cardigann Login] Found form field: ${name} (${type}) = ${value ? value.substring(0, 10) + '***' : '(empty)'}`);
+          }
+        });
+      }
+      // Don't copy cookies from scraping - we only needed the form structure
+    }
 
     if (loginConfig.inputs) {
       for (const [key, value] of Object.entries(loginConfig.inputs)) {
-        formData[key] = cardigannParser.replaceVariables(value, settings);
+        const replacedValue = cardigannParser.replaceVariables(value, settings);
+        formData[key] = replacedValue;
+        console.log(`[Cardigann Login] Setting input ${key} = ${replacedValue ? replacedValue.substring(0, 10) + '***' : '(empty)'}`);
       }
     }
+
+    console.log('[Cardigann Login] Final form data:', Object.keys(formData).reduce((acc, key) => {
+      acc[key] = formData[key] ? `${formData[key].substring(0, 3)}***` : '(empty)';
+      return acc;
+    }, {} as Record<string, any>));
 
     if (loginConfig.selectorinputs) {
       const formHtml = await this.fetchPage(url, cookieJar);
@@ -94,24 +148,39 @@ export class CardigannLoginHandler {
       }
     }
 
-    const submitPath = loginConfig.submitpath || path;
+    const submitPath = loginConfig.submitpath || formAction || path;
     const submitUrl = cardigannParser.normalizeUrl(baseUrl, submitPath);
+    console.log('[Cardigann Login] Submit URL:', submitUrl);
 
     const headers: { [key: string]: string } = {
       "Content-Type": "application/x-www-form-urlencoded",
       ...(loginConfig.headers || {}),
     };
 
-    await this.postForm(submitUrl, formData, headers, cookieJar);
+    const responseHtml = await this.postForm(submitUrl, formData, headers, cookieJar);
 
     const cookies = await this.extractCookies(cookieJar, baseUrl);
 
     if (loginConfig.error) {
-      const errorHtml = await this.fetchPage(submitUrl, cookieJar);
-      const hasError = this.checkForError(errorHtml, loginConfig.error);
-      if (hasError) {
-        throw new Error("Login failed: error selector matched");
+      console.log('[Cardigann Login] Checking POST response for errors');
+      const errorInfo = this.checkForErrorWithDetails(responseHtml, loginConfig.error);
+      if (errorInfo.hasError) {
+        console.log('[Cardigann Login] Error detected in POST response!');
+        console.log('[Cardigann Login] Matched selector:', errorInfo.matchedSelector);
+        console.log('[Cardigann Login] Page title:', responseHtml.match(/<title>(.*?)<\/title>/)?.[1] || 'Unknown');
+        console.log('[Cardigann Login] Page length:', responseHtml.length);
+
+        // Dump a snippet of the response to see what's there
+        const $ = cheerio.load(responseHtml);
+        const h2Text = $('.login-container h2').text();
+        const errorText = $('p.text-danger').text();
+        console.log('[Cardigann Login] H2 text:', h2Text);
+        console.log('[Cardigann Login] Error text:', errorText);
+        console.log('[Cardigann Login] Response snippet:', responseHtml.substring(0, 500));
+
+        throw new Error(`Login failed: error selector matched (${errorInfo.matchedSelector})`);
       }
+      console.log('[Cardigann Login] No errors detected, login successful');
     }
 
     return cookies;
@@ -210,12 +279,29 @@ export class CardigannLoginHandler {
     return false;
   }
 
+  private checkForErrorWithDetails(html: string, errorSelectors: CardigannSelector[]): { hasError: boolean; matchedSelector?: string } {
+    const $ = cheerio.load(html);
+
+    for (const errorSelector of errorSelectors) {
+      if (errorSelector.selector) {
+        const elements = $(errorSelector.selector);
+        if (elements.length > 0) {
+          return { hasError: true, matchedSelector: errorSelector.selector };
+        }
+      }
+    }
+
+    return { hasError: false };
+  }
+
   private async fetchPage(
     url: string,
     cookieJar: CookieJar,
     headers: { [key: string]: string } = {}
   ): Promise<string> {
     const cookieString = await cookieJar.getCookieString(url);
+    console.log('[Cardigann Login] fetchPage URL:', url);
+    console.log('[Cardigann Login] fetchPage Cookie header:', cookieString || '(none)');
 
     const response = await fetch(url, {
       method: "GET",
@@ -226,9 +312,13 @@ export class CardigannLoginHandler {
       },
     });
 
-    const setCookieHeader = response.headers.get("set-cookie");
-    if (setCookieHeader) {
-      await cookieJar.setCookie(setCookieHeader, url);
+    console.log('[Cardigann Login] fetchPage response status:', response.status);
+
+    // Extract ALL Set-Cookie headers
+    const setCookieHeaders = response.headers.getSetCookie?.() || [];
+    for (const cookie of setCookieHeaders) {
+      await cookieJar.setCookie(cookie, url);
+      console.log('[Cardigann Login] fetchPage Set-Cookie:', cookie.substring(0, 50) + '...');
     }
 
     return response.text();
@@ -243,7 +333,12 @@ export class CardigannLoginHandler {
     const cookieString = await cookieJar.getCookieString(url);
 
     const body = new URLSearchParams(formData).toString();
+    console.log('[Cardigann Login] POST body (URL-encoded):', body.split('&').map(pair => {
+      const [key, val] = pair.split('=');
+      return `${key}=${val ? val.substring(0, 3) + '***' : '(empty)'}`;
+    }).join('&'));
 
+    // Disable automatic redirects so we can handle cookies properly
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -252,13 +347,38 @@ export class CardigannLoginHandler {
         ...headers,
       },
       body,
+      redirect: "manual",
     });
 
-    const setCookieHeader = response.headers.get("set-cookie");
-    if (setCookieHeader) {
-      await cookieJar.setCookie(setCookieHeader, url);
+    console.log('[Cardigann Login] POST response status:', response.status, response.statusText);
+
+    // Extract ALL Set-Cookie headers from response
+    // Note: response.headers.get("set-cookie") only returns the first one
+    // We need to use getSetCookie() to get all of them
+    const setCookieHeaders = response.headers.getSetCookie?.() || [];
+    console.log('[Cardigann Login] Set-Cookie count:', setCookieHeaders.length);
+    for (const cookie of setCookieHeaders) {
+      console.log('[Cardigann Login] Setting cookie:', cookie.substring(0, 80) + '...');
+      await cookieJar.setCookie(cookie, url);
     }
 
+    // Handle redirects manually
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      console.log('[Cardigann Login] Redirect location header:', location);
+      if (location) {
+        const redirectUrl = cardigannParser.normalizeUrl(url, location);
+        console.log('[Cardigann Login] Following redirect to:', redirectUrl);
+
+        // Dump all cookies in jar for debugging
+        const allCookies = await this.extractCookies(cookieJar, url);
+        console.log('[Cardigann Login] Cookies before redirect:', Object.keys(allCookies).map(k => `${k}=${allCookies[k].substring(0, 10)}***`).join(', '));
+
+        return this.fetchPage(redirectUrl, cookieJar);
+      }
+    }
+
+    console.log('[Cardigann Login] POST response URL:', response.url);
     return response.text();
   }
 
