@@ -129,6 +129,12 @@ export class CardigannParser {
       result = result.replace(regex, String(value));
     }
 
+    // Replace .Result.xxx references (used for inter-field references in Cardigann)
+    for (const [key, value] of Object.entries(variables)) {
+      const regex = new RegExp(`\\{\\{\\s*\\.Result\\.${key}\\s*\\}\\}`, "g");
+      result = result.replace(regex, String(value));
+    }
+
     return result;
   }
 
