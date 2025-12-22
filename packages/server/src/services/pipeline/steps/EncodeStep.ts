@@ -246,8 +246,7 @@ export class EncodeStep extends BaseStep {
 
         // Determine codec from encoder
         const codec =
-          encodingConfig.videoEncoder.includes("av1") ||
-          encodingConfig.videoEncoder.includes("AV1")
+          encodingConfig.videoEncoder.includes("av1") || encodingConfig.videoEncoder.includes("AV1")
             ? "AV1"
             : encodingConfig.videoEncoder.includes("hevc") ||
                 encodingConfig.videoEncoder.includes("265")
@@ -264,9 +263,7 @@ export class EncodeStep extends BaseStep {
                 targetServerIds,
                 resolution: encodingConfig.maxResolution,
                 codec,
-                size: assignmentStatus.outputSize
-                  ? Number(assignmentStatus.outputSize)
-                  : undefined,
+                size: assignmentStatus.outputSize ? Number(assignmentStatus.outputSize) : undefined,
                 compressionRatio: assignmentStatus.compressionRatio || undefined,
               },
             ],

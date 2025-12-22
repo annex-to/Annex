@@ -17,6 +17,21 @@ interface ServerSelection {
   serverId: string;
 }
 
+interface Server {
+  id: string;
+  name: string;
+  maxResolution: string;
+  encodingProfileId?: string;
+}
+
+interface Pipeline {
+  id: string;
+  name: string;
+  description?: string;
+  stepCount: number;
+  isDefault: boolean;
+}
+
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
 function RequestDialog({
@@ -75,7 +90,7 @@ function RequestDialog({
   // Auto-select default pipeline when pipelines load
   useEffect(() => {
     if (pipelines && !selectedPipelineId) {
-      const defaultPipeline = pipelines.find((p: any) => p.isDefault);
+      const defaultPipeline = pipelines.find((p: Pipeline) => p.isDefault);
       if (defaultPipeline) {
         setSelectedPipelineId(defaultPipeline.id);
       }
@@ -140,10 +155,10 @@ function RequestDialog({
     RES_480P: "480p",
   };
   const requiredResolution = targets?.servers
-    .filter((s: any) => serverSelections.has(s.id))
-    .map((s: any) => s.maxResolution)
+    .filter((s: Server) => serverSelections.has(s.id))
+    .map((s: Server) => s.maxResolution)
     .reduce(
-      (highest: any, res: any) => {
+      (highest: string | null, res: string) => {
         if (!res) return highest;
         const currentRank = highest ? (resolutionRank[highest] ?? 0) : 0;
         const newRank = resolutionRank[res] ?? 0;
@@ -204,7 +219,7 @@ function RequestDialog({
                       onChange={(e) => setSelectedPipelineId(e.target.value || null)}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded text-sm text-white focus:outline-none focus:border-annex-500/50 transition-colors"
                     >
-                      {pipelines.map((pipeline: any) => (
+                      {pipelines.map((pipeline: Pipeline) => (
                         <option key={pipeline.id} value={pipeline.id} className="bg-zinc-900">
                           {pipeline.name}
                           {pipeline.isDefault ? " (Default)" : ""}
@@ -215,7 +230,9 @@ function RequestDialog({
                     {/* Pipeline Preview */}
                     {selectedPipelineId &&
                       (() => {
-                        const selected = pipelines.find((p: any) => p.id === selectedPipelineId);
+                        const selected = pipelines.find(
+                          (p: Pipeline) => p.id === selectedPipelineId
+                        );
                         return selected ? (
                           <div className="p-3 bg-white/5 border border-white/10 rounded">
                             <div className="text-xs text-white/70">{selected.description}</div>
@@ -235,7 +252,7 @@ function RequestDialog({
                   Select Destination Servers
                 </h3>
                 <div className="space-y-2">
-                  {targets.servers.map((server: any) => {
+                  {targets.servers.map((server: Server) => {
                     const isSelected = serverSelections.has(server.id);
 
                     return (

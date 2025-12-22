@@ -216,11 +216,13 @@ export class DeliverStep extends BaseStep {
       for (const encodedFile of encodedFiles) {
         const encodedPath = (encodedFile as { path: string }).path;
         try {
-          await Bun.file(encodedPath).exists().then((exists) => {
-            if (exists) {
-              return Bun.file(encodedPath).delete();
-            }
-          });
+          await Bun.file(encodedPath)
+            .exists()
+            .then((exists) => {
+              if (exists) {
+                return Bun.file(encodedPath).delete();
+              }
+            });
           await this.logActivity(
             requestId,
             ActivityType.INFO,

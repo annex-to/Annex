@@ -158,7 +158,18 @@ function PipelineEditorInner() {
         setIsSaving(false);
       }
     }, 1000);
-  }, [isEditing, id, nodes, edges, viewport, name, description, isDefault, isPublic, autoSaveMutation]);
+  }, [
+    isEditing,
+    id,
+    nodes,
+    edges,
+    viewport,
+    name,
+    description,
+    isDefault,
+    isPublic,
+    autoSaveMutation,
+  ]);
 
   // Wrapped handlers that trigger auto-save
   const onNodesChange = useCallback(
@@ -663,7 +674,11 @@ function PipelineEditorInner() {
             <Button type="submit" disabled={createMutation.isPending}>
               Create Template
             </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate("/settings/pipelines")}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => navigate("/settings/pipelines")}
+            >
               Cancel
             </Button>
           </div>

@@ -1,0 +1,87 @@
+$ bun run --filter @annex/server build && bun run --filter '*' build
+@annex/server build: Environment variables loaded from .env
+@annex/server build: Prisma schema loaded from prisma/schema.prisma
+@annex/server build: 
+@annex/server build: ✔ Generated Prisma Client (v6.19.1) to ./../../node_modules/.bun/@prisma+client@6.19.1+138821cb8a93b06f/node_modules/@prisma/client in 103ms
+@annex/server build: 
+@annex/server build: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+@annex/server build: 
+@annex/server build: Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+@annex/server build: 
+@annex/server build: Exited with code 0
+@annex/encoder build: ╔═══════════════════════════════════════════════════════════════╗
+@annex/encoder build: ║    Annex Encoder - Cross-Platform Build                      ║
+@annex/encoder build: ╚═══════════════════════════════════════════════════════════════╝
+@annex/encoder build: 
+@annex/encoder build: Version: 0.1.10
+@annex/encoder build: Platforms: 5
+@annex/encoder build: [Build] Generated version.ts: 0.1.10
+@annex/encoder build: 
+@annex/encoder build: [Build] Building for bun-linux-x64...
+@annex/shared build: Exited with code 0
+@annex/encoder build: [Build] ✓ annex-encoder-linux-x64
+@annex/encoder build:        Size: 99.66 MB
+@annex/encoder build:        SHA256: aaa199618cd3e360...
+@annex/encoder build: 
+@annex/encoder build: [Build] Building for bun-linux-arm64...
+@annex/encoder build: [Build] ✓ annex-encoder-linux-arm64
+@annex/encoder build:        Size: 92.50 MB
+@annex/encoder build:        SHA256: 5771a608cc726d83...
+@annex/encoder build: 
+@annex/encoder build: [Build] Building for bun-windows-x64...
+@annex/server build: Environment variables loaded from .env
+@annex/server build: Prisma schema loaded from prisma/schema.prisma
+@annex/encoder build: [Build] ✓ annex-encoder-windows-x64.exe
+@annex/encoder build:        Size: 110.52 MB
+@annex/encoder build:        SHA256: 7dc1903d2486b781...
+@annex/encoder build: 
+@annex/encoder build: [Build] Building for bun-darwin-x64...
+@annex/server build: 
+@annex/server build: ✔ Generated Prisma Client (v6.19.1) to ./../../node_modules/.bun/@prisma+client@6.19.1+138821cb8a93b06f/node_modules/@prisma/client in 127ms
+@annex/server build: 
+@annex/server build: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+@annex/server build: 
+@annex/server build: Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+@annex/server build: 
+@annex/server build: Exited with code 0
+@annex/encoder build: [Build] ✓ annex-encoder-darwin-x64
+@annex/encoder build:        Size: 63.13 MB
+@annex/encoder build:        SHA256: 5cc1cf307ce7570e...
+@annex/encoder build: 
+@annex/encoder build: [Build] Building for bun-darwin-arm64...
+@annex/encoder build: [Build] ✓ annex-encoder-darwin-arm64
+@annex/encoder build:        Size: 57.28 MB
+@annex/encoder build:        SHA256: 9d42e9da69241c30...
+@annex/encoder build: 
+@annex/encoder build: [Build] Generated manifest.json
+@annex/encoder build: 
+@annex/encoder build: ╔═══════════════════════════════════════════════════════════════╗
+@annex/encoder build: ║    Build Complete                                             ║
+@annex/encoder build: ╚═══════════════════════════════════════════════════════════════╝
+@annex/encoder build: 
+@annex/encoder build: Total size: 423.10 MB
+@annex/encoder build: Output: /home/annex/annex/packages/encoder/dist-binaries
+@annex/encoder build: 
+@annex/encoder build: Binaries:
+@annex/encoder build:   - annex-encoder-linux-x64
+@annex/encoder build:   - annex-encoder-linux-arm64
+@annex/encoder build:   - annex-encoder-windows-x64.exe
+@annex/encoder build:   - annex-encoder-darwin-x64
+@annex/encoder build:   - annex-encoder-darwin-arm64
+@annex/encoder build:   - manifest.json
+@annex/encoder build: Exited with code 0
+@annex/client build: vite v6.4.1 building for production...
+@annex/client build: transforming...
+@annex/client build: ✓ 366 modules transformed.
+@annex/client build: rendering chunks...
+@annex/client build: computing gzip size...
+@annex/client build: dist/index.html                   0.57 kB │ gzip:   0.37 kB
+@annex/client build: dist/assets/index-CHYQGZmH.css   59.94 kB │ gzip:  10.45 kB
+@annex/client build: dist/assets/index-D4M4cs3p.js   687.72 kB │ gzip: 199.47 kB │ map: 2,669.27 kB
+@annex/client build: 
+@annex/client build: (!) Some chunks are larger than 500 kB after minification. Consider:
+@annex/client build: - Using dynamic import() to code-split the application
+@annex/client build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+@annex/client build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+@annex/client build: ✓ built in 1.40s
+@annex/client build: Exited with code 0

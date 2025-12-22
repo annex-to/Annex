@@ -400,12 +400,12 @@ function getTargetResolution(
 
   const maxRes = resolutionMap[maxResolution];
   if (!maxRes) {
-    console.log(
-      `[Encoder] WARNING: Unknown maxResolution "${maxResolution}", defaulting to 1080p`
-    );
+    console.log(`[Encoder] WARNING: Unknown maxResolution "${maxResolution}", defaulting to 1080p`);
     return resolutionMap["1080p"];
   }
-  console.log(`[Encoder] Target max resolution: ${maxResolution} (${maxRes.width}x${maxRes.height})`);
+  console.log(
+    `[Encoder] Target max resolution: ${maxResolution} (${maxRes.width}x${maxRes.height})`
+  );
 
   // Don't upscale
   if (mediaInfo.width <= maxRes.width && mediaInfo.height <= maxRes.height) {
