@@ -211,7 +211,9 @@ describe("ApprovalService - Integration Tests", () => {
       });
 
       expect(activities.length).toBeGreaterThanOrEqual(1);
-      expect(activities.some((a) => a.message.includes("Approval"))).toBe(true);
+      expect(activities.some((a: { message: string }) => a.message.includes("Approval"))).toBe(
+        true
+      );
     });
 
     it("throws error when approval not found", async () => {
@@ -400,7 +402,7 @@ describe("ApprovalService - Integration Tests", () => {
       });
 
       expect(activities.length).toBeGreaterThan(0);
-      expect(activities.some((a) => a.message.includes("timeout"))).toBe(true);
+      expect(activities.some((a: { message: string }) => a.message.includes("timeout"))).toBe(true);
     });
   });
 

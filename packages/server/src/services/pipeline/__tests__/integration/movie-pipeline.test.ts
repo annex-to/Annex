@@ -344,10 +344,10 @@ describe("Movie Pipeline Integration", () => {
       expect(logs.length).toBeGreaterThan(0);
 
       // Should have logs for: starting search, quality requirement, releases found, selected release
-      const logMessages = logs.map((l) => l.message);
-      expect(logMessages.some((m) => m.includes("Starting search"))).toBe(true);
-      expect(logMessages.some((m) => m.includes("Quality requirement"))).toBe(true);
-      expect(logMessages.some((m) => m.includes("Selected release"))).toBe(true);
+      const logMessages = logs.map((l: { message: string }) => l.message);
+      expect(logMessages.some((m: string) => m.includes("Starting search"))).toBe(true);
+      expect(logMessages.some((m: string) => m.includes("Quality requirement"))).toBe(true);
+      expect(logMessages.some((m: string) => m.includes("Selected release"))).toBe(true);
     });
   });
 });

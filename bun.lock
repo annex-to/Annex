@@ -45,7 +45,7 @@
     },
     "packages/encoder": {
       "name": "@annex/encoder",
-      "version": "0.1.1",
+      "version": "0.1.10",
       "dependencies": {
         "@annex/shared": "workspace:*",
         "zod": "^3.23.8",
@@ -73,6 +73,7 @@
       "devDependencies": {
         "@types/ssh2-sftp-client": "^9.0.6",
         "@types/uuid": "^11.0.0",
+        "domhandler": "^5.0.3",
         "prisma": "^6.1.0",
         "typescript": "^5.7.2",
       },

@@ -1,9 +1,10 @@
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 import { cardigannParser } from "./parser";
 import type { CardigannRowsSelector, CardigannSelector } from "./types";
 
 export class CardigannSelectorEngine {
-  extractRows(html: string, rowsSelector: CardigannRowsSelector): cheerio.Cheerio<any> {
+  extractRows(html: string, rowsSelector: CardigannRowsSelector): cheerio.Cheerio<AnyNode> {
     const $ = cheerio.load(html);
 
     if (!rowsSelector.selector) {
@@ -26,7 +27,7 @@ export class CardigannSelectorEngine {
   }
 
   extractField(
-    element: cheerio.Cheerio<any>,
+    element: cheerio.Cheerio<AnyNode>,
     selector: CardigannSelector,
     $?: cheerio.CheerioAPI
   ): string {
@@ -86,7 +87,7 @@ export class CardigannSelectorEngine {
   }
 
   extractMultipleFields(
-    element: cheerio.Cheerio<any>,
+    element: cheerio.Cheerio<AnyNode>,
     fieldSelectors: { [key: string]: CardigannSelector },
     $?: cheerio.CheerioAPI
   ): { [key: string]: string } {
@@ -100,7 +101,7 @@ export class CardigannSelectorEngine {
   }
 
   private evaluateCondition(
-    element: cheerio.Cheerio<any>,
+    element: cheerio.Cheerio<AnyNode>,
     condition: string,
     $: cheerio.CheerioAPI
   ): boolean {
