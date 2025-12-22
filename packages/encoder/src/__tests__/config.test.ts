@@ -473,8 +473,8 @@ describe("config module behavior", () => {
   });
 
   test("getConfig returns a config object", async () => {
-    const { getConfig } = await import("../config.js");
-    const config = getConfig();
+    const { initConfig } = await import("../config.js");
+    const config = initConfig(); // Use initConfig to ensure fresh config
     expect(config).toBeDefined();
     expect(typeof config.encoderId).toBe("string");
   });
