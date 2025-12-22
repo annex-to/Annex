@@ -176,6 +176,10 @@ jobs:
             echo "export const BUILD_DATE = \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\";"
             echo "export const BUILD_TIMESTAMP = $(date +%s)000;"
           } > src/version.ts
+          echo "Generated version.ts:"
+          cat src/version.ts
+          echo "Checking TypeScript syntax:"
+          bun --print "import('./src/version.ts').then(m => console.log('Valid:', m.VERSION))"
         working-directory: packages/encoder
 
       - name: Run encoder tests
