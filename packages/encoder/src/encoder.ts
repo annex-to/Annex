@@ -387,6 +387,9 @@ function getTargetResolution(
     "1080p": { width: 1920, height: 1080 },
     "720p": { width: 1280, height: 720 },
     "480p": { width: 854, height: 480 },
+    // Alternative p-suffix format
+    "2160p": { width: 3840, height: 2160 },
+    "1440p": { width: 2560, height: 1440 },
     // Prisma enum format (RES_*)
     RES_4K: { width: 3840, height: 2160 },
     RES_2K: { width: 2560, height: 1440 },
@@ -395,7 +398,14 @@ function getTargetResolution(
     RES_480P: { width: 854, height: 480 },
   };
 
-  const maxRes = resolutionMap[maxResolution] || resolutionMap["1080p"];
+  const maxRes = resolutionMap[maxResolution];
+  if (!maxRes) {
+    console.log(
+      `[Encoder] WARNING: Unknown maxResolution "${maxResolution}", defaulting to 1080p`
+    );
+    return resolutionMap["1080p"];
+  }
+  console.log(`[Encoder] Target max resolution: ${maxResolution} (${maxRes.width}x${maxRes.height})`);
 
   // Don't upscale
   if (mediaInfo.width <= maxRes.width && mediaInfo.height <= maxRes.height) {
