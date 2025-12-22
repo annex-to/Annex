@@ -212,6 +212,30 @@ export class DeliverStep extends BaseStep {
 
       await this.logActivity(requestId, ActivityType.SUCCESS, "Request completed successfully");
 
+      // Clean up encoded files (keep source files for seeding)
+      for (const encodedFile of encodedFiles) {
+        const encodedPath = (encodedFile as { path: string }).path;
+        try {
+          await Bun.file(encodedPath).exists().then((exists) => {
+            if (exists) {
+              return Bun.file(encodedPath).delete();
+            }
+          });
+          await this.logActivity(
+            requestId,
+            ActivityType.INFO,
+            `Cleaned up encoded file: ${encodedPath}`
+          );
+        } catch (err) {
+          // Log but don't fail delivery on cleanup errors
+          await this.logActivity(
+            requestId,
+            ActivityType.WARNING,
+            `Failed to clean up encoded file: ${err instanceof Error ? err.message : "Unknown error"}`
+          );
+        }
+      }
+
       return {
         success: true,
         nextStep: null,
