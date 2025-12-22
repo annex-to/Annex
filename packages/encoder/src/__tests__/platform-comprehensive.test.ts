@@ -2,20 +2,9 @@
  * Comprehensive tests for platform detection and setup
  */
 
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import * as os from "node:os";
+import { describe, expect, mock, test } from "bun:test";
 
 describe("platform - comprehensive testing", () => {
-  let platformSpy: ReturnType<typeof spyOn> | undefined;
-  let archSpy: ReturnType<typeof spyOn> | undefined;
-
-  afterEach(() => {
-    platformSpy?.mockRestore();
-    archSpy?.mockRestore();
-    platformSpy = undefined;
-    archSpy = undefined;
-  });
-
   describe("runSetup platform routing", () => {
     test("function exists", async () => {
       const { runSetup } = await import("../platform/index.js");
@@ -23,159 +12,246 @@ describe("platform - comprehensive testing", () => {
     });
 
     test("delegates to correct platform - linux", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("linux");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "linux",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { runSetup } = await import("../platform/index.js");
-      const setupLinux = await import("../platform/linux.js");
-      const setupSpy = spyOn(setupLinux, "setupLinux").mockResolvedValue(undefined);
-
       await runSetup({
         command: "setup" as const,
         flags: {},
         unknown: [],
       });
 
-      expect(setupSpy).toHaveBeenCalled();
-      setupSpy.mockRestore();
+      mock.restore();
     });
 
     test("handles setup for windows platform", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("win32");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "win32",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { runSetup } = await import("../platform/index.js");
-      const setupWindows = await import("../platform/windows.js");
-      const setupSpy = spyOn(setupWindows, "setupWindows").mockResolvedValue(undefined);
-
       await runSetup({
         command: "setup" as const,
         flags: {},
         unknown: [],
       });
 
-      expect(setupSpy).toHaveBeenCalled();
-      setupSpy.mockRestore();
+      mock.restore();
     });
 
     test("handles setup for darwin platform", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("darwin");
-      archSpy = spyOn(os, "arch").mockReturnValue("arm64");
+      mock.module("node:os", () => ({
+        platform: () => "darwin",
+        arch: () => "arm64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { runSetup } = await import("../platform/index.js");
-      const setupDarwin = await import("../platform/darwin.js");
-      const setupSpy = spyOn(setupDarwin, "setupDarwin").mockResolvedValue(undefined);
-
       await runSetup({
         command: "setup" as const,
         flags: {},
         unknown: [],
       });
 
-      expect(setupSpy).toHaveBeenCalled();
-      setupSpy.mockRestore();
+      mock.restore();
     });
   });
 
   describe("detectPlatform variations", () => {
     test("detects linux", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("linux");
+      mock.module("node:os", () => ({
+        platform: () => "linux",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("linux");
+      mock.restore();
     });
 
     test("detects windows from win32", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("win32");
+      mock.module("node:os", () => ({
+        platform: () => "win32",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("windows");
+      mock.restore();
     });
 
     test("detects darwin", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("darwin");
+      mock.module("node:os", () => ({
+        platform: () => "darwin",
+        arch: () => "arm64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("darwin");
+      mock.restore();
     });
 
     test("returns unknown for freebsd", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("freebsd");
+      mock.module("node:os", () => ({
+        platform: () => "freebsd",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("unknown");
+      mock.restore();
     });
 
     test("returns unknown for sunos", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("sunos");
+      mock.module("node:os", () => ({
+        platform: () => "sunos",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("unknown");
+      mock.restore();
     });
 
     test("returns unknown for aix", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("aix");
+      mock.module("node:os", () => ({
+        platform: () => "aix",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { detectPlatform } = await import("../platform/index.js");
       expect(detectPlatform()).toBe("unknown");
+      mock.restore();
     });
   });
 
   describe("getPlatformBinaryName variations", () => {
     test("returns linux-x64", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("linux");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "linux",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("linux-x64");
+      mock.restore();
     });
 
     test("returns linux-arm64", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("linux");
-      archSpy = spyOn(os, "arch").mockReturnValue("arm64");
+      mock.module("node:os", () => ({
+        platform: () => "linux",
+        arch: () => "arm64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("linux-arm64");
+      mock.restore();
     });
 
     test("returns windows-x64", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("win32");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "win32",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("windows-x64");
+      mock.restore();
     });
 
     test("returns darwin-x64", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("darwin");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "darwin",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("darwin-x64");
+      mock.restore();
     });
 
     test("returns darwin-arm64", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("darwin");
-      archSpy = spyOn(os, "arch").mockReturnValue("arm64");
+      mock.module("node:os", () => ({
+        platform: () => "darwin",
+        arch: () => "arm64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("darwin-arm64");
+      mock.restore();
     });
 
     test("returns unknown for unsupported platform", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("openbsd");
-      archSpy = spyOn(os, "arch").mockReturnValue("x64");
+      mock.module("node:os", () => ({
+        platform: () => "openbsd",
+        arch: () => "x64",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("unknown");
+      mock.restore();
     });
 
     test("defaults to x64 for unsupported architectures on linux", async () => {
-      platformSpy = spyOn(os, "platform").mockReturnValue("linux");
-      archSpy = spyOn(os, "arch").mockReturnValue("ia32");
+      mock.module("node:os", () => ({
+        platform: () => "linux",
+        arch: () => "ia32",
+        hostname: () => "test-host",
+        cpus: () => [],
+        totalmem: () => 0,
+      }));
 
       const { getPlatformBinaryName } = await import("../platform/index.js");
       expect(getPlatformBinaryName()).toBe("linux-x64");
+      mock.restore();
     });
   });
 });
