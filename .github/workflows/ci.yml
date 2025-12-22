@@ -183,7 +183,14 @@ jobs:
         working-directory: packages/encoder
 
       - name: Run encoder tests
-        run: bun test
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory structure:"
+          ls -la src/
+          echo "Test files:"
+          ls -la src/__tests__/ | head -20
+          echo "Running tests..."
+          bun test
         working-directory: packages/encoder
 
   build:
