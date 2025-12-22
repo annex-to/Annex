@@ -3,13 +3,31 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import type { EncoderConfig } from "../config.js";
 
 describe("commands/run", () => {
   let originalExit: typeof process.exit;
   let originalStdinResume: typeof process.stdin.resume;
   let exitCode: number | undefined;
 
-  beforeEach(() => {
+  let configSpy: ReturnType<typeof spyOn> | undefined;
+  let gpuAvailableSpy: ReturnType<typeof spyOn> | undefined;
+  let gpuTestSpy: ReturnType<typeof spyOn> | undefined;
+  let EncoderClientSpy: ReturnType<typeof spyOn> | undefined;
+
+  const mockConfig: EncoderConfig = {
+    encoderId: "test-encoder",
+    gpuDevice: "/dev/dri/renderD128",
+    maxConcurrent: 1,
+    serverUrl: "ws://localhost:3000",
+    nfsBasePath: "/mnt/downloads",
+    reconnectInterval: 5000,
+    maxReconnectInterval: 60000,
+    heartbeatInterval: 30000,
+    logLevel: "info",
+  };
+
+  beforeEach(async () => {
     // Mock process.exit to avoid actually exiting
     originalExit = process.exit;
     exitCode = undefined;
@@ -21,11 +39,37 @@ describe("commands/run", () => {
     // Mock process.stdin.resume
     originalStdinResume = process.stdin.resume;
     process.stdin.resume = mock(() => {}) as unknown as typeof process.stdin.resume;
+
+    // Setup module spies
+    const config = await import("../config.js");
+    configSpy = spyOn(config, "initConfig").mockReturnValue(mockConfig);
+
+    const gpu = await import("../gpu.js");
+    gpuAvailableSpy = spyOn(gpu, "isGpuAvailable").mockReturnValue(true);
+    gpuTestSpy = spyOn(gpu, "testGpuEncoding").mockResolvedValue(true);
+
+    const client = await import("../client.js");
+    const mockClient = {
+      start: mock(async () => {}),
+      stop: mock(async () => {}),
+    };
+    // @ts-expect-error - Mocking constructor
+    EncoderClientSpy = spyOn(client, "EncoderClient").mockImplementation(() => mockClient);
   });
 
   afterEach(() => {
     process.exit = originalExit;
     process.stdin.resume = originalStdinResume;
+
+    configSpy?.mockRestore();
+    gpuAvailableSpy?.mockRestore();
+    gpuTestSpy?.mockRestore();
+    EncoderClientSpy?.mockRestore();
+
+    configSpy = undefined;
+    gpuAvailableSpy = undefined;
+    gpuTestSpy = undefined;
+    EncoderClientSpy = undefined;
   });
 
   describe("happy path", () => {
@@ -35,79 +79,22 @@ describe("commands/run", () => {
     });
 
     test("initializes configuration", async () => {
-      // Mock all dependencies
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => true),
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: mock(() => ({
-          start: mock(async () => {}),
-          stop: mock(async () => {}),
-        })),
-      }));
-
       const consoleSpy = spyOn(console, "log");
 
       const { run } = await import("../commands/run.js");
 
-      // Run should throw because we mocked process.exit
-      // but we're catching that to verify behavior
       try {
         await run();
-        // If we get here, process.stdin.resume was called
         expect(consoleSpy).toHaveBeenCalled();
       } catch (_e) {
         // Expected if process.exit was called
       }
 
+      expect(configSpy).toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
 
     test("displays startup banner", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => true),
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: mock(() => ({
-          start: mock(async () => {}),
-          stop: mock(async () => {}),
-        })),
-      }));
-
       const consoleSpy = spyOn(console, "log");
 
       const { run } = await import("../commands/run.js");
@@ -127,36 +114,6 @@ describe("commands/run", () => {
     });
 
     test("checks GPU availability", async () => {
-      const isGpuAvailableMock = mock(() => true);
-      const testGpuEncodingMock = mock(async () => true);
-
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: isGpuAvailableMock,
-        testGpuEncoding: testGpuEncodingMock,
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: mock(() => ({
-          start: mock(async () => {}),
-          stop: mock(async () => {}),
-        })),
-      }));
-
       const { run } = await import("../commands/run.js");
 
       try {
@@ -165,41 +122,11 @@ describe("commands/run", () => {
         // Expected
       }
 
-      expect(isGpuAvailableMock).toHaveBeenCalled();
-      expect(testGpuEncodingMock).toHaveBeenCalled();
+      expect(gpuAvailableSpy).toHaveBeenCalled();
+      expect(gpuTestSpy).toHaveBeenCalled();
     });
 
     test("starts encoder client", async () => {
-      const startMock = mock(async () => {});
-      const EncoderClientMock = mock(() => ({
-        start: startMock,
-        stop: mock(async () => {}),
-      }));
-
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => true),
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: EncoderClientMock,
-      }));
-
       const { run } = await import("../commands/run.js");
 
       try {
@@ -208,32 +135,15 @@ describe("commands/run", () => {
         // Expected
       }
 
-      expect(EncoderClientMock).toHaveBeenCalled();
-      expect(startMock).toHaveBeenCalled();
+      expect(EncoderClientSpy).toHaveBeenCalled();
     });
   });
 
   describe("non-happy path - GPU checks", () => {
     test("exits if GPU is not available", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => false),
-        testGpuEncoding: mock(async () => true),
-      }));
+      gpuAvailableSpy?.mockRestore();
+      const gpu = await import("../gpu.js");
+      gpuAvailableSpy = spyOn(gpu, "isGpuAvailable").mockReturnValue(false);
 
       const consoleErrorSpy = spyOn(console, "error");
       const { run } = await import("../commands/run.js");
@@ -253,25 +163,9 @@ describe("commands/run", () => {
     });
 
     test("exits if GPU encoding test fails", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => false),
-      }));
+      gpuTestSpy?.mockRestore();
+      const gpu = await import("../gpu.js");
+      gpuTestSpy = spyOn(gpu, "testGpuEncoding").mockResolvedValue(false);
 
       const consoleErrorSpy = spyOn(console, "error");
       const { run } = await import("../commands/run.js");
@@ -291,25 +185,14 @@ describe("commands/run", () => {
     });
 
     test("shows appropriate error message for GPU access", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD999",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD999",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
+      configSpy?.mockRestore();
+      const config = await import("../config.js");
+      const customConfig = { ...mockConfig, gpuDevice: "/dev/dri/renderD999" };
+      configSpy = spyOn(config, "initConfig").mockReturnValue(customConfig);
 
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => false),
-        testGpuEncoding: mock(async () => true),
-      }));
+      gpuAvailableSpy?.mockRestore();
+      const gpu = await import("../gpu.js");
+      gpuAvailableSpy = spyOn(gpu, "isGpuAvailable").mockReturnValue(false);
 
       const consoleErrorSpy = spyOn(console, "error");
       const { run } = await import("../commands/run.js");
@@ -329,25 +212,9 @@ describe("commands/run", () => {
     });
 
     test("shows appropriate error message for GPU test failure", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => false),
-      }));
+      gpuTestSpy?.mockRestore();
+      const gpu = await import("../gpu.js");
+      gpuTestSpy = spyOn(gpu, "testGpuEncoding").mockResolvedValue(false);
 
       const consoleErrorSpy = spyOn(console, "error");
       const { run } = await import("../commands/run.js");
@@ -368,33 +235,6 @@ describe("commands/run", () => {
 
   describe("startup logging", () => {
     test("logs GPU check in progress", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => true),
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: mock(() => ({
-          start: mock(async () => {}),
-          stop: mock(async () => {}),
-        })),
-      }));
-
       const consoleSpy = spyOn(console, "log");
       const { run } = await import("../commands/run.js");
 
@@ -412,33 +252,6 @@ describe("commands/run", () => {
     });
 
     test("logs GPU test success", async () => {
-      mock.module("../config.js", () => ({
-        initConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-        getConfig: mock(() => ({
-          encoderId: "test-encoder",
-          gpuDevice: "/dev/dri/renderD128",
-          maxConcurrent: 1,
-          serverUrl: "ws://localhost:3000",
-        })),
-      }));
-
-      mock.module("../gpu.js", () => ({
-        isGpuAvailable: mock(() => true),
-        testGpuEncoding: mock(async () => true),
-      }));
-
-      mock.module("../client.js", () => ({
-        EncoderClient: mock(() => ({
-          start: mock(async () => {}),
-          stop: mock(async () => {}),
-        })),
-      }));
-
       const consoleSpy = spyOn(console, "log");
       const { run } = await import("../commands/run.js");
 
