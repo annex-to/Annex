@@ -157,8 +157,15 @@ function buildFfmpegArgs(
     args.push("-hwaccel_output_format", "vaapi");
     // Limit hardware frame pool to prevent VRAM exhaustion on long encodes
     args.push("-extra_hw_frames", "8");
+  } else if (hwAccel === "QSV") {
+    console.log(`[Encoder] Using QSV (Quick Sync Video) hardware decode + encode`);
+    // QSV hardware decode
+    args.push("-hwaccel", "qsv");
+    args.push("-hwaccel_output_format", "qsv");
+    // Limit hardware frame pool
+    args.push("-extra_hw_frames", "8");
   } else {
-    console.log(`[Encoder] Using SOFTWARE encoding (hwAccel="${hwAccel}" is not VAAPI)`);
+    console.log(`[Encoder] Using SOFTWARE encoding (hwAccel="${hwAccel}")`);
   }
 
   // Input
@@ -267,6 +274,11 @@ function buildVideoArgs(
     if (targetRes.width !== mediaInfo.width || targetRes.height !== mediaInfo.height) {
       filters.push(`scale_vaapi=w=${targetRes.width}:h=${targetRes.height}`);
     }
+  } else if (hwAccel === "QSV") {
+    // QSV hardware scaling
+    if (targetRes.width !== mediaInfo.width || targetRes.height !== mediaInfo.height) {
+      filters.push(`scale_qsv=w=${targetRes.width}:h=${targetRes.height}`);
+    }
   } else {
     // Software path
     if (targetRes.width !== mediaInfo.width || targetRes.height !== mediaInfo.height) {
@@ -283,6 +295,9 @@ function buildVideoArgs(
     args.push("-c:v", "av1_vaapi");
     args.push("-rc_mode", "CQP");
     args.push("-qp", String(encodingConfig.crf));
+  } else if (hwAccel === "QSV") {
+    args.push("-c:v", "av1_qsv");
+    args.push("-global_quality", String(encodingConfig.crf));
   } else {
     // Software encoding fallback
     args.push("-c:v", "libsvtav1");
