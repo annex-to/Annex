@@ -15,7 +15,7 @@ import {
   useReactFlow,
   type Viewport,
 } from "@xyflow/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, Card, Input, Label, Select } from "../../components/ui";
 import { trpc } from "../../trpc";
@@ -60,8 +60,8 @@ function PipelineEditorInner() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 0.5 });
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<StepData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodes, setNodes, _onNodesChange] = useNodesState<Node<StepData>>([]);
+  const [edges, setEdges, _onEdgesChange] = useEdgesState<Edge>([]);
 
   const { data: pipeline } = trpc.pipelines.get.useQuery({ id: id || "" }, { enabled: isEditing });
   const utils = trpc.useUtils();
@@ -76,9 +76,115 @@ function PipelineEditorInner() {
   const updateMutation = trpc.pipelines.update.useMutation({
     onSuccess: () => {
       utils.pipelines.list.invalidate();
-      navigate("/settings/pipelines");
     },
   });
+
+  const autoSaveMutation = trpc.pipelines.update.useMutation({
+    onSuccess: () => {
+      utils.pipelines.list.invalidate();
+    },
+  });
+
+  // Debounced auto-save
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const autoSave = useCallback(() => {
+    if (!isEditing || !id) return;
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Debounce for 1 second
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        setIsSaving(true);
+
+        // Build tree structure from flow graph
+        const buildStepTree = (): StepTreeNode[] => {
+          const visited = new Set<string>();
+
+          const buildNode = (nodeId: string): StepTreeNode | null => {
+            const node = nodes.find((n) => n.id === nodeId);
+            if (!node || node.id === "start" || visited.has(nodeId)) return null;
+
+            visited.add(nodeId);
+
+            const outgoingEdges = edges.filter((e) => e.source === nodeId);
+            const children = outgoingEdges
+              .map((edge) => buildNode(edge.target))
+              .filter((child): child is StepTreeNode => child !== null);
+
+            return {
+              type: node.data.type as ApiStepType,
+              name: node.data.label,
+              config: node.data.config,
+              required: node.data.required,
+              retryable: node.data.retryable,
+              continueOnError: node.data.continueOnError,
+              ...(children.length > 0 && { children }),
+            };
+          };
+
+          const startEdges = edges.filter((e) => e.source === "start");
+          const rootSteps = startEdges
+            .map((edge) => buildNode(edge.target))
+            .filter((step): step is StepTreeNode => step !== null);
+
+          return rootSteps;
+        };
+
+        const steps = buildStepTree();
+
+        await autoSaveMutation.mutateAsync({
+          id,
+          data: {
+            name,
+            description,
+            isDefault,
+            isPublic,
+            steps,
+            layout: { nodes, edges, viewport },
+          },
+        });
+
+        setLastSaved(new Date());
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+      } finally {
+        setIsSaving(false);
+      }
+    }, 1000);
+  }, [isEditing, id, nodes, edges, viewport, name, description, isDefault, isPublic, autoSaveMutation]);
+
+  // Wrapped handlers that trigger auto-save
+  const onNodesChange = useCallback(
+    (changes: unknown) => {
+      _onNodesChange(changes as Parameters<typeof _onNodesChange>[0]);
+      autoSave();
+    },
+    [_onNodesChange, autoSave]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: unknown) => {
+      _onEdgesChange(changes as Parameters<typeof _onEdgesChange>[0]);
+      autoSave();
+    },
+    [_onEdgesChange, autoSave]
+  );
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Initialize with start node
   useEffect(() => {
@@ -257,6 +363,7 @@ function PipelineEditorInner() {
         return node;
       })
     );
+    autoSave();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -400,6 +507,15 @@ function PipelineEditorInner() {
         <h1 className="text-2xl font-bold text-white">
           {isEditing ? "Edit Pipeline" : "Create Pipeline"}
         </h1>
+        {isEditing && (
+          <div className="ml-auto text-sm text-white/50">
+            {isSaving ? (
+              <span className="text-gold-500">Saving...</span>
+            ) : lastSaved ? (
+              <span>Saved {lastSaved.toLocaleTimeString()}</span>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -542,14 +658,16 @@ function PipelineEditorInner() {
           </div>
         </Card>
 
-        <div className="flex gap-2">
-          <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-            {isEditing ? "Update Template" : "Create Template"}
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => navigate("/settings/pipelines")}>
-            Cancel
-          </Button>
-        </div>
+        {!isEditing && (
+          <div className="flex gap-2">
+            <Button type="submit" disabled={createMutation.isPending}>
+              Create Template
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate("/settings/pipelines")}>
+              Cancel
+            </Button>
+          </div>
+        )}
       </form>
 
       {(() => {
