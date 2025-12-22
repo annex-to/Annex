@@ -533,7 +533,9 @@ export function createMockPrisma() {
       findFirst: mock(async ({ where }: { where?: any } = {}) => {
         const results = Array.from(indexerStore.values());
         if (where?.type && where?.apiKey) {
-          return results.find((r: any) => r.type === where.type && r.apiKey === where.apiKey) || null;
+          return (
+            results.find((r: any) => r.type === where.type && r.apiKey === where.apiKey) || null
+          );
         }
         if (where?.type) {
           return results.find((r: any) => r.type === where.type) || null;
@@ -586,8 +588,8 @@ export function createMockPrisma() {
       findUnique: mock(async ({ where }: { where: { id: string } }) => {
         return cardigannIndexerStore.get(where.id) || null;
       }),
-      findMany: mock(async ({ where, orderBy }: { where?: any; orderBy?: any } = {}) => {
-        let results = Array.from(cardigannIndexerStore.values());
+      findMany: mock(async ({ orderBy }: { orderBy?: any } = {}) => {
+        const results = Array.from(cardigannIndexerStore.values());
         // Simple ordering support (not perfect but works for tests)
         if (orderBy) {
           results.sort((a: any, b: any) => {
