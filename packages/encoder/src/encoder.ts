@@ -158,9 +158,11 @@ function buildFfmpegArgs(
     // Limit hardware frame pool to prevent VRAM exhaustion on long encodes
     args.push("-extra_hw_frames", "8");
   } else if (hwAccel === "QSV") {
-    console.log(`[Encoder] Using QSV (Quick Sync Video) hardware decode + encode`);
-    // QSV hardware decode
+    console.log(`[Encoder] Using QSV (Quick Sync Video) hardware decode + encode on ${gpuDevice}`);
+    // QSV hardware decode - requires device initialization
+    args.push("-init_hw_device", `qsv=hw:${gpuDevice}`);
     args.push("-hwaccel", "qsv");
+    args.push("-hwaccel_device", "hw");
     args.push("-hwaccel_output_format", "qsv");
     // Limit hardware frame pool
     args.push("-extra_hw_frames", "8");
