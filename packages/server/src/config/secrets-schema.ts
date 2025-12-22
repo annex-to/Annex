@@ -52,36 +52,6 @@ export const SECRET_DEFINITIONS: SecretDefinition[] = [
     placeholder: "Enter your Trakt client secret",
   },
 
-  // Download client
-  {
-    key: "qbittorrent.url",
-    label: "qBittorrent URL",
-    description: "URL for qBittorrent WebUI",
-    group: "downloads",
-    required: false,
-    sensitive: false,
-    placeholder: "http://localhost:8080",
-    validate: (v) => v.startsWith("http://") || v.startsWith("https://"),
-  },
-  {
-    key: "qbittorrent.username",
-    label: "qBittorrent Username",
-    description: "Username for qBittorrent WebUI",
-    group: "downloads",
-    required: false,
-    sensitive: false,
-    placeholder: "admin",
-  },
-  {
-    key: "qbittorrent.password",
-    label: "qBittorrent Password",
-    description: "Password for qBittorrent WebUI",
-    group: "downloads",
-    required: false,
-    sensitive: true,
-    placeholder: "Enter qBittorrent password",
-  },
-
   // System
   {
     key: "auth.sessionSecret",

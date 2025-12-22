@@ -40,7 +40,6 @@ export const secretsRouter = router({
     const services: Record<string, boolean> = {};
     const serviceSecrets = [
       "mdblist.apiKey",
-      "qbittorrent.url",
       "plex.serverUrl",
       "emby.serverUrl",
     ];
@@ -235,7 +234,7 @@ export const secretsRouter = router({
   testConnection: setupProcedure
     .input(
       z.object({
-        service: z.enum(["qbittorrent", "mdblist", "trakt"]),
+        service: z.enum(["mdblist", "trakt"]),
         // Optional: provide secrets directly (used during setup before saving)
         secrets: z.record(z.string()).optional(),
       })
@@ -252,36 +251,6 @@ export const secretsRouter = router({
       };
 
       switch (input.service) {
-        case "qbittorrent": {
-          const url = await getSecretValue("qbittorrent.url");
-          const username = await getSecretValue("qbittorrent.username");
-          const password = await getSecretValue("qbittorrent.password");
-
-          if (!url) {
-            return { success: false, error: "qBittorrent URL not configured" };
-          }
-
-          try {
-            const response = await fetch(`${url}/api/v2/app/version`, {
-              headers:
-                username && password
-                  ? {
-                      Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
-                    }
-                  : undefined,
-            });
-
-            if (response.ok) {
-              const version = await response.text();
-              return { success: true, message: `Connected! Version: ${version}` };
-            } else {
-              return { success: false, error: `HTTP ${response.status}` };
-            }
-          } catch (error) {
-            return { success: false, error: (error as Error).message };
-          }
-        }
-
         case "mdblist": {
           const apiKey = await getSecretValue("mdblist.apiKey");
           if (!apiKey) {

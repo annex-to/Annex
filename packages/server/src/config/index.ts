@@ -41,7 +41,6 @@ export type {
   JobsConfig,
   LoggingConfig,
   OmdbConfig,
-  QBittorrentConfig,
   SchedulerConfig,
   ServerConfig,
   TraktConfig,

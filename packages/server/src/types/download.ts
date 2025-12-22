@@ -54,7 +54,7 @@ export interface DownloadConfig {
   minSeedRatio: number; // Or until this ratio reached
   deleteSourceAfterEncode: boolean;
   deleteSourceAfterDays: number;
-  keepInQbittorrent: boolean;
+  keepTorrentActive: boolean; // Keep torrent seeding after completion
 }
 
 export const DEFAULT_DOWNLOAD_CONFIG: DownloadConfig = {
@@ -73,7 +73,7 @@ export const DEFAULT_DOWNLOAD_CONFIG: DownloadConfig = {
   minSeedRatio: 1.0,
   deleteSourceAfterEncode: true,
   deleteSourceAfterDays: 7,
-  keepInQbittorrent: false,
+  keepTorrentActive: false,
 };
 
 // =============================================================================
@@ -272,8 +272,8 @@ export interface DownloadHealth {
 }
 
 export interface SystemHealth {
-  qbittorrentConnected: boolean;
-  qbittorrentVersion?: string;
+  torrentClientConnected: boolean;
+  torrentClientVersion?: string;
   diskSpaceFreeGB: number;
   diskSpaceOk: boolean;
   activeDownloads: number;

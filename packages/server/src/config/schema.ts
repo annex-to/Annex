@@ -67,15 +67,6 @@ const traktSchema = z
   })
   .default({});
 
-// qBittorrent configuration
-const qbittorrentSchema = z.object({
-  url: z.string().url().default("http://localhost:8080"),
-  username: z.string().optional(),
-  password: z.string().optional(),
-  // Base directory where qBittorrent downloads files (for path mapping)
-  // If set, this path prefix will be used instead of qBittorrent's reported content_path
-  baseDir: z.string().optional(),
-});
 
 // Encoding configuration
 const encodingSchema = z.object({
@@ -171,7 +162,6 @@ export const configSchema = z.object({
   omdb: omdbSchema,
   mdblist: mdblistSchema,
   trakt: traktSchema,
-  qbittorrent: qbittorrentSchema.default({}),
   encoding: encodingSchema.default({}),
   downloads: downloadsSchema.default({}),
   logging: loggingSchema.default({}),
@@ -193,7 +183,6 @@ export type JobsConfig = z.infer<typeof jobsSchema>;
 export type OmdbConfig = z.infer<typeof omdbSchema>;
 export type MdblistConfig = z.infer<typeof mdblistSchema>;
 export type TraktConfig = z.infer<typeof traktSchema>;
-export type QBittorrentConfig = z.infer<typeof qbittorrentSchema>;
 export type EncodingConfig = z.infer<typeof encodingSchema>;
 export type DownloadsConfig = z.infer<typeof downloadsSchema>;
 export type LoggingConfig = z.infer<typeof loggingSchema>;

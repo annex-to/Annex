@@ -38,16 +38,6 @@ const ENV_MAPPING: Record<string, string> = {
   TRAKT_CLIENT_ID: "trakt.clientId",
   ANNEX_TRAKT_CLIENT_ID: "trakt.clientId",
 
-  // qBittorrent
-  QBITTORRENT_URL: "qbittorrent.url",
-  ANNEX_QBITTORRENT_URL: "qbittorrent.url",
-  QBITTORRENT_USERNAME: "qbittorrent.username",
-  ANNEX_QBITTORRENT_USERNAME: "qbittorrent.username",
-  QBITTORRENT_PASSWORD: "qbittorrent.password",
-  ANNEX_QBITTORRENT_PASSWORD: "qbittorrent.password",
-  QBITTORRENT_BASE_DIR: "qbittorrent.baseDir",
-  ANNEX_QBITTORRENT_BASE_DIR: "qbittorrent.baseDir",
-
   // Encoding
   FFMPEG_PATH: "encoding.ffmpegPath",
   ANNEX_FFMPEG_PATH: "encoding.ffmpegPath",

@@ -266,7 +266,7 @@ model MediaRequest {
 
   // Pipeline state - allows resuming from where we left off
   selectedRelease  Json?         // The release selected from indexer search
-  torrentHash      String?       // qBittorrent torrent hash (deprecated - use Download model)
+  torrentHash      String?       // Torrent info hash (deprecated - use Download model)
   sourceFilePath   String?       // Path to downloaded source file
   encodedFiles     Json?         // [{profileId, path, targetServerIds}] - encoded files ready for delivery
 
@@ -309,14 +309,14 @@ model Download {
   requestId       String
   request         MediaRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  // qBittorrent tracking
-  torrentHash     String         @unique  // qBittorrent identifier
+  // WebTorrent tracking
+  torrentHash     String         @unique  // Torrent info hash identifier
   torrentName     String                  // Original torrent name
   magnetUri       String?                 // Magnet link used to add (for recovery)
 
   // Paths
-  savePath        String?                 // qBittorrent save_path
-  contentPath     String?                 // qBittorrent content_path
+  savePath        String?                 // Save directory path
+  contentPath     String?                 // Content directory path
 
   // Status & Progress
   status          DownloadStatus @default(PENDING)

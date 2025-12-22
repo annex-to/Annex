@@ -617,10 +617,10 @@ export const requestsRouter = router({
       await executor.cancelExecution(execution.id);
     }
 
-    // TODO: Cancel torrent downloads and delete downloaded media from qBittorrent
+    // TODO: Cancel torrent downloads and delete downloaded media from WebTorrent
     // - Get all torrent hashes from downloads (for TV) or the request itself (for movies)
     // - For each torrent hash, call downloadService.deleteTorrent(hash, deleteFiles: true)
-    // - This should remove the torrent from qBittorrent and delete the downloaded files
+    // - This should remove the torrent from WebTorrent and delete the downloaded files
 
     // Delete TV episodes first (foreign key constraint)
     await prisma.tvEpisode.deleteMany({
@@ -770,7 +770,7 @@ export const requestsRouter = router({
       const downloadMap = new Map(downloads.map((d: any) => [d.id, d]));
 
       // Fetch all torrents once instead of individual calls per episode
-      // This reduces API overhead when qBittorrent is under load
+      // This reduces API overhead when WebTorrent is under load
       if (downloadingEpisodes.length > 0) {
         try {
           const allTorrents = await downloadService.getAllTorrents();

@@ -47,14 +47,14 @@ export const systemRouter = router({
    * Get system health status
    */
   health: publicProcedure.query(async () => {
-    // TODO: Add actual health checks (qBittorrent, encoder, disk space, etc.)
+    // TODO: Add actual health checks (torrent client, encoder, disk space, etc.)
     return {
       status: "healthy",
       version: "0.1.0",
       uptime: process.uptime(),
       checks: {
         database: true,
-        qbittorrent: false, // TODO: Implement
+        torrentClient: true, // WebTorrent is always available (runs locally)
         encoder: false, // TODO: Implement
       },
     };
@@ -206,16 +206,13 @@ export const systemRouter = router({
           concurrency: config.jobs.concurrency,
           pollInterval: config.jobs.pollInterval,
         },
-        qbittorrent: {
-          baseDir: config.qbittorrent.baseDir,
-        },
       };
     }),
 
     set: publicProcedure
       .input(
         z.object({
-          section: z.enum(["downloads", "encoding", "jobs", "qbittorrent"]),
+          section: z.enum(["downloads", "encoding", "jobs"]),
           key: z.string(),
           value: z.union([z.string(), z.number()]),
         })

@@ -40,7 +40,7 @@ export default function SetupPage() {
     setSecrets((prev) => ({ ...prev, [key]: value }));
   };
 
-  const testConnection = async (service: "qbittorrent" | "mdblist" | "trakt") => {
+  const testConnection = async (service: "mdblist" | "trakt") => {
     try {
       const result = await testConnectionMutation.mutateAsync({ service, secrets });
       setTestResults((prev) => ({
@@ -359,78 +359,20 @@ export default function SetupPage() {
             <div className="space-y-2">
               <h2 className="text-xl font-semibold">Download Client</h2>
               <p className="text-surface-400 text-sm">
-                Configure qBittorrent for downloading. You can skip this and configure it later.
+                Annex uses WebTorrent for downloading, which runs locally and requires no external
+                configuration. Downloads will be saved to the configured directory.
               </p>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <Label>qBittorrent URL</Label>
-                <Input
-                  type="text"
-                  value={secrets["qbittorrent.url"] || ""}
-                  onChange={(e) => updateSecret("qbittorrent.url", e.target.value)}
-                  placeholder="http://localhost:8080"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Username (optional)</Label>
-                  <Input
-                    type="text"
-                    value={secrets["qbittorrent.username"] || ""}
-                    onChange={(e) => updateSecret("qbittorrent.username", e.target.value)}
-                    placeholder="admin"
-                  />
-                </div>
-                <div>
-                  <Label>Password (optional)</Label>
-                  <Input
-                    type="password"
-                    value={secrets["qbittorrent.password"] || ""}
-                    onChange={(e) => updateSecret("qbittorrent.password", e.target.value)}
-                    placeholder="password"
-                  />
-                </div>
-              </div>
-
-              {secrets["qbittorrent.url"] && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => testConnection("qbittorrent")}
-                    disabled={testConnectionMutation.isLoading}
-                  >
-                    {testConnectionMutation.isLoading ? "Testing..." : "Test Connection"}
-                  </Button>
-                  {testResults.qbittorrent && (
-                    <span
-                      className={
-                        testResults.qbittorrent.success
-                          ? "text-green-400 text-sm"
-                          : "text-red-400 text-sm"
-                      }
-                    >
-                      {testResults.qbittorrent.message}
-                    </span>
-                  )}
-                </div>
-              )}
+            <div className="bg-surface-800/50 p-4 rounded border border-white/10">
+              <p className="text-sm text-surface-300">
+                WebTorrent is already configured and ready to use. No additional setup is required.
+              </p>
             </div>
 
             <div className="flex gap-3">
               <Button variant="ghost" onClick={() => setStep("server")}>
                 Back
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={handleComplete}
-                className="flex-1"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Setting up..." : "Skip"}
               </Button>
               <Button onClick={handleComplete} className="flex-1" disabled={isSubmitting}>
                 {isSubmitting ? "Setting up..." : "Complete Setup"}

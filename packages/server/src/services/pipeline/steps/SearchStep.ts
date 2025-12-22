@@ -35,7 +35,7 @@ interface SearchStepConfig {
  * Side effects:
  * - Updates MediaRequest status and progress
  * - Creates ActivityLog entries
- * - Checks qBittorrent for existing downloads
+ * - Checks WebTorrent for existing downloads
  * - Searches indexers for new releases
  */
 export class SearchStep extends BaseStep {
@@ -80,7 +80,7 @@ export class SearchStep extends BaseStep {
       `Quality requirement: ${resolutionLabel} or better (derived from target servers)`
     );
 
-    // Check qBittorrent for existing downloads (if enabled)
+    // Check WebTorrent for existing downloads (if enabled)
     if (cfg.checkExistingDownloads !== false && mediaType === MediaType.MOVIE) {
       const existingMatch = await downloadManager.findExistingMovieDownload(title, year);
 
@@ -92,7 +92,7 @@ export class SearchStep extends BaseStep {
           await this.logActivity(
             requestId,
             ActivityType.SUCCESS,
-            `Found existing download in qBittorrent: ${torrentName}`
+            `Found existing download in WebTorrent: ${torrentName}`
           );
 
           // Return early with existing download info

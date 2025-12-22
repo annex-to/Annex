@@ -32,7 +32,7 @@ interface DownloadStepConfig {
  *
  * Side effects:
  * - Creates Download record in database
- * - Adds torrent to qBittorrent (if new)
+ * - Adds torrent to WebTorrent (if new)
  * - Monitors download progress
  * - Extracts RAR archives if present
  * - Updates MediaRequest status and progress
@@ -74,8 +74,8 @@ export class DownloadStep extends BaseStep {
 
       if (existingDownload.isComplete) {
         // Already complete - get video file
-        const qb = getDownloadService();
-        const videoFile = await qb.getMainVideoFile(torrentHash);
+        const downloadSvc = getDownloadService();
+        const videoFile = await downloadSvc.getMainVideoFile(torrentHash);
 
         if (!videoFile) {
           return {
@@ -157,10 +157,10 @@ export class DownloadStep extends BaseStep {
       `Monitoring download: ${download.torrentName}`
     );
 
-    const qb = getDownloadService();
+    const downloadSvc = getDownloadService();
 
     // Wait for download completion
-    const downloadResult = await qb.waitForCompletion(torrentHash, {
+    const downloadResult = await downloadSvc.waitForCompletion(torrentHash, {
       pollInterval,
       timeout,
       onProgress: async (progress) => {
@@ -255,7 +255,7 @@ export class DownloadStep extends BaseStep {
     }
 
     // Get main video file
-    const videoFile = await qb.getMainVideoFile(torrentHash);
+    const videoFile = await downloadSvc.getMainVideoFile(torrentHash);
 
     if (!videoFile) {
       // Try scanning directory for extracted files

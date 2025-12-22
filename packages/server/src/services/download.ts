@@ -1,42 +1,14 @@
 /**
  * Download Service
  *
- * Manages torrent downloads via qBittorrent Web API.
+ * Manages torrent downloads via WebTorrent.
  * Handles adding, monitoring, and cleaning up torrents.
  */
 
+import WebTorrent from "webtorrent";
+import type { Torrent } from "webtorrent";
 import { getConfig } from "../config/index.js";
 import { isSampleFile } from "./archive.js";
-import { getSecretsService } from "./secrets.js";
-
-interface TorrentInfo {
-  hash: string;
-  name: string;
-  size: number;
-  progress: number; // 0-1
-  dlspeed: number; // bytes/sec
-  upspeed: number; // bytes/sec
-  num_seeds: number;
-  num_leechs: number;
-  ratio: number;
-  eta: number; // seconds, 8640000 = infinity
-  state: string;
-  content_path: string;
-  save_path: string;
-  added_on: number; // Unix timestamp
-  completion_on: number; // Unix timestamp, -1 if not complete
-}
-
-interface TorrentFile {
-  index: number;
-  name: string;
-  size: number;
-  progress: number; // 0-1
-  priority: number;
-  is_seed: boolean;
-  piece_range: number[];
-  availability: number;
-}
 
 export interface DownloadProgress {
   hash: string;
@@ -67,236 +39,73 @@ export type DownloadState =
   | "error"
   | "unknown";
 
-// Map qBittorrent state strings to our internal DownloadState
-const STATE_MAP: Record<string, DownloadState> = {
-  allocating: "queued",
-  checkingDL: "checking",
-  checkingResumeData: "checking",
-  checkingUP: "checking",
-  downloading: "downloading",
-  error: "error",
-  forcedDL: "downloading",
-  forcedMetaDL: "downloading",
-  forcedUP: "seeding",
-  metaDL: "downloading",
-  missingFiles: "error",
-  moving: "queued",
-  pausedDL: "paused",
-  pausedUP: "paused",
-  queuedDL: "queued",
-  queuedUP: "queued",
-  stalledDL: "stalled",
-  stalledUP: "seeding",
-  uploading: "seeding",
-  unknown: "unknown",
-};
+interface TorrentFileInfo {
+  index: number;
+  name: string;
+  size: number;
+  progress: number; // 0-1
+  priority: number;
+  is_seed: boolean;
+  piece_range: number[];
+  availability: number;
+}
 
 class DownloadService {
-  private baseUrl: string;
-  private username: string;
-  private password: string;
-  private qbBaseDir: string | undefined;
-  private cookie: string | null = null;
-  private cookieExpiry: number = 0;
-  private credentialsPromise: Promise<void> | null = null;
-  private credentialsLoaded: boolean = false;
+  private client: WebTorrent.Instance | null = null;
+  private downloadPath: string;
+  private pausedTorrents: Set<string> = new Set();
 
   constructor() {
     const config = getConfig();
-    // Load from config initially as fallback
-    this.baseUrl = config.qbittorrent.url.replace(/\/+$/, "");
-    this.username = config.qbittorrent.username || "";
-    this.password = config.qbittorrent.password || "";
-    this.qbBaseDir = config.qbittorrent.baseDir?.replace(/\/+$/, "");
-
-    // Listen for secret changes to refresh credentials
-    const secrets = getSecretsService();
-    secrets.on("change", (key: string) => {
-      if (key.startsWith("qbittorrent.")) {
-        this.credentialsLoaded = false;
-        this.credentialsPromise = null;
-        this.cookie = null;
-        this.cookieExpiry = 0;
-      }
-    });
+    this.downloadPath = config.downloads.directory;
   }
 
   /**
-   * Load credentials from secrets store (preferred) or config (fallback)
+   * Get or create the WebTorrent client
    */
-  private async loadCredentials(): Promise<void> {
-    if (this.credentialsLoaded) {
-      return;
-    }
+  private getClient(): WebTorrent.Instance {
+    if (!this.client) {
+      this.client = new WebTorrent({
+        maxConns: 55,
+        dht: true,
+        lsd: true,
+        webSeeds: true,
+      });
 
-    // Prevent duplicate fetches
-    if (this.credentialsPromise) {
-      return this.credentialsPromise;
-    }
-
-    this.credentialsPromise = (async () => {
-      try {
-        const secrets = getSecretsService();
-        const [url, username, password] = await Promise.all([
-          secrets.getSecret("qbittorrent.url"),
-          secrets.getSecret("qbittorrent.username"),
-          secrets.getSecret("qbittorrent.password"),
-        ]);
-
-        if (url) {
-          this.baseUrl = url.replace(/\/+$/, "");
-        }
-        if (username !== null) {
-          this.username = username;
-        }
-        if (password !== null) {
-          this.password = password;
-        }
-      } catch {
-        // Keep config values on error
-      }
-
-      this.credentialsLoaded = true;
-    })();
-
-    return this.credentialsPromise;
-  }
-
-  /**
-   * Map a qBittorrent content path to the local filesystem path.
-   * If ANNEX_QBITTORRENT_BASE_DIR is set, extracts the relative path from
-   * qBittorrent's content_path and prepends the configured base directory.
-   */
-  private mapContentPath(qbPath: string): string {
-    if (!this.qbBaseDir || !qbPath) {
-      return qbPath;
-    }
-
-    // qBittorrent returns paths like /downloads/TorrentName or C:\Downloads\TorrentName
-    // We need to extract just the torrent folder/file name and prepend our base dir
-    // The content_path is the full path to the content (folder or single file)
-
-    // Get the last component (torrent name/folder)
-    const pathParts = qbPath.replace(/\\/g, "/").split("/");
-    const torrentName = pathParts[pathParts.length - 1];
-
-    // If the path has a parent that looks like a download directory, use everything after it
-    // Common patterns: /downloads/, /torrents/, etc.
-    // For simplicity, just use the torrent name (last path component)
-    return `${this.qbBaseDir}/${torrentName}`;
-  }
-
-  /**
-   * Map a qBittorrent save_path to the local filesystem path.
-   * If ANNEX_QBITTORRENT_BASE_DIR is set, returns the configured base directory.
-   * The save_path is the parent directory, and file.name contains the relative path.
-   */
-  private mapSavePath(qbPath: string): string {
-    if (!this.qbBaseDir) {
-      return qbPath?.replace(/\/+$/, "") || "";
-    }
-    return this.qbBaseDir;
-  }
-
-  /**
-   * Authenticate with qBittorrent
-   */
-  private async authenticate(): Promise<void> {
-    // Load credentials from secrets first
-    await this.loadCredentials();
-
-    // Reuse valid cookie
-    if (this.cookie && Date.now() < this.cookieExpiry) {
-      return;
-    }
-
-    const response = await fetch(`${this.baseUrl}/api/v2/auth/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: `username=${encodeURIComponent(this.username)}&password=${encodeURIComponent(this.password)}`,
-    });
-
-    if (!response.ok) {
-      throw new Error(`qBittorrent login failed: ${response.status}`);
-    }
-
-    const text = await response.text();
-    if (text === "Fails.") {
-      throw new Error("qBittorrent login failed: Invalid credentials");
-    }
-
-    // Extract cookie
-    const setCookie = response.headers.get("set-cookie");
-    if (setCookie) {
-      const match = setCookie.match(/SID=([^;]+)/);
-      if (match) {
-        this.cookie = `SID=${match[1]}`;
-        // Cookie expires in 1 hour by default, refresh after 50 minutes
-        this.cookieExpiry = Date.now() + 50 * 60 * 1000;
-      }
-    }
-  }
-
-  /**
-   * Make authenticated API request
-   */
-  private async request(
-    endpoint: string,
-    options: {
-      method?: string;
-      body?: URLSearchParams | FormData | string;
-      headers?: Record<string, string>;
-    } = {}
-  ): Promise<Response> {
-    await this.authenticate();
-
-    const { method = "GET", body, headers = {} } = options;
-
-    const response = await fetch(`${this.baseUrl}/api/v2${endpoint}`, {
-      method,
-      headers: {
-        Cookie: this.cookie || "",
-        ...headers,
-      },
-      body,
-    });
-
-    if (response.status === 403) {
-      // Cookie expired, re-authenticate
-      this.cookie = null;
-      this.cookieExpiry = 0;
-      await this.authenticate();
-
-      // Retry request
-      return fetch(`${this.baseUrl}/api/v2${endpoint}`, {
-        method,
-        headers: {
-          Cookie: this.cookie || "",
-          ...headers,
-        },
-        body,
+      this.client.on("error", (err: Error | string) => {
+        const message = typeof err === "string" ? err : err.message;
+        console.error("[WebTorrent] Client error:", message);
       });
     }
-
-    return response;
+    return this.client;
   }
 
   /**
-   * Test connection to qBittorrent
+   * Map WebTorrent torrent state to our internal DownloadState
+   */
+  private mapState(torrent: Torrent): DownloadState {
+    if (this.pausedTorrents.has(torrent.infoHash)) {
+      return "paused";
+    }
+    if (torrent.done) {
+      return torrent.uploadSpeed > 0 ? "seeding" : "complete";
+    }
+    if (torrent.numPeers === 0) {
+      return "stalled";
+    }
+    return "downloading";
+  }
+
+  /**
+   * Test connection - WebTorrent is always "connected" as it runs locally
    */
   async testConnection(): Promise<{ success: boolean; version?: string; error?: string }> {
     try {
-      await this.authenticate();
-      const response = await this.request("/app/version");
-
-      if (!response.ok) {
-        return { success: false, error: `HTTP ${response.status}` };
-      }
-
-      const version = await response.text();
-      return { success: true, version };
+      this.getClient();
+      return {
+        success: true,
+        version: `WebTorrent ${(WebTorrent as unknown as { VERSION?: string }).VERSION || "2.x"}`,
+      };
     } catch (error) {
       return {
         success: false,
@@ -318,38 +127,32 @@ class DownloadService {
     } = {}
   ): Promise<{ success: boolean; hash?: string; error?: string }> {
     try {
-      const formData = new URLSearchParams();
-      formData.set("urls", magnetUri);
+      const client = this.getClient();
+      const savePath = options.savePath || this.downloadPath;
 
-      if (options.savePath) {
-        formData.set("savepath", options.savePath);
-      }
-      if (options.category) {
-        formData.set("category", options.category);
-      }
-      if (options.paused) {
-        formData.set("paused", "true");
-      }
-      if (options.tags && options.tags.length > 0) {
-        formData.set("tags", options.tags.join(","));
-      }
+      return new Promise((resolve) => {
+        const torrent = client.add(magnetUri, { path: savePath });
 
-      const response = await this.request("/torrents/add", {
-        method: "POST",
-        body: formData,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        torrent.on("ready", () => {
+          if (options.paused) {
+            torrent.pause();
+            this.pausedTorrents.add(torrent.infoHash);
+          }
+          resolve({ success: true, hash: torrent.infoHash });
+        });
+
+        torrent.on("error", (err: Error | string) => {
+          const message = typeof err === "string" ? err : err.message;
+          resolve({ success: false, error: message });
+        });
+
+        // Timeout for metadata fetch
+        setTimeout(() => {
+          if (!torrent.ready) {
+            resolve({ success: false, error: "Timeout waiting for torrent metadata" });
+          }
+        }, 60000);
       });
-
-      if (!response.ok) {
-        const text = await response.text();
-        return { success: false, error: text || `HTTP ${response.status}` };
-      }
-
-      // Extract hash from magnet URI
-      const hashMatch = magnetUri.match(/xt=urn:btih:([a-fA-F0-9]+)/i);
-      const hash = hashMatch ? hashMatch[1].toLowerCase() : undefined;
-
-      return { success: true, hash };
     } catch (error) {
       return {
         success: false,
@@ -360,8 +163,6 @@ class DownloadService {
 
   /**
    * Add a torrent from .torrent URL
-   * Note: qBittorrent doesn't return the hash when adding from URL,
-   * so the caller may need to look up torrents by tag to find it.
    */
   async addTorrentUrl(
     torrentUrl: string,
@@ -372,44 +173,37 @@ class DownloadService {
       tags?: string[];
     } = {}
   ): Promise<{ success: boolean; hash?: string; error?: string }> {
+    // For magnet URIs, delegate to addMagnet
+    if (torrentUrl.startsWith("magnet:")) {
+      return this.addMagnet(torrentUrl, options);
+    }
+
     try {
-      const formData = new URLSearchParams();
-      formData.set("urls", torrentUrl);
+      const client = this.getClient();
+      const savePath = options.savePath || this.downloadPath;
 
-      if (options.savePath) {
-        formData.set("savepath", options.savePath);
-      }
-      if (options.category) {
-        formData.set("category", options.category);
-      }
-      if (options.paused) {
-        formData.set("paused", "true");
-      }
-      if (options.tags && options.tags.length > 0) {
-        formData.set("tags", options.tags.join(","));
-      }
+      return new Promise((resolve) => {
+        const torrent = client.add(torrentUrl, { path: savePath });
 
-      const response = await this.request("/torrents/add", {
-        method: "POST",
-        body: formData,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        torrent.on("ready", () => {
+          if (options.paused) {
+            torrent.pause();
+            this.pausedTorrents.add(torrent.infoHash);
+          }
+          resolve({ success: true, hash: torrent.infoHash });
+        });
+
+        torrent.on("error", (err: Error | string) => {
+          const message = typeof err === "string" ? err : err.message;
+          resolve({ success: false, error: message });
+        });
+
+        setTimeout(() => {
+          if (!torrent.ready) {
+            resolve({ success: false, error: "Timeout waiting for torrent metadata" });
+          }
+        }, 60000);
       });
-
-      if (!response.ok) {
-        const text = await response.text();
-        return { success: false, error: text || `HTTP ${response.status}` };
-      }
-
-      // Try to extract hash from magnet URI if it's a magnet
-      if (torrentUrl.startsWith("magnet:")) {
-        const hashMatch = torrentUrl.match(/xt=urn:btih:([a-fA-F0-9]+)/i);
-        const hash = hashMatch ? hashMatch[1].toLowerCase() : undefined;
-        return { success: true, hash };
-      }
-
-      // For .torrent URLs, we can't easily get the hash without parsing
-      // Caller can use findTorrentByTag to locate it
-      return { success: true };
     } catch (error) {
       return {
         success: false,
@@ -420,12 +214,10 @@ class DownloadService {
 
   /**
    * Add a torrent from raw .torrent file data
-   * This is used when we need to fetch the torrent file ourselves
-   * (e.g., from UNIT3D trackers that require authentication)
    */
   async addTorrentFile(
     torrentData: ArrayBuffer,
-    filename: string,
+    _filename: string,
     options: {
       savePath?: string;
       category?: string;
@@ -434,44 +226,31 @@ class DownloadService {
     } = {}
   ): Promise<{ success: boolean; hash?: string; error?: string }> {
     try {
-      // Use FormData for multipart upload
-      const formData = new FormData();
+      const client = this.getClient();
+      const savePath = options.savePath || this.downloadPath;
 
-      // Create a Blob from the torrent data
-      const blob = new Blob([torrentData], { type: "application/x-bittorrent" });
-      formData.append("torrents", blob, filename);
+      return new Promise((resolve) => {
+        const torrent = client.add(Buffer.from(torrentData), { path: savePath });
 
-      if (options.savePath) {
-        formData.append("savepath", options.savePath);
-      }
-      if (options.category) {
-        formData.append("category", options.category);
-      }
-      if (options.paused) {
-        formData.append("paused", "true");
-      }
-      if (options.tags && options.tags.length > 0) {
-        formData.append("tags", options.tags.join(","));
-      }
+        torrent.on("ready", () => {
+          if (options.paused) {
+            torrent.pause();
+            this.pausedTorrents.add(torrent.infoHash);
+          }
+          resolve({ success: true, hash: torrent.infoHash });
+        });
 
-      const response = await this.request("/torrents/add", {
-        method: "POST",
-        body: formData,
-        // Don't set Content-Type header - fetch will set it with boundary for multipart
+        torrent.on("error", (err: Error | string) => {
+          const message = typeof err === "string" ? err : err.message;
+          resolve({ success: false, error: message });
+        });
+
+        setTimeout(() => {
+          if (!torrent.ready) {
+            resolve({ success: false, error: "Timeout waiting for torrent metadata" });
+          }
+        }, 60000);
       });
-
-      const responseText = await response.text();
-      console.log(
-        `[QBittorrent] addTorrentFile response: status=${response.status}, body="${responseText}"`
-      );
-
-      if (!response.ok) {
-        return { success: false, error: responseText || `HTTP ${response.status}` };
-      }
-
-      // qBittorrent doesn't return the hash when adding files
-      // Caller can use findTorrentByTag to locate it
-      return { success: true };
     } catch (error) {
       return {
         success: false,
@@ -482,7 +261,6 @@ class DownloadService {
 
   /**
    * Fetch a torrent file from a URL
-   * Used for trackers that require authenticated downloads (e.g., UNIT3D)
    */
   async fetchTorrentFile(
     url: string,
@@ -504,19 +282,13 @@ class DownloadService {
       }
 
       const contentType = response.headers.get("content-type") || "";
-      const contentLength = response.headers.get("content-length") || "unknown";
-      console.log(
-        `[QBittorrent] fetchTorrentFile response: status=${response.status}, content-type="${contentType}", size=${contentLength}`
-      );
-
-      // Check if we got a torrent file (not an error page)
       if (
         !contentType.includes("application/x-bittorrent") &&
         !contentType.includes("application/octet-stream")
       ) {
         const text = await response.text();
         console.log(
-          `[QBittorrent] Non-torrent response received (${contentType}):`,
+          `[Download] Non-torrent response received (${contentType}):`,
           text.substring(0, 500)
         );
         return {
@@ -526,7 +298,7 @@ class DownloadService {
       }
 
       const data = await response.arrayBuffer();
-      console.log(`[QBittorrent] Successfully fetched torrent file: ${data.byteLength} bytes`);
+      console.log(`[Download] Successfully fetched torrent file: ${data.byteLength} bytes`);
       if (data.byteLength === 0) {
         return { success: false, error: "Received empty torrent file" };
       }
@@ -544,18 +316,13 @@ class DownloadService {
    */
   async getProgress(hash: string): Promise<DownloadProgress | null> {
     try {
-      const response = await this.request(`/torrents/info?hashes=${hash.toLowerCase()}`);
+      const client = this.getClient();
+      const torrent = await client.get(hash);
 
-      if (!response.ok) {
+      if (!torrent) {
         return null;
       }
 
-      const torrents = (await response.json()) as TorrentInfo[];
-      if (torrents.length === 0) {
-        return null;
-      }
-
-      const torrent = torrents[0];
       return this.mapTorrentProgress(torrent);
     } catch {
       return null;
@@ -567,42 +334,29 @@ class DownloadService {
    */
   async getAllTorrents(): Promise<DownloadProgress[]> {
     try {
-      const response = await this.request("/torrents/info");
-
-      if (!response.ok) {
-        return [];
-      }
-
-      const torrents = (await response.json()) as TorrentInfo[];
-      return torrents.map((t) => this.mapTorrentProgress(t));
+      const client = this.getClient();
+      return client.torrents.map((t) => this.mapTorrentProgress(t));
     } catch {
       return [];
     }
   }
 
   /**
-   * Find a torrent by tag
-   * Useful for finding torrents added via .torrent URL where we don't know the hash
+   * Find a torrent by tag - WebTorrent doesn't support tags natively,
+   * so this polls until the torrent is added
    */
-  async findTorrentByTag(tag: string, timeoutMs: number = 30000): Promise<DownloadProgress | null> {
+  async findTorrentByTag(_tag: string, timeoutMs: number = 30000): Promise<DownloadProgress | null> {
+    // Since WebTorrent returns the hash immediately, this is mainly for compatibility
+    // Just return the most recently added torrent within the timeout
     const startTime = Date.now();
-    const pollInterval = 1000; // Check every second
+    const pollInterval = 1000;
 
     while (Date.now() - startTime < timeoutMs) {
-      try {
-        const response = await this.request(`/torrents/info?tag=${encodeURIComponent(tag)}`);
-
-        if (response.ok) {
-          const torrents = (await response.json()) as TorrentInfo[];
-          if (torrents.length > 0) {
-            return this.mapTorrentProgress(torrents[0]);
-          }
-        }
-      } catch {
-        // Ignore errors, keep polling
+      const torrents = await this.getAllTorrents();
+      if (torrents.length > 0) {
+        // Return the most recently added (last in array)
+        return torrents[torrents.length - 1];
       }
-
-      // Wait before next poll
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
 
@@ -612,15 +366,25 @@ class DownloadService {
   /**
    * Get torrent files
    */
-  async getTorrentFiles(hash: string): Promise<TorrentFile[]> {
+  async getTorrentFiles(hash: string): Promise<TorrentFileInfo[]> {
     try {
-      const response = await this.request(`/torrents/files?hash=${hash.toLowerCase()}`);
+      const client = this.getClient();
+      const torrent = await client.get(hash);
 
-      if (!response.ok) {
+      if (!torrent) {
         return [];
       }
 
-      return (await response.json()) as TorrentFile[];
+      return torrent.files.map((file, index) => ({
+        index,
+        name: file.path,
+        size: file.length,
+        progress: file.progress,
+        priority: 1, // WebTorrent doesn't have priority concept
+        is_seed: torrent.done,
+        piece_range: [],
+        availability: 1,
+      }));
     } catch {
       return [];
     }
@@ -664,9 +428,8 @@ class DownloadService {
     // Sort by size, largest first
     videoFiles.sort((a, b) => b.size - a.size);
 
-    // Note: qBittorrent file.name includes the relative path from save_path
-    // e.g., "TorrentFolder/video.mkv" or just "video.mkv" for single-file torrents
     const mainFile = videoFiles[0];
+    // WebTorrent file.path is relative to the torrent's save path
     const fullPath = `${progress.savePath}/${mainFile.name}`;
 
     console.log(`[Download]   mainFile.name: ${mainFile.name}`);
@@ -676,27 +439,41 @@ class DownloadService {
   }
 
   /**
-   * Map qBittorrent torrent info to our progress format
+   * Map WebTorrent torrent to our progress format
    */
-  private mapTorrentProgress(torrent: TorrentInfo): DownloadProgress {
-    const state = STATE_MAP[torrent.state] || "unknown";
-    const isComplete = torrent.progress >= 1 || state === "seeding" || state === "complete";
+  private mapTorrentProgress(torrent: Torrent): DownloadProgress {
+    const state = this.mapState(torrent);
+    const isComplete = torrent.done;
+
+    // Calculate ETA
+    let eta = -1;
+    if (torrent.downloadSpeed > 0 && !torrent.done) {
+      const remaining = torrent.length - torrent.downloaded;
+      eta = Math.ceil(remaining / torrent.downloadSpeed);
+    }
+
+    // Get the content path - for single file it's the file path, for multi-file it's the folder
+    const savePath = torrent.path || this.downloadPath;
+    const contentPath =
+      torrent.files.length === 1
+        ? `${savePath}/${torrent.files[0].path}`
+        : `${savePath}/${torrent.name}`;
 
     return {
-      hash: torrent.hash,
+      hash: torrent.infoHash,
       name: torrent.name,
-      downloadedBytes: Math.floor(torrent.size * torrent.progress),
-      totalBytes: torrent.size,
-      downloadSpeed: torrent.dlspeed,
-      uploadSpeed: torrent.upspeed,
+      downloadedBytes: torrent.downloaded,
+      totalBytes: torrent.length,
+      downloadSpeed: torrent.downloadSpeed,
+      uploadSpeed: torrent.uploadSpeed,
       progress: torrent.progress * 100,
-      eta: torrent.eta === 8640000 ? -1 : torrent.eta,
-      seeds: torrent.num_seeds,
-      peers: torrent.num_leechs,
-      ratio: torrent.ratio,
+      eta,
+      seeds: torrent.numPeers, // WebTorrent doesn't distinguish seeds from peers
+      peers: torrent.numPeers,
+      ratio: torrent.uploaded / Math.max(torrent.downloaded, 1),
       state,
-      contentPath: this.mapContentPath(torrent.content_path),
-      savePath: this.mapSavePath(torrent.save_path),
+      contentPath,
+      savePath,
       isComplete,
     };
   }
@@ -706,12 +483,14 @@ class DownloadService {
    */
   async pauseTorrent(hash: string): Promise<boolean> {
     try {
-      const response = await this.request("/torrents/pause", {
-        method: "POST",
-        body: new URLSearchParams({ hashes: hash.toLowerCase() }),
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
-      return response.ok;
+      const client = this.getClient();
+      const torrent = await client.get(hash);
+      if (torrent) {
+        torrent.pause();
+        this.pausedTorrents.add(hash);
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -722,12 +501,14 @@ class DownloadService {
    */
   async resumeTorrent(hash: string): Promise<boolean> {
     try {
-      const response = await this.request("/torrents/resume", {
-        method: "POST",
-        body: new URLSearchParams({ hashes: hash.toLowerCase() }),
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
-      return response.ok;
+      const client = this.getClient();
+      const torrent = await client.get(hash);
+      if (torrent) {
+        torrent.resume();
+        this.pausedTorrents.delete(hash);
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -738,16 +519,17 @@ class DownloadService {
    */
   async deleteTorrent(hash: string, deleteFiles: boolean = false): Promise<boolean> {
     try {
-      const response = await this.request("/torrents/delete", {
-        method: "POST",
-        body: new URLSearchParams({
-          hashes: hash.toLowerCase(),
-          deleteFiles: deleteFiles.toString(),
-        }),
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
-      return response.ok;
-    } catch {
+      const client = this.getClient();
+      const torrent = await client.get(hash);
+      if (torrent) {
+        await client.remove(hash, { destroyStore: deleteFiles });
+        this.pausedTorrents.delete(hash);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Download] Error removing torrent: ${message}`);
       return false;
     }
   }
@@ -764,49 +546,86 @@ class DownloadService {
       checkCancelled?: () => boolean;
     } = {}
   ): Promise<{ success: boolean; progress?: DownloadProgress; error?: string }> {
-    const {
-      pollInterval = 5000,
-      timeout = 24 * 60 * 60 * 1000,
-      onProgress,
-      checkCancelled,
-    } = options;
+    const { pollInterval = 5000, timeout = 24 * 60 * 60 * 1000, onProgress, checkCancelled } =
+      options;
 
     const startTime = Date.now();
+    const client = this.getClient();
+    const torrent = await client.get(hash);
 
-    while (true) {
-      // Check for cancellation
-      if (checkCancelled?.()) {
-        return { success: false, error: "Cancelled" };
-      }
+    if (!torrent) {
+      return { success: false, error: "Torrent not found" };
+    }
 
-      // Check timeout
-      if (Date.now() - startTime > timeout) {
-        return { success: false, error: "Download timed out" };
-      }
+    return new Promise((resolve) => {
+      const progressInterval = setInterval(() => {
+        // Check for cancellation
+        if (checkCancelled?.()) {
+          clearInterval(progressInterval);
+          resolve({ success: false, error: "Cancelled" });
+          return;
+        }
 
-      const progress = await this.getProgress(hash);
+        // Check timeout
+        if (Date.now() - startTime > timeout) {
+          clearInterval(progressInterval);
+          resolve({ success: false, error: "Download timed out" });
+          return;
+        }
 
-      if (!progress) {
-        return { success: false, error: "Torrent not found" };
-      }
+        const progress = this.mapTorrentProgress(torrent);
 
-      // Report progress
-      if (onProgress) {
-        onProgress(progress);
-      }
+        // Report progress
+        if (onProgress) {
+          onProgress(progress);
+        }
 
-      // Check for errors
-      if (progress.state === "error") {
-        return { success: false, progress, error: "Torrent error" };
-      }
+        // Check for errors
+        if (progress.state === "error") {
+          clearInterval(progressInterval);
+          resolve({ success: false, progress, error: "Torrent error" });
+          return;
+        }
 
-      // Check for completion
-      if (progress.isComplete) {
-        return { success: true, progress };
-      }
+        // Check for completion
+        if (progress.isComplete) {
+          clearInterval(progressInterval);
+          resolve({ success: true, progress });
+          return;
+        }
+      }, pollInterval);
 
-      // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      // Also listen for the done event for immediate completion
+      torrent.on("done", () => {
+        clearInterval(progressInterval);
+        const progress = this.mapTorrentProgress(torrent);
+        resolve({ success: true, progress });
+      });
+
+      torrent.on("error", (err: Error | string) => {
+        clearInterval(progressInterval);
+        const message = typeof err === "string" ? err : err.message;
+        resolve({ success: false, error: message });
+      });
+    });
+  }
+
+  /**
+   * Destroy the WebTorrent client (cleanup)
+   */
+  async destroy(): Promise<void> {
+    if (this.client) {
+      return new Promise((resolve) => {
+        this.client?.destroy((err) => {
+          if (err) {
+            const message = typeof err === "string" ? err : err.message;
+            console.error("[WebTorrent] Error destroying client:", message);
+          }
+          this.client = null;
+          this.pausedTorrents.clear();
+          resolve();
+        });
+      });
     }
   }
 }

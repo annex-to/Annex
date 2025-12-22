@@ -48,7 +48,7 @@ function SecretInput({
   helpUrl?: string;
   hasValue: boolean;
   sensitive: boolean;
-  testService?: "qbittorrent" | "mdblist" | "trakt";
+  testService?: "mdblist" | "trakt";
 }) {
   const utils = trpc.useUtils();
   const [isEditing, setIsEditing] = useState(false);
@@ -222,9 +222,6 @@ function GeneralSettings() {
       concurrency: 2,
       pollInterval: 5000,
     },
-    qbittorrent: {
-      baseDir: "",
-    },
   });
   const [configSaved, setConfigSaved] = useState<Record<string, boolean>>({});
 
@@ -239,12 +236,7 @@ function GeneralSettings() {
   // Load config values when query returns
   useEffect(() => {
     if (configQuery.data && !configValues.downloads.directory) {
-      setConfigValues({
-        ...configQuery.data,
-        qbittorrent: {
-          baseDir: configQuery.data.qbittorrent.baseDir || "",
-        },
-      });
+      setConfigValues(configQuery.data);
     }
   }, [configQuery.data, configValues.downloads.directory]);
 
@@ -270,7 +262,7 @@ function GeneralSettings() {
   };
 
   const handleSaveConfig = (
-    section: "downloads" | "encoding" | "jobs" | "qbittorrent",
+    section: "downloads" | "encoding" | "jobs",
     key: string,
     value: string | number
   ) => {
@@ -289,10 +281,9 @@ function GeneralSettings() {
   };
 
   // Map secret keys to testable services
-  const testServiceMap: Record<string, "qbittorrent" | "mdblist" | "trakt"> = {
+  const testServiceMap: Record<string, "mdblist" | "trakt"> = {
     "trakt.clientId": "trakt",
     "mdblist.apiKey": "mdblist",
-    "qbittorrent.url": "qbittorrent",
   };
 
   return (
@@ -642,41 +633,6 @@ function GeneralSettings() {
         </div>
       </Card>
 
-      {/* qBittorrent Path Mapping */}
-      {secretsByGroup.downloads && (
-        <Card className="space-y-5">
-          <h3 className="text-lg font-medium">qBittorrent Path Mapping</h3>
-
-          <div>
-            <Label hint="Base directory for path mapping (optional)">Base Directory</Label>
-            <div className="flex gap-2 items-center">
-              <Input
-                type="text"
-                value={configValues.qbittorrent.baseDir || ""}
-                onChange={(e) =>
-                  setConfigValues({
-                    ...configValues,
-                    qbittorrent: { ...configValues.qbittorrent, baseDir: e.target.value },
-                  })
-                }
-                placeholder="/path/to/downloads"
-              />
-              <Button
-                onClick={() =>
-                  handleSaveConfig("qbittorrent", "baseDir", configValues.qbittorrent.baseDir || "")
-                }
-                disabled={setConfigMutation.isLoading}
-                size="sm"
-              >
-                {configSaved["qbittorrent.baseDir"] ? "Saved!" : "Save"}
-              </Button>
-            </div>
-            <p className="text-xs text-surface-500 mt-1">
-              If set, this path will be used instead of qBittorrent's reported content path
-            </p>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
