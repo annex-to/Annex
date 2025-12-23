@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { ApprovalStatus } from "@prisma/client";
+import { type ApprovalStatus, Prisma } from "@prisma/client";
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
@@ -52,7 +52,11 @@ export const approvalsRouter = router({
         },
       });
 
-      return approvals.map((a: any) => ({
+      type ApprovalWithRequest = Prisma.ApprovalQueueGetPayload<{
+        include: { request: { select: { id: true; title: true; type: true; year: true } } };
+      }>;
+
+      return approvals.map((a: ApprovalWithRequest) => ({
         id: a.id,
         requestId: a.requestId,
         request: {

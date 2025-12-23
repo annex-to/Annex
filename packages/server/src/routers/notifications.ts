@@ -1,4 +1,4 @@
-import { MediaType, NotificationProvider } from "@prisma/client";
+import { type MediaType, type NotificationProvider, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getNotificationDispatcher } from "../services/notifications/NotificationDispatcher.js";
@@ -70,7 +70,9 @@ export const notificationsRouter = router({
         },
       });
 
-      return configs.map((c: any) => ({
+      type NotificationConfigData = Prisma.NotificationConfigGetPayload<Record<string, never>>;
+
+      return configs.map((c: NotificationConfigData) => ({
         id: c.id,
         name: c.name,
         provider: c.provider,

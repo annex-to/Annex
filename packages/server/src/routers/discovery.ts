@@ -1,4 +1,5 @@
 import type { TrendingResult } from "@annex/shared";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
@@ -368,8 +369,23 @@ export const discoveryRouter = router({
           },
         });
 
+        type LocalMediaItem = Prisma.MediaItemGetPayload<{
+          select: {
+            id: true;
+            tmdbId: true;
+            type: true;
+            title: true;
+            posterPath: true;
+            backdropPath: true;
+            year: true;
+            overview: true;
+            videos: true;
+            ratings: true;
+          };
+        }>;
+
         // Create lookup map
-        const localMap = new Map(localItems.map((item: any) => [item.id, item]));
+        const localMap = new Map(localItems.map((item: LocalMediaItem) => [item.id, item]));
 
         // Build results, enriching with local data when available
         const results: TrendingResult[] = traktItems.map((traktItem) => {
@@ -725,6 +741,13 @@ export const discoveryRouter = router({
         include: { ratings: true, seasons: { include: { episodes: true } } },
       });
 
+      type MediaItemWithSeasonsAndEpisodes = Prisma.MediaItemGetPayload<{
+        include: { ratings: true; seasons: { include: { episodes: true } } };
+      }>;
+
+      type SeasonWithEpisodes = Prisma.SeasonGetPayload<{ include: { episodes: true } }>;
+      type Episode = Prisma.EpisodeGetPayload<Record<string, never>>;
+
       const now = Date.now();
       const traktAge = cached?.traktUpdatedAt ? now - cached.traktUpdatedAt.getTime() : Infinity;
       const ratingsAge = cached?.mdblistUpdatedAt
@@ -732,7 +755,7 @@ export const discoveryRouter = router({
         : Infinity;
 
       // Helper to return cached data in the expected format
-      const formatResponse = (item: typeof cached) => {
+      const formatResponse = (item: MediaItemWithSeasonsAndEpisodes | null) => {
         if (!item) return null;
 
         const videos = item.videos as Array<{ key: string; site: string; type: string }> | null;
@@ -765,14 +788,14 @@ export const discoveryRouter = router({
           numberOfSeasons: item.numberOfSeasons,
           numberOfEpisodes: item.numberOfEpisodes,
           seasons:
-            item.seasons?.map((s: any) => ({
+            item.seasons?.map((s: SeasonWithEpisodes) => ({
               seasonNumber: s.seasonNumber,
               name: s.name,
               overview: s.overview,
               posterPath: s.posterPath,
               episodeCount: s.episodeCount,
               airDate: s.airDate,
-              episodes: s.episodes?.map((e: any) => ({
+              episodes: s.episodes?.map((e: Episode) => ({
                 episodeNumber: e.episodeNumber,
                 name: e.name,
                 overview: e.overview,

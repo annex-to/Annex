@@ -17,11 +17,6 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
-interface Genre {
-  id: number;
-  name: string;
-}
-
 interface ServerAvailability {
   serverId: string;
   serverName: string;

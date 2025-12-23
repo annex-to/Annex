@@ -28,6 +28,35 @@ interface StorageServer {
 interface Indexer {
   id: string;
   name: string;
+  type: string;
+  priority: number;
+  enabled: boolean;
+  apiKey?: string;
+  [key: string]: unknown;
+}
+
+interface Job {
+  id: string;
+  type: string;
+  status: string;
+  priority: number;
+  attempts: number;
+  maxAttempts: number;
+  startedAt?: Date;
+  progressCurrent?: number;
+  progressTotal?: number;
+  progress?: number;
+  [key: string]: unknown;
+}
+
+interface Worker {
+  id: string;
+  workerId: string;
+  hostname: string;
+  nodePid: number;
+  status: string;
+  startedAt: Date;
+  lastHeartbeat: Date;
   [key: string]: unknown;
 }
 
@@ -2059,7 +2088,7 @@ function IndexersSettings() {
 
       {indexers.data && indexers.data.length > 0 && (
         <div className="space-y-3">
-          {indexers.data.map((indexer: any) => (
+          {indexers.data.map((indexer: Indexer) => (
             <Card key={indexer.id} className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -2363,7 +2392,7 @@ function JobsSettings() {
 
           {jobs.data && jobs.data.jobs.length > 0 && (
             <div className="space-y-3">
-              {jobs.data.jobs.map((job: any) => (
+              {jobs.data.jobs.map((job: Job) => (
                 <Card key={job.id} className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -2652,7 +2681,7 @@ function JobsSettings() {
 
           {workers.data && workers.data.length > 0 && (
             <div className="space-y-3">
-              {workers.data.map((worker: any) => (
+              {workers.data.map((worker: Worker) => (
                 <Card key={worker.id} className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
