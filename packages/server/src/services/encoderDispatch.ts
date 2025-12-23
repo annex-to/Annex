@@ -316,7 +316,8 @@ class EncoderDispatchService {
 
       // Find encoder with capacity
       const encoder = availableEncoders.find(
-        (e: AvailableEncoderData) => e.currentJobs < e.maxConcurrent && this.encoders.has(e.encoderId)
+        (e: AvailableEncoderData) =>
+          e.currentJobs < e.maxConcurrent && this.encoders.has(e.encoderId)
       );
 
       if (!encoder) {

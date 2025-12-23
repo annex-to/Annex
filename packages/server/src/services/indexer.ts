@@ -5,7 +5,7 @@
  * Aggregates, deduplicates, and scores results by quality.
  */
 
-import { type IndexerType, Prisma } from "@prisma/client";
+import type { IndexerType, Prisma } from "@prisma/client";
 import { XMLParser } from "fast-xml-parser";
 import { prisma } from "../db/client.js";
 import { getCardigannProvider } from "./cardigannProvider.js";
@@ -158,13 +158,17 @@ class IndexerService {
     type IndexerWithDecryptedKey = IndexerData & { apiKey: string | null };
 
     // Decrypt API keys before searching
-    const indexersWithDecryptedKeys: IndexerWithDecryptedKey[] = indexers.map((indexer: IndexerData) => ({
-      ...indexer,
-      apiKey: decryptApiKey(indexer.apiKey),
-    }));
+    const indexersWithDecryptedKeys: IndexerWithDecryptedKey[] = indexers.map(
+      (indexer: IndexerData) => ({
+        ...indexer,
+        apiKey: decryptApiKey(indexer.apiKey),
+      })
+    );
 
     const results = await Promise.allSettled(
-      indexersWithDecryptedKeys.map((indexer: IndexerWithDecryptedKey) => this.searchIndexer(indexer, options))
+      indexersWithDecryptedKeys.map((indexer: IndexerWithDecryptedKey) =>
+        this.searchIndexer(indexer, options)
+      )
     );
 
     const allReleases: Release[] = [];

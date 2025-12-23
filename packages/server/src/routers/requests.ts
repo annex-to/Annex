@@ -458,6 +458,40 @@ export const requestsRouter = router({
         },
       });
 
+      type MediaRequestWithEpisodes = Prisma.MediaRequestGetPayload<{
+        select: {
+          id: true;
+          type: true;
+          tmdbId: true;
+          title: true;
+          year: true;
+          posterPath: true;
+          targets: true;
+          requestedSeasons: true;
+          requestedEpisodes: true;
+          status: true;
+          progress: true;
+          currentStep: true;
+          error: true;
+          requiredResolution: true;
+          availableReleases: true;
+          createdAt: true;
+          updatedAt: true;
+          completedAt: true;
+          tvEpisodes: {
+            select: {
+              id: true;
+              season: true;
+              episode: true;
+              title: true;
+              airDate: true;
+              status: true;
+              progress: true;
+            };
+          };
+        };
+      }>;
+
       // Get server names for display
       const serverIds = new Set<string>();
 
@@ -469,9 +503,10 @@ export const requestsRouter = router({
       }
 
       // For requests without posterPath, look up from MediaItem (legacy support)
-      const requestsWithoutPoster = results.filter((r: any) => !r.posterPath);
+      const requestsWithoutPoster = results.filter((r: MediaRequestWithEpisodes) => !r.posterPath);
       const mediaItemIds = requestsWithoutPoster.map(
-        (r: any) => `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`
+        (r: MediaRequestWithEpisodes) =>
+          `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`
       );
 
       const [servers, mediaItems] = await Promise.all([
@@ -487,10 +522,13 @@ export const requestsRouter = router({
           : [],
       ]);
 
-      const serverMap = new Map(servers.map((s: any) => [s.id, s.name]));
-      const posterMap = new Map(mediaItems.map((m: any) => [m.id, m.posterPath]));
+      type ServerData = Prisma.StorageServerGetPayload<{ select: { id: true; name: true } }>;
+      type MediaItemData = Prisma.MediaItemGetPayload<{ select: { id: true; posterPath: true } }>;
 
-      return results.map((r: any) => {
+      const serverMap = new Map(servers.map((s: ServerData) => [s.id, s.name]));
+      const posterMap = new Map(mediaItems.map((m: MediaItemData) => [m.id, m.posterPath]));
+
+      return results.map((r: MediaRequestWithEpisodes) => {
         const targets = r.targets as unknown as RequestTarget[];
         const availableReleases = r.availableReleases as unknown[] | null;
         // Use stored posterPath, or fall back to MediaItem lookup for legacy requests
@@ -547,7 +585,9 @@ export const requestsRouter = router({
       select: { id: true, name: true },
     });
 
-    const serverMap = new Map(servers.map((s: any) => [s.id, s.name]));
+    type ServerInfo = Prisma.StorageServerGetPayload<{ select: { id: true; name: true } }>;
+
+    const serverMap = new Map(servers.map((s: ServerInfo) => [s.id, s.name]));
 
     return {
       id: r.id,
@@ -723,6 +763,8 @@ export const requestsRouter = router({
         orderBy: [{ season: "asc" }, { episode: "asc" }],
       });
 
+      type TvEpisodeData = Prisma.TvEpisodeGetPayload<Record<string, never>>;
+
       // Get target server IDs from the request
       const targets = request.targets as unknown as RequestTarget[];
       const serverIds = targets.map((t) => t.serverId);
@@ -752,7 +794,7 @@ export const requestsRouter = router({
 
       // Get download progress for episodes that are downloading
       const downloadingEpisodes = episodes.filter(
-        (ep: any) => ep.status === TvEpisodeStatus.DOWNLOADING && ep.downloadId
+        (ep: TvEpisodeData) => ep.status === TvEpisodeStatus.DOWNLOADING && ep.downloadId
       );
 
       const downloadService = getDownloadService();
@@ -760,14 +802,16 @@ export const requestsRouter = router({
 
       // First, get the Download records for these episodes
       const downloadIds = downloadingEpisodes
-        .map((ep: any) => ep.downloadId)
-        .filter((id: any): id is string => id !== null);
+        .map((ep: TvEpisodeData) => ep.downloadId)
+        .filter((id: string | null): id is string => id !== null);
 
       const downloads = await prisma.download.findMany({
         where: { id: { in: downloadIds } },
       });
 
-      const downloadMap = new Map(downloads.map((d: any) => [d.id, d]));
+      type DownloadData = Prisma.DownloadGetPayload<Record<string, never>>;
+
+      const downloadMap = new Map(downloads.map((d: DownloadData) => [d.id, d]));
 
       // Fetch all torrents once instead of individual calls per episode
       // This reduces API overhead when qBittorrent is under load
@@ -879,8 +923,12 @@ export const requestsRouter = router({
       orderBy: { name: "asc" },
     });
 
+    type ServerConfig = Prisma.StorageServerGetPayload<{
+      select: { id: true; name: true; maxResolution: true };
+    }>;
+
     return {
-      servers: servers.map((s: any) => ({
+      servers: servers.map((s: ServerConfig) => ({
         id: s.id,
         name: s.name,
         maxResolution: s.maxResolution,

@@ -1,4 +1,4 @@
-import type { MediaType, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { publicProcedure, router } from "../trpc.js";
