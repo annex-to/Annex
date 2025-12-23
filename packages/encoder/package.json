@@ -1,6 +1,6 @@
 {
   "name": "@annex/encoder",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Remote encoder client for Annex media platform",
   "type": "module",
   "main": "./src/index.ts",
