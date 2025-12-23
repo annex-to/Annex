@@ -147,7 +147,10 @@ class EncoderDispatchService {
       // 3. Detect stalls: ENCODING jobs > 2min without progress
       await this.detectStalledJobs();
 
-      // 4. Assign jobs: Match PENDING jobs to available encoders
+      // 4. Detect stuck completed: ENCODING jobs at 100% with no progress for > 5min
+      await this.detectStuckCompletedJobs();
+
+      // 5. Assign jobs: Match PENDING jobs to available encoders
       await this.assignPendingJobs();
     } catch (error) {
       console.error("[EncoderDispatch] Tick error:", error);
@@ -226,6 +229,49 @@ class EncoderDispatchService {
     for (const job of neverStarted) {
       console.warn(`[EncoderDispatch] Job ${job.jobId} never sent progress`);
       await this.handleStalledJob(job);
+    }
+  }
+
+  async detectStuckCompletedJobs(): Promise<void> {
+    const cutoff = new Date(Date.now() - 300000); // 5 minutes
+
+    // Find ENCODING jobs at or near 100% progress with no update for 5+ minutes
+    const stuckCompleted = await prisma.encoderAssignment.findMany({
+      where: {
+        status: "ENCODING",
+        progress: { gte: 99.5 }, // 99.5% or higher
+        lastProgressAt: { lt: cutoff },
+      },
+    });
+
+    for (const job of stuckCompleted) {
+      console.warn(
+        `[EncoderDispatch] Job ${job.jobId} appears complete (${job.progress.toFixed(1)}%) but stuck in ENCODING state`
+      );
+
+      // Mark as failed so it can be retried or investigated
+      await prisma.encoderAssignment.update({
+        where: { id: job.id },
+        data: {
+          status: "FAILED",
+          error: "Job completed but completion message not received",
+        },
+      });
+
+      // Decrement encoder job count
+      await prisma.remoteEncoder
+        .update({
+          where: { encoderId: job.encoderId },
+          data: { currentJobs: { decrement: 1 } },
+        })
+        .catch(() => {});
+
+      // Trigger failure callback
+      this.onJobFailed?.(
+        job.jobId,
+        "Job completed but completion message not received (stuck at 100%)"
+      );
+      this.emitEncoderStatusUpdate(job.encoderId);
     }
   }
 
