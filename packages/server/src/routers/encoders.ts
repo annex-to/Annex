@@ -5,6 +5,7 @@
  */
 
 import type { EncoderAssignmentInfo, RemoteEncoderInfo } from "@annex/shared";
+import { Prisma } from "@prisma/client";
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
@@ -21,7 +22,9 @@ export const encodersRouter = router({
       orderBy: { encoderId: "asc" },
     });
 
-    return encoders.map((e: any) => ({
+    type RemoteEncoderData = Prisma.RemoteEncoderGetPayload<Record<string, never>>;
+
+    return encoders.map((e: RemoteEncoderData) => ({
       id: e.id,
       encoderId: e.encoderId,
       name: e.name,
@@ -118,7 +121,9 @@ export const encodersRouter = router({
       orderBy: { assignedAt: "desc" },
     });
 
-    return assignments.map((a: any) => ({
+    type EncoderAssignmentData = Prisma.EncoderAssignmentGetPayload<Record<string, never>>;
+
+    return assignments.map((a: EncoderAssignmentData) => ({
       id: a.id,
       jobId: a.jobId,
       encoderId: a.encoderId,
@@ -156,7 +161,9 @@ export const encodersRouter = router({
         take: input.limit,
       });
 
-      return assignments.map((a: any) => ({
+      type CompletedEncoderAssignmentData = Prisma.EncoderAssignmentGetPayload<Record<string, never>>;
+
+      return assignments.map((a: CompletedEncoderAssignmentData) => ({
         id: a.id,
         jobId: a.jobId,
         encoderId: a.encoderId,
@@ -258,8 +265,10 @@ export const encodersRouter = router({
     }>((emit) => {
       const events = getJobEventService();
 
+      type RemoteEncoderSubscriptionData = Prisma.RemoteEncoderGetPayload<Record<string, never>>;
+
       // Emit current state immediately
-      prisma.remoteEncoder.findMany().then((encoders: any) => {
+      prisma.remoteEncoder.findMany().then((encoders: RemoteEncoderSubscriptionData[]) => {
         for (const encoder of encoders) {
           emit.next({
             encoderId: encoder.encoderId,
@@ -303,6 +312,8 @@ export const encodersRouter = router({
     }>((emit) => {
       const events = getJobEventService();
 
+      type AssignmentProgressData = Prisma.EncoderAssignmentGetPayload<Record<string, never>> | null;
+
       const handler = (event: JobUpdateEvent) => {
         if (event.job.type === "remote:encode" && event.eventType === "progress") {
           // Fetch full assignment info
@@ -310,7 +321,7 @@ export const encodersRouter = router({
             .findUnique({
               where: { jobId: event.job.id },
             })
-            .then((assignment: any) => {
+            .then((assignment: AssignmentProgressData) => {
               if (assignment) {
                 emit.next({
                   jobId: assignment.jobId,
