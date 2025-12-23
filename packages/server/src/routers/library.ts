@@ -1,4 +1,4 @@
-import { MediaType } from "@prisma/client";
+import { type MediaType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { publicProcedure, router } from "../trpc.js";
@@ -62,8 +62,10 @@ export const libraryRouter = router({
         prisma.mediaItem.count({ where }),
       ]);
 
+      type MediaItemWithRatings = Prisma.MediaItemGetPayload<{ include: { ratings: true } }>;
+
       return {
-        items: items.map((item: any) => ({
+        items: items.map((item: MediaItemWithRatings) => ({
           id: item.id,
           tmdbId: item.tmdbId,
           imdbId: item.imdbId,
@@ -161,11 +163,15 @@ export const libraryRouter = router({
       }),
     ]);
 
+    type RecentMediaItem = Prisma.MediaItemGetPayload<{
+      select: { id: true; tmdbId: true; title: true; type: true; posterPath: true; createdAt: true };
+    }>;
+
     return {
       movies: movieCount,
       tvShows: tvCount,
       total: movieCount + tvCount,
-      recentlyAdded: recentlyAdded.map((item: any) => ({
+      recentlyAdded: recentlyAdded.map((item: RecentMediaItem) => ({
         id: item.id,
         tmdbId: item.tmdbId,
         title: item.title,
@@ -202,9 +208,13 @@ export const libraryRouter = router({
         },
       });
 
+      type LibraryItemWithServer = Prisma.LibraryItemGetPayload<{
+        include: { server: { select: { id: true; name: true } } };
+      }>;
+
       return {
         inLibrary: libraryItems.length > 0,
-        servers: libraryItems.map((item: any) => ({
+        servers: libraryItems.map((item: LibraryItemWithServer) => ({
           serverId: item.server.id,
           serverName: item.server.name,
           quality: item.quality,
@@ -238,6 +248,10 @@ export const libraryRouter = router({
         },
         orderBy: [{ season: "asc" }, { episode: "asc" }],
       });
+
+      type EpisodeLibraryItemWithServer = Prisma.EpisodeLibraryItemGetPayload<{
+        include: { server: { select: { id: true; name: true; mediaServerType: true } } };
+      }>;
 
       // Group by server, then by season
       const serverMap = new Map<
@@ -284,7 +298,7 @@ export const libraryRouter = router({
             episodeCount: episodes.length,
           }))
           .sort((a, b) => a.seasonNumber - b.seasonNumber),
-        totalEpisodes: episodeItems.filter((e: any) => e.serverId === server.serverId).length,
+        totalEpisodes: episodeItems.filter((e: EpisodeLibraryItemWithServer) => e.serverId === server.serverId).length,
       }));
 
       return {

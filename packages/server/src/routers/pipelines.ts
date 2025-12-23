@@ -1,4 +1,4 @@
-import { ExecutionStatus, MediaType } from "@prisma/client";
+import { type ExecutionStatus, type MediaType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
@@ -118,7 +118,9 @@ export const pipelinesRouter = router({
         orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
 
-      return templates.map((t: any) => {
+      type PipelineTemplateData = Prisma.PipelineTemplateGetPayload<Record<string, never>>;
+
+      return templates.map((t: PipelineTemplateData) => {
         const steps = (t.steps || []) as unknown as StepSchemaType[];
         return {
           id: t.id,
@@ -391,7 +393,11 @@ export const pipelinesRouter = router({
         },
       });
 
-      return executions.map((e: any) => ({
+      type ExecutionWithRequest = Prisma.PipelineExecutionGetPayload<{
+        include: { request: { select: { title: true; type: true } } };
+      }>;
+
+      return executions.map((e: ExecutionWithRequest) => ({
         id: e.id,
         requestId: e.requestId,
         templateId: e.templateId,

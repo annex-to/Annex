@@ -1,4 +1,4 @@
-import { IndexerType } from "@prisma/client";
+import { type IndexerType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getCryptoService } from "../services/crypto.js";
@@ -75,7 +75,9 @@ export const indexersRouter = router({
       orderBy: { priority: "asc" },
     });
 
-    return results.map((i: any) => ({
+    type IndexerData = Prisma.IndexerGetPayload<Record<string, never>>;
+
+    return results.map((i: IndexerData) => ({
       id: i.id,
       name: i.name,
       type: fromIndexerType(i.type),
