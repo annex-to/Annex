@@ -264,6 +264,18 @@ export class DeliverStep extends BaseStep {
             completedAt: new Date(),
           },
         });
+      } else {
+        // Total failure - update request to FAILED
+        await prisma.mediaRequest.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.FAILED,
+            error,
+            completedAt: new Date(),
+          },
+        });
+
+        await this.logActivity(requestId, ActivityType.ERROR, `Delivery failed: ${error}`);
       }
 
       return {
