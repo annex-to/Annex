@@ -246,15 +246,15 @@ class EncoderDispatchService {
 
     for (const job of stuckCompleted) {
       console.warn(
-        `[EncoderDispatch] Job ${job.jobId} appears complete (${job.progress.toFixed(1)}%) but stuck in ENCODING state`
+        `[EncoderDispatch] Job ${job.jobId} appears complete (${job.progress.toFixed(1)}%) but stuck in ENCODING state - marking as COMPLETED`
       );
 
-      // Mark as failed so it can be retried or investigated
+      // Mark as completed since it reached 100%
       await prisma.encoderAssignment.update({
         where: { id: job.id },
         data: {
-          status: "FAILED",
-          error: "Job completed but completion message not received",
+          status: "COMPLETED",
+          completedAt: new Date(),
         },
       });
 
@@ -266,11 +266,20 @@ class EncoderDispatchService {
         })
         .catch(() => {});
 
-      // Trigger failure callback
-      this.onJobFailed?.(
-        job.jobId,
-        "Job completed but completion message not received (stuck at 100%)"
-      );
+      // Trigger completion callback with reconstructed result
+      if (this.onJobComplete && job.outputPath) {
+        this.onJobComplete(job.jobId, {
+          type: "job:complete",
+          jobId: job.jobId,
+          outputPath: job.outputPath,
+          outputSize: job.outputSize ? Number(job.outputSize) : 0,
+          compressionRatio: job.compressionRatio || 0,
+          duration:
+            job.completedAt && job.startedAt
+              ? (job.completedAt.getTime() - job.startedAt.getTime()) / 1000
+              : 0,
+        });
+      }
       this.emitEncoderStatusUpdate(job.encoderId);
     }
   }
