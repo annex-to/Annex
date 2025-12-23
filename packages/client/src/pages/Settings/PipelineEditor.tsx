@@ -16,6 +16,7 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, Card, Input, Label, Select } from "../../components/ui";
 import { trpc } from "../../trpc";
@@ -367,29 +368,31 @@ function PipelineEditorInner() {
 
   const updateNodeData = (nodeId: string, updates: Partial<StepData>) => {
     console.log("[PipelineEditor] updateNodeData called:", { nodeId, updates });
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          const updatedNode = {
-            ...node,
-            data: { ...node.data, ...updates },
-          };
-          console.log("[PipelineEditor] Updated node:", {
-            id: nodeId,
-            oldConfig: node.data.config,
-            newConfig: updatedNode.data.config,
-          });
-          return updatedNode;
-        }
-        return node;
-      })
-    );
-    // Defer autoSave to next tick to ensure state update has propagated
-    console.log("[PipelineEditor] Scheduling autoSave for next tick");
-    setTimeout(() => {
-      console.log("[PipelineEditor] Triggering autoSave after state update");
-      autoSave();
-    }, 0);
+
+    // Use flushSync to force synchronous re-render so autoSave gets fresh nodes
+    flushSync(() => {
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            const updatedNode = {
+              ...node,
+              data: { ...node.data, ...updates },
+            };
+            console.log("[PipelineEditor] Updated node:", {
+              id: nodeId,
+              oldConfig: node.data.config,
+              newConfig: updatedNode.data.config,
+            });
+            return updatedNode;
+          }
+          return node;
+        })
+      );
+    });
+
+    // Now autoSave will have the updated nodes from the re-render
+    console.log("[PipelineEditor] Triggering autoSave with updated nodes");
+    autoSave();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
