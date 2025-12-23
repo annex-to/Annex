@@ -296,12 +296,13 @@ function buildVideoArgs(
   // Video codec
   if (hwAccel === "VAAPI") {
     args.push("-c:v", "av1_vaapi");
-    // Use ICQ (Intelligent Constant Quality) mode instead of CQP for better compression
+    // Use ICQ (Intelligent Constant Quality) mode for better quality/compression balance
     // ICQ works more like CRF and produces reasonable file sizes
     args.push("-rc_mode", "ICQ");
     // For ICQ, use global_quality parameter (range 0-255, higher = lower quality)
-    // Map CRF 18-28 to quality 80-120 for good compression
-    const vaapiQuality = Math.round(encodingConfig.crf * 3.5 + 17);
+    // Map CRF 18-28 to quality 55-80 for better visual quality with good compression
+    // Formula: quality = crf * 2.5 + 10
+    const vaapiQuality = Math.round(encodingConfig.crf * 2.5 + 10);
     args.push("-global_quality", String(vaapiQuality));
     console.log(`[Encoder] Converted CRF ${encodingConfig.crf} -> VAAPI ICQ quality ${vaapiQuality}`);
   } else if (hwAccel === "QSV") {
