@@ -293,6 +293,18 @@ scheduler.register(
   }
 );
 
+// Register stuck pipeline detection task (runs every 5 minutes)
+scheduler.register(
+  "stuck-pipeline-detection",
+  "Stuck Pipeline Detection",
+  5 * 60 * 1000, // 5 minutes
+  async () => {
+    const { getPipelineExecutor } = await import("./services/pipeline/PipelineExecutor.js");
+    const executor = getPipelineExecutor();
+    await executor.detectStuckExecutions();
+  }
+);
+
 // Register download progress sync task (runs every 500ms)
 scheduler.register(
   "download-progress-sync",

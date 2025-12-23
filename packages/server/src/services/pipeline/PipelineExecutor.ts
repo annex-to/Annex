@@ -527,6 +527,58 @@ export class PipelineExecutor {
     });
     logger.info(`Cancelled pipeline execution ${executionId}`);
   }
+
+  // Detect and clean up stuck pipeline executions
+  async detectStuckExecutions(): Promise<void> {
+    const stuckTimeout = 3600000; // 1 hour in ms
+    const cutoff = new Date(Date.now() - stuckTimeout);
+
+    // Find RUNNING executions that started more than 1 hour ago
+    const stuckExecutions = await prisma.pipelineExecution.findMany({
+      where: {
+        status: "RUNNING" as ExecutionStatus,
+        startedAt: { lt: cutoff },
+      },
+      include: {
+        request: { select: { id: true, title: true } },
+      },
+    });
+
+    for (const execution of stuckExecutions) {
+      logger.warn(
+        `[Pipeline] Execution ${execution.id} for "${execution.request?.title}" stuck in RUNNING state for > 1 hour`
+      );
+
+      // Mark execution as failed
+      await prisma.pipelineExecution.update({
+        where: { id: execution.id },
+        data: {
+          status: "FAILED" as ExecutionStatus,
+          error: "Pipeline execution stuck - exceeded 1 hour timeout",
+          completedAt: new Date(),
+        },
+      });
+
+      // Mark request as failed if it exists
+      if (execution.requestId) {
+        await prisma.mediaRequest
+          .update({
+            where: { id: execution.requestId },
+            data: {
+              status: "FAILED",
+              error: "Pipeline execution stuck - exceeded 1 hour timeout",
+            },
+          })
+          .catch((err) => logger.error(`Failed to update request ${execution.requestId}:`, err));
+      }
+
+      logger.info(`[Pipeline] Marked stuck execution ${execution.id} as FAILED`);
+    }
+
+    if (stuckExecutions.length > 0) {
+      logger.info(`[Pipeline] Cleaned up ${stuckExecutions.length} stuck execution(s)`);
+    }
+  }
 }
 
 // Singleton instance
