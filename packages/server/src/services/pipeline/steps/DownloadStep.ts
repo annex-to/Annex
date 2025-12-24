@@ -204,12 +204,13 @@ export class DownloadStep extends BaseStep {
         const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
         const speed = `${this.formatBytes(progress.downloadSpeed)}/s`;
 
+        // Don't update currentStepStartedAt on progress updates - timestamp was set when
+        // download started (line 166)
         await prisma.mediaRequest.update({
           where: { id: requestId },
           data: {
             progress: overallProgress,
             currentStep: `Downloading: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
-            currentStepStartedAt: new Date(),
           },
         });
       },

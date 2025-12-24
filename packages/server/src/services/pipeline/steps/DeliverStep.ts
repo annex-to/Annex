@@ -270,12 +270,13 @@ export class DeliverStep extends BaseStep {
             const speed = `${this.formatBytes(progress.speed)}/s`;
             const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
 
+            // Don't update currentStepStartedAt on progress updates - timestamp was set when
+            // we started transferring to this server (line 262)
             await prisma.mediaRequest.update({
               where: { id: requestId },
               data: {
                 progress: stageProgress,
                 currentStep: `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
-                currentStepStartedAt: new Date(),
               },
             });
           },
