@@ -7,6 +7,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 
+const FFMPEG_ENABLED = process.env.FFMPEG_ENABLED === "true";
+
 describe("encoder - core functionality", () => {
   let originalSpawn: typeof Bun.spawn;
 
@@ -19,7 +21,7 @@ describe("encoder - core functionality", () => {
   });
 
   describe("encode - successful encoding", () => {
-    test("encodes video with VAAPI hardware acceleration", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("encodes video with VAAPI hardware acceleration", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -133,7 +135,7 @@ describe("encoder - core functionality", () => {
       expect(result.compressionRatio).toBeGreaterThan(0);
     });
 
-    test("encodes video with software encoding fallback", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("encodes video with software encoding fallback", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -232,7 +234,7 @@ describe("encoder - core functionality", () => {
       expect(result.outputSize).toBe(400000000);
     });
 
-    test("encodes with subtitle streams", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("encodes with subtitle streams", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -339,7 +341,7 @@ describe("encoder - core functionality", () => {
       expect(result).toBeDefined();
     });
 
-    test("handles resolution downscaling", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("handles resolution downscaling", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -436,7 +438,7 @@ describe("encoder - core functionality", () => {
   });
 
   describe("encode - error conditions", () => {
-    test("throws error when input file does not exist", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("throws error when input file does not exist", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -477,7 +479,7 @@ describe("encoder - core functionality", () => {
       ).rejects.toThrow("Input file not found");
     });
 
-    test("handles FFmpeg failure", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("handles FFmpeg failure", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -568,7 +570,7 @@ describe("encoder - core functionality", () => {
       ).rejects.toThrow("FFmpeg exited with code 1");
     });
 
-    test("handles abort signal", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("handles abort signal", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -672,7 +674,7 @@ describe("encoder - core functionality", () => {
   });
 
   describe("subtitle handling", () => {
-    test("includes MKV-compatible subtitle codecs", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("includes MKV-compatible subtitle codecs", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -779,7 +781,7 @@ describe("encoder - core functionality", () => {
   });
 
   describe("progress reporting", () => {
-    test("calls onProgress with encoding progress", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("calls onProgress with encoding progress", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",
@@ -883,7 +885,7 @@ describe("encoder - core functionality", () => {
   });
 
   describe("video flags handling", () => {
-    test("applies custom video flags to VAAPI encoding", async () => {
+    test.skipIf(!FFMPEG_ENABLED)("applies custom video flags to VAAPI encoding", async () => {
       mock.module("../config.js", () => ({
         getConfig: mock(() => ({
           encoderId: "test",

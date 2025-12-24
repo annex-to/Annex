@@ -93,6 +93,57 @@ class EncoderDispatchService {
   // ==========================================================================
 
   async initialize(): Promise<void> {
+    // Set up job completion callbacks to trigger pipeline recovery
+    this.onJobComplete = async (_jobId: string) => {
+      // Trigger encoding recovery to detect and process completed jobs
+      // This runs asynchronously without blocking
+      const { recoverStuckEncodings } = await import("./encodingRecovery.js");
+      recoverStuckEncodings().catch((err) =>
+        console.error("[EncoderDispatch] Recovery failed after job completion:", err)
+      );
+    };
+
+    this.onJobFailed = async (jobId: string, error: string) => {
+      console.log(`[EncoderDispatch] Job ${jobId} failed: ${error}`);
+
+      // Update the request and pipeline to reflect the failure
+      try {
+        const job = await prisma.job.findUnique({
+          where: { id: jobId },
+          select: { requestId: true },
+        });
+
+        if (job?.requestId) {
+          // Update MediaRequest to FAILED
+          await prisma.mediaRequest.update({
+            where: { id: job.requestId },
+            data: {
+              status: "FAILED",
+              error: `Encoding failed: ${error}`,
+              currentStep: null,
+            },
+          });
+
+          // Mark pipeline as FAILED
+          await prisma.pipelineExecution.updateMany({
+            where: {
+              requestId: job.requestId,
+              status: "RUNNING",
+            },
+            data: {
+              status: "FAILED",
+              error: `Encoding failed: ${error}`,
+              completedAt: new Date(),
+            },
+          });
+
+          console.log(`[EncoderDispatch] Marked request ${job.requestId} as FAILED`);
+        }
+      } catch (err) {
+        console.error("[EncoderDispatch] Failed to update request after job failure:", err);
+      }
+    };
+
     // Recovery: Reset any ASSIGNED jobs to PENDING (server crashed mid-assignment)
     const resetAssigned = await prisma.encoderAssignment.updateMany({
       where: { status: "ASSIGNED" },

@@ -60,6 +60,19 @@ mock.module("../../../trakt.js", () => ({
   }),
 }));
 
+// Mock download service (qBittorrent client)
+mock.module("../../../download.js", () => ({
+  getDownloadService: () => ({
+    getProgress: async (hash: string) => {
+      // Check if the torrent exists in our mock
+      if (!mockDownloadManager) return null;
+      const torrents = (mockDownloadManager as any).mockTorrents as Map<string, any>;
+      const torrent = torrents.get(hash);
+      return torrent ? { progress: torrent.progress } : null;
+    },
+  }),
+}));
+
 describe("Movie Pipeline Integration", () => {
   let executor: PipelineExecutor;
   let templateId: string;

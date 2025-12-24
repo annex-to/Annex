@@ -88,7 +88,7 @@ class DeliveryService {
         case "SFTP": {
           const sftp = new SftpClient();
           try {
-            const sshKeys = getSshKeyService();
+            const _sshKeys = getSshKeyService();
             const password = decryptIfPresent(server.encryptedPassword);
             const privateKey = decryptIfPresent(server.encryptedPrivateKey);
 

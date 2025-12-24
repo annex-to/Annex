@@ -5,7 +5,12 @@ import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
 import { getLibraryStatusService } from "../services/libraryStatus.js";
-import { getTraktService, type TraktEpisodeDetails } from "../services/trakt.js";
+import {
+  getTraktService,
+  type TraktEpisodeDetails,
+  type TraktListType,
+  type TraktPeriod,
+} from "../services/trakt.js";
 import { publicProcedure, router } from "../trpc.js";
 
 const ITEMS_PER_PAGE = 20;
@@ -65,11 +70,11 @@ export async function refreshTraktListCache(
     traktItems = await trakt.search(input.query, input.type, input.page, ITEMS_PER_PAGE, filters);
   } else {
     traktItems = await trakt.getList(
-      input.listType as any, // Type is validated by tRPC input schema
+      input.listType as TraktListType,
       input.type,
       input.page,
       ITEMS_PER_PAGE,
-      input.period as any, // Type is validated by tRPC input schema
+      input.period as TraktPeriod,
       filters
     );
   }
