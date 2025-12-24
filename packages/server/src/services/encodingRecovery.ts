@@ -1,13 +1,16 @@
-import { AssignmentStatus, RequestStatus } from "@prisma/client";
+import { AssignmentStatus, type Prisma, RequestStatus } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getPipelineExecutor } from "./pipeline/PipelineExecutor.js";
 
 /**
  * Recovers requests stuck in ENCODING status due to server restarts.
  *
- * When the server restarts during encoding, the EncodeStep polling loop is lost,
+ * When the server restarts or hot-reloads during encoding, the EncodeStep polling loop is lost,
  * but the encoder keeps running. This function detects completed encodings that
- * weren't processed and updates the requests to continue the pipeline.
+ * weren't processed and updates the pipeline context to continue execution.
+ *
+ * This recovery works with the tree-based pipeline system by reconstructing the
+ * encode step output from the database and updating the pipeline context.
  */
 export async function recoverStuckEncodings(): Promise<void> {
   console.log("[EncodingRecovery] Checking for stuck encodings...");
@@ -43,7 +46,10 @@ export async function recoverStuckEncodings(): Promise<void> {
         type: "remote:encode",
         payload: { path: ["requestId"], equals: request.id },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        payload: true,
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -69,17 +75,7 @@ export async function recoverStuckEncodings(): Promise<void> {
         `[EncodingRecovery] ${request.title}: Encoding completed at ${assignment.completedAt?.toISOString()} - recovering`
       );
 
-      // Update request to proceed to delivery
-      await prisma.mediaRequest.update({
-        where: { id: request.id },
-        data: {
-          status: RequestStatus.ENCODING,
-          progress: 90,
-          currentStep: "Encoding complete",
-        },
-      });
-
-      // Resume pipeline execution if it exists
+      // Find the pipeline execution
       const pipelineExecution = await prisma.pipelineExecution.findFirst({
         where: {
           requestId: request.id,
@@ -88,19 +84,83 @@ export async function recoverStuckEncodings(): Promise<void> {
         orderBy: { startedAt: "desc" },
       });
 
-      if (pipelineExecution) {
-        console.log(
-          `[EncodingRecovery] ${request.title}: Resuming pipeline execution ${pipelineExecution.id}`
-        );
-
-        // Resume the pipeline - this will continue from the current step
-        const executor = getPipelineExecutor();
-        await executor.resumeExecution(pipelineExecution.id);
-      } else {
+      if (!pipelineExecution) {
         console.log(
           `[EncodingRecovery] ${request.title}: No active pipeline execution found - may need manual retry`
         );
+        continue;
       }
+
+      // Reconstruct the encode step output from the completed assignment
+      const jobPayload = job.payload as {
+        encodingConfig?: {
+          videoEncoder?: string;
+          maxResolution?: string;
+        };
+      };
+
+      const encodingConfig = jobPayload.encodingConfig || {};
+      const videoEncoder = encodingConfig.videoEncoder || "libsvtav1";
+
+      // Determine codec from encoder
+      const codec =
+        videoEncoder.includes("av1") || videoEncoder.includes("AV1")
+          ? "AV1"
+          : videoEncoder.includes("hevc") || videoEncoder.includes("265")
+            ? "HEVC"
+            : "H264";
+
+      // Get target servers from context
+      const context = pipelineExecution.context as {
+        targets?: Array<{ serverId: string; encodingProfileId?: string }>;
+      };
+      const targetServerIds = context.targets?.map((t) => t.serverId) || [];
+
+      // Build the encode step output as it would have been
+      const encodeStepOutput = {
+        encodedFiles: [
+          {
+            profileId: context.targets?.[0]?.encodingProfileId || "default",
+            path: assignment.outputPath,
+            targetServerIds,
+            resolution: encodingConfig.maxResolution || "1080p",
+            codec,
+            size: assignment.outputSize ? Number(assignment.outputSize) : undefined,
+            compressionRatio: assignment.compressionRatio || undefined,
+          },
+        ],
+      };
+
+      // Update pipeline context with the encode step output
+      const updatedContext = {
+        ...context,
+        encode: encodeStepOutput,
+      };
+
+      await prisma.pipelineExecution.update({
+        where: { id: pipelineExecution.id },
+        data: {
+          context: updatedContext as unknown as Prisma.JsonObject,
+        },
+      });
+
+      // Update request status
+      await prisma.mediaRequest.update({
+        where: { id: request.id },
+        data: {
+          status: RequestStatus.ENCODING,
+          progress: 90,
+          currentStep: "Encoding complete (recovered)",
+        },
+      });
+
+      console.log(
+        `[EncodingRecovery] ${request.title}: Updated context with encoded file, resuming pipeline ${pipelineExecution.id}`
+      );
+
+      // Resume tree-based pipeline execution with updated context
+      const executor = getPipelineExecutor();
+      await executor.resumeTreeExecution(pipelineExecution.id);
 
       recovered++;
     } else if (assignment.status === AssignmentStatus.FAILED) {
@@ -116,7 +176,7 @@ export async function recoverStuckEncodings(): Promise<void> {
         `[EncodingRecovery] ${request.title}: Encoding still in progress (${assignment.progress}%)`
       );
       stillRunning++;
-      // The EncodeStep will resume monitoring when retried
+      // Don't auto-resume active encodings - they may complete on their own
     }
   }
 
@@ -125,7 +185,7 @@ export async function recoverStuckEncodings(): Promise<void> {
   }
   if (stillRunning > 0) {
     console.log(
-      `[EncodingRecovery] ${stillRunning} encodings still in progress (will not resume automatically)`
+      `[EncodingRecovery] ${stillRunning} encodings still in progress (not auto-resuming)`
     );
   }
 }

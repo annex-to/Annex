@@ -119,6 +119,23 @@ export class EncodeStep extends BaseStep {
     const cfg = (config as EncodeStepConfig | undefined) || {};
 
     const { requestId, mediaType } = context;
+
+    // Check if encoding already completed (recovery scenario)
+    if (context.encode?.encodedFiles && context.encode.encodedFiles.length > 0) {
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        "Encoding already completed, skipping (recovered from restart)"
+      );
+
+      return {
+        success: true,
+        data: {
+          encode: context.encode,
+        },
+      };
+    }
+
     const sourceFilePath = context.download?.sourceFilePath as string | undefined;
 
     if (!sourceFilePath) {

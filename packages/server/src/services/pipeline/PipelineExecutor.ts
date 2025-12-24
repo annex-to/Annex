@@ -476,7 +476,7 @@ export class PipelineExecutor {
     logger.info(`Paused pipeline execution ${executionId}: ${reason}`);
   }
 
-  // Resume execution
+  // Resume execution (LEGACY - for sequential pipeline system)
   async resumeExecution(executionId: string): Promise<void> {
     await prisma.pipelineExecution.update({
       where: { id: executionId },
@@ -489,6 +489,46 @@ export class PipelineExecutor {
 
     // Continue executing steps
     await this.executeNextStep(executionId);
+  }
+
+  // Resume tree-based execution after hot reload or restart
+  async resumeTreeExecution(executionId: string): Promise<void> {
+    try {
+      // Load the execution with its current state
+      const execution = await prisma.pipelineExecution.findUnique({
+        where: { id: executionId },
+      });
+
+      if (!execution) {
+        throw new Error(`Pipeline execution ${executionId} not found`);
+      }
+
+      if (execution.status !== "RUNNING") {
+        logger.info(`Pipeline execution ${executionId} is ${execution.status}, not resuming`);
+        return;
+      }
+
+      // Get the step tree and current context
+      const stepsTree = execution.steps as unknown as StepTree[];
+      const currentContext = execution.context as PipelineContext;
+
+      logger.info(
+        `Resuming tree-based pipeline execution ${executionId} for request ${execution.requestId}`
+      );
+
+      // Re-execute the tree with the current context
+      // Steps will check context to determine if they need to run
+      await this.executeStepTree(executionId, stepsTree, currentContext);
+
+      // Mark execution as complete
+      await this.completeExecution(executionId);
+    } catch (error) {
+      logger.error(`Failed to resume tree execution ${executionId}:`, error);
+      await this.failExecution(
+        executionId,
+        error instanceof Error ? error.message : "Unknown error"
+      );
+    }
   }
 
   // Fail execution
