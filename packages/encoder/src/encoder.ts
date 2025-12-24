@@ -644,14 +644,41 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
     }
   })();
 
-  // Collect stderr
-  const stderrPromise = new Response(ffmpeg.stderr).text();
+  // Stream stderr and keep only last 100 lines for error reporting (prevent memory leak)
+  const stderrLines: string[] = [];
+  const MAX_STDERR_LINES = 100;
+  const stderrReader = (async () => {
+    const reader = ffmpeg.stderr.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          stderrLines.push(line);
+          // Keep only last MAX_STDERR_LINES to prevent memory leak
+          if (stderrLines.length > MAX_STDERR_LINES) {
+            stderrLines.shift();
+          }
+        }
+      }
+    } catch {
+      // Stream closed, ignore
+    }
+  })();
 
   // Wait for process to exit
-  const [exitCode, stderr] = await Promise.all([ffmpeg.exited, stderrPromise]);
+  const exitCode = await ffmpeg.exited;
 
-  // Also wait for stdout processing to complete
-  await stdoutReader;
+  // Wait for all stream processing to complete
+  await Promise.all([stdoutReader, stderrReader]);
 
   const duration = (Date.now() - startTime) / 1000;
 
@@ -665,6 +692,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
       /* ignore */
     }
 
+    const stderr = stderrLines.join("\n");
     throw new Error(`FFmpeg exited with code ${exitCode}: ${stderr.slice(-500)}`);
   }
 
