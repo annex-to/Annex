@@ -270,6 +270,18 @@ model MediaRequest {
   sourceFilePath   String?       // Path to downloaded source file
   encodedFiles     Json?         // [{profileId, path, targetServerIds}] - encoded files ready for delivery
 
+  // Torrent metadata (captured at time of selection)
+  releaseFileSize      BigInt?       // Bytes
+  releaseIndexerName   String?       // Name of indexer
+  releaseSeeders       Int?          // Initial seeders
+  releaseLeechers      Int?          // Initial leechers
+  releaseResolution    String?       // e.g., "1080p", "2160p"
+  releaseSource        String?       // e.g., "BluRay", "WEB-DL"
+  releaseCodec         String?       // e.g., "HEVC", "H264"
+  releaseScore         Int?          // Quality score
+  releasePublishDate   DateTime?     // When release was published
+  releaseName          String?       // Full release name/title
+
   // Quality requirements (derived from target servers)
   requiredResolution  String?    // e.g., "2160p", "1080p" - minimum required resolution
   availableReleases   Json?      // Lower-quality alternatives when quality unavailable

@@ -440,9 +440,20 @@ export const requestsRouter = router({
           error: true,
           requiredResolution: true,
           availableReleases: true,
+          qualitySearchedAt: true,
           createdAt: true,
           updatedAt: true,
           completedAt: true,
+          releaseFileSize: true,
+          releaseIndexerName: true,
+          releaseSeeders: true,
+          releaseLeechers: true,
+          releaseResolution: true,
+          releaseSource: true,
+          releaseCodec: true,
+          releaseScore: true,
+          releasePublishDate: true,
+          releaseName: true,
           tvEpisodes: {
             select: {
               id: true,
@@ -475,9 +486,20 @@ export const requestsRouter = router({
           error: true;
           requiredResolution: true;
           availableReleases: true;
+          qualitySearchedAt: true;
           createdAt: true;
           updatedAt: true;
           completedAt: true;
+          releaseFileSize: true;
+          releaseIndexerName: true;
+          releaseSeeders: true;
+          releaseLeechers: true;
+          releaseResolution: true;
+          releaseSource: true;
+          releaseCodec: true;
+          releaseScore: true;
+          releasePublishDate: true;
+          releaseName: true;
           tvEpisodes: {
             select: {
               id: true;
@@ -556,9 +578,24 @@ export const requestsRouter = router({
             r.status === RequestStatus.QUALITY_UNAVAILABLE &&
             Array.isArray(availableReleases) &&
             availableReleases.length > 0,
+          qualitySearchedAt: r.qualitySearchedAt,
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
           completedAt: r.completedAt,
+          releaseMetadata: r.releaseFileSize
+            ? {
+                fileSize: Number(r.releaseFileSize),
+                indexerName: r.releaseIndexerName,
+                seeders: r.releaseSeeders,
+                leechers: r.releaseLeechers,
+                resolution: r.releaseResolution,
+                source: r.releaseSource,
+                codec: r.releaseCodec,
+                score: r.releaseScore,
+                publishDate: r.releasePublishDate,
+                name: r.releaseName,
+              }
+            : null,
         };
       });
     }),
@@ -608,6 +645,20 @@ export const requestsRouter = router({
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       completedAt: r.completedAt,
+      releaseMetadata: r.releaseFileSize
+        ? {
+            fileSize: Number(r.releaseFileSize),
+            indexerName: r.releaseIndexerName,
+            seeders: r.releaseSeeders,
+            leechers: r.releaseLeechers,
+            resolution: r.releaseResolution,
+            source: r.releaseSource,
+            codec: r.releaseCodec,
+            score: r.releaseScore,
+            publishDate: r.releasePublishDate,
+            name: r.releaseName,
+          }
+        : null,
     };
   }),
 
@@ -1001,6 +1052,19 @@ export const requestsRouter = router({
         data: {
           status: RequestStatus.PENDING,
           selectedRelease: selectedRelease as Prisma.JsonObject,
+          // Capture initial torrent metadata
+          releaseFileSize: selectedRelease.size ? BigInt(selectedRelease.size as number) : null,
+          releaseIndexerName: (selectedRelease.indexerName as string | undefined) || null,
+          releaseSeeders: (selectedRelease.seeders as number | undefined) || null,
+          releaseLeechers: (selectedRelease.leechers as number | undefined) || null,
+          releaseResolution: (selectedRelease.resolution as string | undefined) || null,
+          releaseSource: (selectedRelease.source as string | undefined) || null,
+          releaseCodec: (selectedRelease.codec as string | undefined) || null,
+          releaseScore: (selectedRelease.score as number | undefined) || null,
+          releasePublishDate: selectedRelease.publishDate
+            ? new Date(selectedRelease.publishDate as string | number | Date)
+            : null,
+          releaseName: (selectedRelease.title as string | undefined) || null,
           progress: 0,
           currentStep: `Accepted lower quality: ${String(selectedRelease.resolution || "unknown")}`,
           error: null,

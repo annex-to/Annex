@@ -54,6 +54,32 @@ export class SearchStep extends BaseStep {
 
     const { requestId, mediaType, tmdbId, title, year, targets } = context;
 
+    // Check if a release was already selected (e.g., user accepted alternative)
+    const existingRequest = await prisma.mediaRequest.findUnique({
+      where: { id: requestId },
+      select: { selectedRelease: true },
+    });
+
+    if (existingRequest?.selectedRelease) {
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        "Release already selected, skipping search"
+      );
+
+      // Proceed directly to download with the pre-selected release
+      return {
+        success: true,
+        nextStep: "download",
+        data: {
+          search: {
+            selectedRelease: existingRequest.selectedRelease,
+            qualityMet: true,
+          },
+        },
+      };
+    }
+
     // Update request status
     await prisma.mediaRequest.update({
       where: { id: requestId },
@@ -216,6 +242,7 @@ export class SearchStep extends BaseStep {
           progress: 0,
           currentStep: "Waiting for release availability",
           error: null,
+          qualitySearchedAt: new Date(),
         },
       });
       await this.logActivity(
@@ -357,6 +384,17 @@ export class SearchStep extends BaseStep {
       where: { id: requestId },
       data: {
         selectedRelease: bestRelease as unknown as Prisma.JsonObject,
+        // Capture initial torrent metadata
+        releaseFileSize: BigInt(bestRelease.size),
+        releaseIndexerName: bestRelease.indexerName,
+        releaseSeeders: bestRelease.seeders,
+        releaseLeechers: bestRelease.leechers,
+        releaseResolution: bestRelease.resolution,
+        releaseSource: bestRelease.source,
+        releaseCodec: bestRelease.codec,
+        releaseScore: rankedMatching[0].score,
+        releasePublishDate: bestRelease.publishDate,
+        releaseName: bestRelease.title,
         status: RequestStatus.SEARCHING,
         progress: 15,
         currentStep: `Selected: ${bestRelease.title}`,

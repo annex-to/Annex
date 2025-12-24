@@ -323,6 +323,7 @@ export interface StoredRelease {
   score: number;
   downloadUrl?: string;
   magnetUri?: string;
+  downloadHeaders?: Record<string, string>;
   indexerName?: string;
   indexerId?: string;
 }
@@ -345,6 +346,7 @@ export function releasesToStorageFormat(releases: Release[] | ScoredRelease[]): 
       score,
       downloadUrl: release.downloadUrl,
       magnetUri: release.magnetUri,
+      downloadHeaders: release.downloadHeaders,
       indexerName: release.indexerName,
       indexerId: release.indexerId,
     };

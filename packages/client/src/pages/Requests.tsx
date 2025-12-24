@@ -349,6 +349,14 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
+}
+
 interface RequestCardProps {
   request: {
     id: string;
@@ -369,9 +377,22 @@ interface RequestCardProps {
     error: string | null;
     requiredResolution: string | null;
     hasAlternatives: boolean;
+    qualitySearchedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
     completedAt: Date | null;
+    releaseMetadata: {
+      fileSize: number;
+      indexerName: string | null;
+      seeders: number | null;
+      leechers: number | null;
+      resolution: string | null;
+      source: string | null;
+      codec: string | null;
+      score: number | null;
+      publishDate: Date | null;
+      name: string | null;
+    } | null;
   };
   onShowAlternatives: (id: string) => void;
 }
@@ -438,6 +459,21 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
       hour: "numeric",
       minute: "2-digit",
     });
+  };
+
+  const formatRelativeTime = (date: Date) => {
+    const now = new Date();
+    const then = new Date(date);
+    const diffMs = now.getTime() - then.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return formatDate(date);
   };
 
   return (
@@ -510,6 +546,11 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
               <StatusIcon status={status} />
               <span>{config.label}</span>
             </div>
+            {request.qualitySearchedAt && (isAwaiting || isQualityUnavailable) && (
+              <span className="text-xs text-white/30">
+                Last checked {formatRelativeTime(request.qualitySearchedAt)}
+              </span>
+            )}
             {request.currentStep && isActive && (
               <span className="text-xs text-white/40">{request.currentStep}</span>
             )}
@@ -616,6 +657,107 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
             <div>
               <div className="text-xs text-white/40 mb-2 font-medium">Episodes</div>
               <EpisodeGrid requestId={request.id} />
+            </div>
+          )}
+
+          {/* Torrent Metadata */}
+          {request.releaseMetadata && (
+            <div>
+              <div className="text-xs text-white/40 mb-2 font-medium">Release Information</div>
+              <div className="bg-white/5 rounded border border-white/10 p-3 space-y-2">
+                {/* Release Name */}
+                {request.releaseMetadata.name && (
+                  <div>
+                    <div className="text-xs text-white/40 mb-1">Release Name</div>
+                    <div className="text-sm text-white/70 font-mono break-all">
+                      {request.releaseMetadata.name}
+                    </div>
+                  </div>
+                )}
+
+                {/* Metadata Badges Row */}
+                <div className="flex flex-wrap gap-2">
+                  {/* File Size */}
+                  {request.releaseMetadata.fileSize && (
+                    <div className="px-2 py-1 bg-white/10 rounded border border-white/10">
+                      <div className="text-[10px] text-white/40 uppercase">Size</div>
+                      <div className="text-sm text-white/90 font-medium">
+                        {formatBytes(request.releaseMetadata.fileSize)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Seeders */}
+                  {request.releaseMetadata.seeders !== null && (
+                    <div className="px-2 py-1 bg-green-500/10 rounded border border-green-500/20">
+                      <div className="text-[10px] text-green-400/70 uppercase">Seeders</div>
+                      <div className="text-sm text-green-400 font-medium">
+                        {request.releaseMetadata.seeders}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Leechers */}
+                  {request.releaseMetadata.leechers !== null && (
+                    <div className="px-2 py-1 bg-orange-500/10 rounded border border-orange-500/20">
+                      <div className="text-[10px] text-orange-400/70 uppercase">Leechers</div>
+                      <div className="text-sm text-orange-400 font-medium">
+                        {request.releaseMetadata.leechers}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resolution */}
+                  {request.releaseMetadata.resolution && (
+                    <div className="px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20">
+                      <div className="text-[10px] text-blue-400/70 uppercase">Resolution</div>
+                      <div className="text-sm text-blue-400 font-medium">
+                        {request.releaseMetadata.resolution}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Source */}
+                  {request.releaseMetadata.source && (
+                    <div className="px-2 py-1 bg-purple-500/10 rounded border border-purple-500/20">
+                      <div className="text-[10px] text-purple-400/70 uppercase">Source</div>
+                      <div className="text-sm text-purple-400 font-medium">
+                        {request.releaseMetadata.source}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Codec */}
+                  {request.releaseMetadata.codec && (
+                    <div className="px-2 py-1 bg-cyan-500/10 rounded border border-cyan-500/20">
+                      <div className="text-[10px] text-cyan-400/70 uppercase">Codec</div>
+                      <div className="text-sm text-cyan-400 font-medium">
+                        {request.releaseMetadata.codec}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quality Score */}
+                  {request.releaseMetadata.score !== null && (
+                    <div className="px-2 py-1 bg-gold-500/10 rounded border border-gold-500/20">
+                      <div className="text-[10px] text-gold-400/70 uppercase">Score</div>
+                      <div className="text-sm text-gold-400 font-medium">
+                        {request.releaseMetadata.score}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Indexer */}
+                  {request.releaseMetadata.indexerName && (
+                    <div className="px-2 py-1 bg-white/5 rounded border border-white/10">
+                      <div className="text-[10px] text-white/40 uppercase">Indexer</div>
+                      <div className="text-sm text-white/70 font-medium">
+                        {request.releaseMetadata.indexerName}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

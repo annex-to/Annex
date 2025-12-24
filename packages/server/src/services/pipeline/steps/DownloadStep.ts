@@ -2,6 +2,7 @@ import {
   ActivityType,
   DownloadStatus,
   type MediaType,
+  Prisma,
   RequestStatus,
   StepType,
 } from "@prisma/client";
@@ -115,11 +116,32 @@ export class DownloadStep extends BaseStep {
       });
 
       if (!download) {
+        // Download creation failed - likely due to stale auth headers or invalid release
+        // Clear selectedRelease to force a fresh search with new headers on next attempt
+        await this.logActivity(
+          requestId,
+          ActivityType.WARNING,
+          "Download creation failed (likely stale auth headers)"
+        );
+
+        await prisma.mediaRequest.update({
+          where: { id: requestId },
+          data: {
+            selectedRelease: Prisma.JsonNull,
+            availableReleases: Prisma.JsonNull,
+            status: RequestStatus.PENDING,
+            progress: 0,
+            currentStep: null,
+            error: "Download failed - stale authentication. Please retry the request.",
+          },
+        });
+
+        // Fail this execution so user can retry with fresh search
         return {
           success: false,
           shouldRetry: false,
           nextStep: null,
-          error: "Failed to create download",
+          error: "Failed to create download (likely stale auth headers) - please retry the request",
         };
       }
 
