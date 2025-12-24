@@ -574,7 +574,6 @@ export class PipelineExecutor {
     });
     logger.info(`Cancelled pipeline execution ${executionId}`);
   }
-
 }
 
 // Singleton instance

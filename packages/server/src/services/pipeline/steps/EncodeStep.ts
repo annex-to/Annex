@@ -184,7 +184,7 @@ export class EncodeStep extends BaseStep {
               status: RequestStatus.ENCODING,
               progress: 90,
               currentStep: "Encoding complete (reused existing file)",
-        currentStepStartedAt: new Date(),
+              currentStepStartedAt: new Date(),
             },
           });
 
@@ -348,7 +348,7 @@ export class EncodeStep extends BaseStep {
           data: {
             progress: 90,
             currentStep: "Encoding complete",
-        currentStepStartedAt: new Date(),
+            currentStepStartedAt: new Date(),
           },
         });
 
