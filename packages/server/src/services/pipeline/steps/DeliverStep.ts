@@ -66,12 +66,16 @@ export class DeliverStep extends BaseStep {
         resolution,
         codec,
         targetServerIds,
+        season,
+        episode,
       } = encodedFile as {
         path: string;
         profileId: string;
         resolution: string;
         codec: string;
         targetServerIds: string[];
+        season?: number;
+        episode?: number;
       };
 
       const servers = await prisma.storageServer.findMany({
@@ -92,12 +96,16 @@ export class DeliverStep extends BaseStep {
             container,
           });
         } else {
-          const season = context.requestedSeasons?.[0] || 1;
+          // TV show - use actual episode metadata
+          if (season === undefined || episode === undefined) {
+            throw new Error("Missing season/episode metadata for TV recovery check");
+          }
+
           remotePath = naming.getTvDestinationPath(server.pathTv, {
             series: title,
             year,
             season,
-            episode: 1,
+            episode,
             quality: resolution,
             codec,
             container,
@@ -208,12 +216,18 @@ export class DeliverStep extends BaseStep {
         resolution,
         codec,
         targetServerIds,
+        season,
+        episode,
+        episodeId,
       } = encodedFile as {
         path: string;
         profileId: string;
         resolution: string;
         codec: string;
         targetServerIds: string[];
+        season?: number;
+        episode?: number;
+        episodeId?: string;
       };
 
       const servers = await prisma.storageServer.findMany({
@@ -225,6 +239,7 @@ export class DeliverStep extends BaseStep {
 
       for (const server of servers) {
         let remotePath: string;
+        let displayName: string;
 
         if (mediaType === MediaType.MOVIE) {
           remotePath = naming.getMovieDestinationPath(server.pathMovies, {
@@ -234,31 +249,36 @@ export class DeliverStep extends BaseStep {
             codec,
             container,
           });
+          displayName = `${title} (${year})`;
         } else {
-          // TV show - simplified for now
-          const season = context.requestedSeasons?.[0] || 1;
+          // TV show - use actual episode metadata
+          if (season === undefined || episode === undefined) {
+            throw new Error("Missing season/episode metadata for TV delivery");
+          }
+
           remotePath = naming.getTvDestinationPath(server.pathTv, {
             series: title,
             year,
             season,
-            episode: 1,
+            episode,
             quality: resolution,
             codec,
             container,
           });
+          displayName = `${title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
         }
 
         await this.logActivity(
           requestId,
           ActivityType.INFO,
-          `Delivering to ${server.name}: ${remotePath}`
+          `Delivering ${displayName} to ${server.name}: ${remotePath}`
         );
 
         await prisma.mediaRequest.update({
           where: { id: requestId },
           data: {
             progress: 75 + (serverIndex / servers.length) * 20,
-            currentStep: `Transferring to ${server.name}...`,
+            currentStep: `Transferring ${displayName} to ${server.name}...`,
             currentStepStartedAt: new Date(),
           },
         });
@@ -287,7 +307,7 @@ export class DeliverStep extends BaseStep {
           await this.logActivity(
             requestId,
             ActivityType.SUCCESS,
-            `Delivered to ${server.name} in ${this.formatDuration(result.duration)}`,
+            `Delivered ${displayName} to ${server.name} in ${this.formatDuration(result.duration)}`,
             {
               server: server.name,
               bytesTransferred: result.bytesTransferred,
@@ -295,6 +315,17 @@ export class DeliverStep extends BaseStep {
               libraryScanTriggered: result.libraryScanTriggered,
             }
           );
+
+          // Update TvEpisode status if this is a TV episode
+          if (episodeId) {
+            await prisma.tvEpisode.update({
+              where: { id: episodeId },
+              data: {
+                status: "DELIVERED" as never,
+                deliveredAt: new Date(),
+              },
+            });
+          }
 
           // Add to library cache
           await prisma.libraryItem.upsert({
@@ -319,10 +350,22 @@ export class DeliverStep extends BaseStep {
           });
         } else {
           failedServers.push(server.id);
+
+          // Update TvEpisode status if this is a TV episode
+          if (episodeId) {
+            await prisma.tvEpisode.update({
+              where: { id: episodeId },
+              data: {
+                status: "FAILED" as never,
+                error: result.error,
+              },
+            });
+          }
+
           await this.logActivity(
             requestId,
             ActivityType.ERROR,
-            `Failed to deliver to ${server.name}: ${result.error}`
+            `Failed to deliver ${displayName} to ${server.name}: ${result.error}`
           );
         }
 

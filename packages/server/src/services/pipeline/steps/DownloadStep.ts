@@ -1,10 +1,11 @@
 import {
   ActivityType,
   DownloadStatus,
-  type MediaType,
+  MediaType,
   Prisma,
   RequestStatus,
   StepType,
+  TvEpisodeStatus,
 } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { detectRarArchive, extractRar, isSampleFile } from "../../archive.js";
@@ -74,35 +75,69 @@ export class DownloadStep extends BaseStep {
       downloadId = download.id;
 
       if (existingDownload.isComplete) {
-        // Already complete - get video file
+        // Already complete - get video file(s)
         const qb = getDownloadService();
-        const videoFile = await qb.getMainVideoFile(torrentHash);
 
-        if (!videoFile) {
+        if (mediaType === MediaType.MOVIE) {
+          // Movie: Get single main video file
+          const videoFile = await qb.getMainVideoFile(torrentHash);
+
+          if (!videoFile) {
+            return {
+              success: false,
+              shouldRetry: false,
+              nextStep: null,
+              error: "No video file found in existing download",
+            };
+          }
+
+          await prisma.mediaRequest.update({
+            where: { id: requestId },
+            data: { sourceFilePath: videoFile.path },
+          });
+
           return {
-            success: false,
-            shouldRetry: false,
-            nextStep: null,
-            error: "No video file found in existing download",
+            success: true,
+            nextStep: "encode",
+            data: {
+              download: {
+                torrentHash,
+                sourceFilePath: videoFile.path,
+                downloadedAt: new Date().toISOString(),
+              },
+            },
+          };
+        } else {
+          // TV: Extract all episode files
+          const episodeFiles = await this.extractEpisodeFiles(torrentHash, requestId);
+
+          if (episodeFiles.length === 0) {
+            return {
+              success: false,
+              shouldRetry: false,
+              nextStep: null,
+              error: "No episode files found in season pack",
+            };
+          }
+
+          await this.logActivity(
+            requestId,
+            ActivityType.SUCCESS,
+            `Found ${episodeFiles.length} episodes in season pack`
+          );
+
+          return {
+            success: true,
+            nextStep: "encode",
+            data: {
+              download: {
+                torrentHash,
+                episodeFiles,
+                downloadedAt: new Date().toISOString(),
+              },
+            },
           };
         }
-
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: { sourceFilePath: videoFile.path },
-        });
-
-        return {
-          success: true,
-          nextStep: "encode",
-          data: {
-            download: {
-              torrentHash,
-              sourceFilePath: videoFile.path,
-              downloadedAt: new Date().toISOString(),
-            },
-          },
-        };
       }
     } else if (selectedRelease) {
       // Create new download
@@ -281,88 +316,138 @@ export class DownloadStep extends BaseStep {
       }
     }
 
-    // Get main video file
-    const videoFile = await qb.getMainVideoFile(torrentHash);
+    // Handle movie vs TV show differently
+    if (mediaType === MediaType.MOVIE) {
+      // Movie: Get single main video file
+      const videoFile = await qb.getMainVideoFile(torrentHash);
 
-    if (!videoFile) {
-      // Try scanning directory for extracted files
-      if (archiveInfo.hasArchive) {
-        const extractedVideoFile = await this.scanForVideoFile(contentPath);
+      if (!videoFile) {
+        // Try scanning directory for extracted files
+        if (archiveInfo.hasArchive) {
+          const extractedVideoFile = await this.scanForVideoFile(contentPath);
 
-        if (extractedVideoFile) {
-          await this.logActivity(
-            requestId,
-            ActivityType.SUCCESS,
-            `Video file: ${this.formatBytes(extractedVideoFile.size)}`
-          );
+          if (extractedVideoFile) {
+            await this.logActivity(
+              requestId,
+              ActivityType.SUCCESS,
+              `Video file: ${this.formatBytes(extractedVideoFile.size)}`
+            );
 
-          await prisma.mediaRequest.update({
-            where: { id: requestId },
-            data: {
-              sourceFilePath: extractedVideoFile.path,
-              progress: 50,
-              currentStep: "Download complete",
-              currentStepStartedAt: new Date(),
-            },
-          });
-
-          return {
-            success: true,
-            nextStep: "encode",
-            data: {
-              download: {
-                torrentHash,
+            await prisma.mediaRequest.update({
+              where: { id: requestId },
+              data: {
                 sourceFilePath: extractedVideoFile.path,
-                downloadedAt: new Date().toISOString(),
+                progress: 50,
+                currentStep: "Download complete",
+                currentStepStartedAt: new Date(),
               },
-            },
-          };
+            });
+
+            return {
+              success: true,
+              nextStep: "encode",
+              data: {
+                download: {
+                  torrentHash,
+                  sourceFilePath: extractedVideoFile.path,
+                  downloadedAt: new Date().toISOString(),
+                },
+              },
+            };
+          }
         }
+
+        await prisma.download.update({
+          where: { id: downloadId },
+          data: {
+            status: DownloadStatus.FAILED,
+            failureReason: "No video file found in torrent",
+          },
+        });
+
+        return {
+          success: false,
+          shouldRetry: false,
+          nextStep: null,
+          error: "No video file found in downloaded content",
+        };
       }
 
-      await prisma.download.update({
-        where: { id: downloadId },
+      await this.logActivity(
+        requestId,
+        ActivityType.SUCCESS,
+        `Video file: ${this.formatBytes(videoFile.size)}`
+      );
+
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
         data: {
-          status: DownloadStatus.FAILED,
-          failureReason: "No video file found in torrent",
+          sourceFilePath: videoFile.path,
+          progress: 50,
+          currentStep: "Download complete",
+          currentStepStartedAt: new Date(),
         },
       });
 
       return {
-        success: false,
-        shouldRetry: false,
-        nextStep: null,
-        error: "No video file found in downloaded content",
+        success: true,
+        nextStep: "encode",
+        data: {
+          download: {
+            torrentHash,
+            sourceFilePath: videoFile.path,
+            downloadedAt: new Date().toISOString(),
+          },
+        },
+      };
+    } else {
+      // TV: Extract all episode files from season pack
+      const episodeFiles = await this.extractEpisodeFiles(torrentHash, requestId);
+
+      if (episodeFiles.length === 0) {
+        await prisma.download.update({
+          where: { id: downloadId },
+          data: {
+            status: DownloadStatus.FAILED,
+            failureReason: "No episode files found in season pack",
+          },
+        });
+
+        return {
+          success: false,
+          shouldRetry: false,
+          nextStep: null,
+          error: "No episode files found in season pack",
+        };
+      }
+
+      await this.logActivity(
+        requestId,
+        ActivityType.SUCCESS,
+        `Extracted ${episodeFiles.length} episodes from season pack`
+      );
+
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
+        data: {
+          progress: 50,
+          currentStep: `Download complete (${episodeFiles.length} episodes)`,
+          currentStepStartedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        nextStep: "encode",
+        data: {
+          download: {
+            torrentHash,
+            episodeFiles,
+            downloadedAt: new Date().toISOString(),
+          },
+        },
       };
     }
-
-    await this.logActivity(
-      requestId,
-      ActivityType.SUCCESS,
-      `Video file: ${this.formatBytes(videoFile.size)}`
-    );
-
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        sourceFilePath: videoFile.path,
-        progress: 50,
-        currentStep: "Download complete",
-        currentStepStartedAt: new Date(),
-      },
-    });
-
-    return {
-      success: true,
-      nextStep: "encode",
-      data: {
-        download: {
-          torrentHash,
-          sourceFilePath: videoFile.path,
-          downloadedAt: new Date().toISOString(),
-        },
-      },
-    };
   }
 
   private async scanForVideoFile(
@@ -399,6 +484,125 @@ export class DownloadStep extends BaseStep {
     }
 
     return extractedVideoFile;
+  }
+
+  /**
+   * Extract all episode files from a season pack torrent
+   * Maps files to existing TvEpisode records created during request creation
+   */
+  private async extractEpisodeFiles(
+    torrentHash: string,
+    requestId: string
+  ): Promise<
+    Array<{ season: number; episode: number; path: string; size: number; episodeId: string }>
+  > {
+    const qb = getDownloadService();
+    const progress = await qb.getProgress(torrentHash);
+
+    if (!progress) return [];
+
+    const files = await qb.getTorrentFiles(torrentHash);
+    if (files.length === 0) return [];
+
+    // Filter to video files only
+    const videoExtensions = [".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"];
+    const minSizeBytes = 100 * 1024 * 1024; // 100MB
+
+    const videoFiles = files.filter(
+      (f) =>
+        videoExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)) &&
+        !isSampleFile(f.name) &&
+        f.size >= minSizeBytes
+    );
+
+    const episodeFiles: Array<{
+      season: number;
+      episode: number;
+      path: string;
+      size: number;
+      episodeId: string;
+    }> = [];
+
+    // Get download record
+    const download = await prisma.download.findFirst({
+      where: { torrentHash },
+    });
+
+    if (!download) {
+      throw new Error(`Download not found for torrent ${torrentHash}`);
+    }
+
+    // Parse each file for S##E## pattern
+    const episodeRegex = /S(\d{1,2})E(\d{1,2})/i;
+
+    for (const file of videoFiles) {
+      const match = file.name.match(episodeRegex);
+
+      if (!match) {
+        console.warn(`[DownloadStep] Could not parse episode info from: ${file.name}`);
+        continue;
+      }
+
+      const season = Number.parseInt(match[1], 10);
+      const episode = Number.parseInt(match[2], 10);
+      const fullPath = `${progress.savePath}/${file.name}`;
+
+      // Find existing TvEpisode record (created during request creation)
+      const tvEpisode = await prisma.tvEpisode.findUnique({
+        where: {
+          requestId_season_episode: {
+            requestId,
+            season,
+            episode,
+          },
+        },
+      });
+
+      if (tvEpisode) {
+        // Update existing TvEpisode with download info
+        await prisma.tvEpisode.update({
+          where: { id: tvEpisode.id },
+          data: {
+            downloadId: download.id,
+            sourceFilePath: fullPath,
+            status: TvEpisodeStatus.DOWNLOADED,
+            downloadedAt: new Date(),
+          },
+        });
+
+        episodeFiles.push({
+          season,
+          episode,
+          path: fullPath,
+          size: file.size,
+          episodeId: tvEpisode.id,
+        });
+
+        await this.logActivity(
+          requestId,
+          ActivityType.INFO,
+          `Found episode S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}: ${file.name}`,
+          { season, episode, size: file.size }
+        );
+      } else {
+        // Episode found in download but not in request - log warning
+        console.warn(
+          `[DownloadStep] Episode S${season}E${episode} found in download but not in request ${requestId}`
+        );
+      }
+    }
+
+    // Sort by season then episode
+    episodeFiles.sort((a, b) => {
+      if (a.season !== b.season) return a.season - b.season;
+      return a.episode - b.episode;
+    });
+
+    console.log(
+      `[DownloadStep] Extracted ${episodeFiles.length} episodes from ${videoFiles.length} video files`
+    );
+
+    return episodeFiles;
   }
 
   private async logActivity(

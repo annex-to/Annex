@@ -47,7 +47,15 @@ export interface PipelineContext {
 
   download?: {
     torrentHash: string;
-    sourceFilePath: string;
+    sourceFilePath?: string; // For movies (single file)
+    episodeFiles?: Array<{
+      // For TV shows (multiple files from season pack)
+      season: number;
+      episode: number;
+      path: string;
+      size: number;
+      episodeId: string; // TvEpisode.id for status tracking
+    }>;
     contentPath?: string;
     size?: number;
   };
@@ -61,6 +69,10 @@ export interface PipelineContext {
       codec: string;
       size?: number;
       compressionRatio?: number;
+      // TV episode metadata (for episode-aware delivery)
+      season?: number;
+      episode?: number;
+      episodeId?: string;
     }>;
   };
 
