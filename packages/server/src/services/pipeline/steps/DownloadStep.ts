@@ -238,17 +238,38 @@ export class DownloadStep extends BaseStep {
             });
           }
         } else {
-          // Season pack - mark all PENDING/SEARCHING episodes as DOWNLOADING
-          await prisma.tvEpisode.updateMany({
-            where: {
-              requestId,
-              status: { in: [TvEpisodeStatus.PENDING, TvEpisodeStatus.SEARCHING] },
-            },
-            data: {
-              status: TvEpisodeStatus.DOWNLOADING,
-              downloadId: download.id,
-            },
-          });
+          // Season pack - parse season number and mark only that season's episodes
+          const seasonMatch = download.torrentName.match(/S(\d{1,2})/i);
+
+          if (seasonMatch) {
+            const season = Number.parseInt(seasonMatch[1], 10);
+            await prisma.tvEpisode.updateMany({
+              where: {
+                requestId,
+                season,
+                status: { in: [TvEpisodeStatus.PENDING, TvEpisodeStatus.SEARCHING] },
+              },
+              data: {
+                status: TvEpisodeStatus.DOWNLOADING,
+                downloadId: download.id,
+              },
+            });
+          } else {
+            // No season number found - mark all PENDING/SEARCHING episodes (fallback)
+            console.warn(
+              `[DownloadStep] No season number found in torrent name: ${download.torrentName}`
+            );
+            await prisma.tvEpisode.updateMany({
+              where: {
+                requestId,
+                status: { in: [TvEpisodeStatus.PENDING, TvEpisodeStatus.SEARCHING] },
+              },
+              data: {
+                status: TvEpisodeStatus.DOWNLOADING,
+                downloadId: download.id,
+              },
+            });
+          }
         }
       }
     } else {
