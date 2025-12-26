@@ -377,16 +377,78 @@ scheduler.register(
             progress.eta > 0 ? `ETA: ${Math.floor(progress.eta / 60)}m ${progress.eta % 60}s` : "";
 
           if (progress.isComplete) {
-            // Download completed
-            const videoFile = await qb.getMainVideoFile(download.torrentHash);
-            await prisma.mediaRequest.update({
+            // Download completed - process and continue pipeline
+            const request = await prisma.mediaRequest.findUnique({
               where: { id: download.requestId },
-              data: {
-                sourceFilePath: videoFile?.path,
-                progress: 50,
-                currentStep: "Download complete",
-              },
+              select: { type: true },
             });
+
+            if (request?.type === "TV") {
+              // TV show - extract episode files and continue to encoding
+              console.log(
+                `[DownloadSync] TV download completed for ${download.requestId}, extracting episodes`
+              );
+
+              // Extract episode files from the completed download
+              // This updates episode statuses to DOWNLOADED
+              const { extractEpisodeFilesFromDownload } = await import(
+                "./services/pipeline/downloadHelper.js"
+              );
+              const episodeFiles = await extractEpisodeFilesFromDownload(
+                download.torrentHash,
+                download.requestId
+              );
+
+              console.log(
+                `[DownloadSync] Extracted ${episodeFiles.length} episodes, continuing pipeline`
+              );
+
+              await prisma.mediaRequest.update({
+                where: { id: download.requestId },
+                data: {
+                  progress: 50,
+                  currentStep: `Download complete (${episodeFiles.length} episodes)`,
+                },
+              });
+
+              // Continue pipeline to encoding
+              const execution = await prisma.pipelineExecution.findFirst({
+                where: { requestId: download.requestId },
+                orderBy: { startedAt: "desc" },
+                select: { id: true, templateId: true },
+              });
+
+              if (execution) {
+                // Restart pipeline to continue to encoding
+                const { getPipelineExecutor } = await import(
+                  "./services/pipeline/PipelineExecutor.js"
+                );
+                const executor = getPipelineExecutor();
+
+                // Use setTimeout to avoid blocking the sync loop
+                setTimeout(() => {
+                  executor
+                    .startExecution(download.requestId, execution.templateId)
+                    .catch((error) => {
+                      console.error(
+                        `[DownloadSync] Failed to continue pipeline for ${download.requestId}:`,
+                        error
+                      );
+                    });
+                }, 1000);
+              }
+            } else {
+              // Movie - simple path update
+              const videoFile = await qb.getMainVideoFile(download.torrentHash);
+              await prisma.mediaRequest.update({
+                where: { id: download.requestId },
+                data: {
+                  sourceFilePath: videoFile?.path,
+                  progress: 50,
+                  currentStep: "Download complete",
+                },
+              });
+            }
           } else {
             // Download in progress
             const overallProgress = 20 + progress.progress * 0.3; // 20-50%
