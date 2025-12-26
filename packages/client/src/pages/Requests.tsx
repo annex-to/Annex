@@ -764,6 +764,22 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
                       </div>
                     </div>
                   )}
+
+                  {/* Episode Count (TV only) */}
+                  {(() => {
+                    const episodeCount = (request.releaseMetadata as unknown as { episodeCount?: number | null })
+                      .episodeCount;
+                    return (
+                      episodeCount !== null &&
+                      episodeCount !== undefined &&
+                      episodeCount > 0 && (
+                        <div className="px-2 py-1 bg-annex-500/10 rounded border border-annex-500/20">
+                          <div className="text-[10px] text-annex-400/70 uppercase">Episodes</div>
+                          <div className="text-sm text-annex-400 font-medium">{episodeCount}</div>
+                        </div>
+                      )
+                    );
+                  })()}
                 </div>
               </div>
             </div>

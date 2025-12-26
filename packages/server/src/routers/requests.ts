@@ -631,6 +631,14 @@ export const requestsRouter = router({
 
     const serverMap = new Map(servers.map((s: ServerInfo) => [s.id, s.name]));
 
+    // For TV shows, get episode count
+    let episodeCount: number | null = null;
+    if (r.type === MediaType.TV) {
+      episodeCount = await prisma.tvEpisode.count({
+        where: { requestId: input.id },
+      });
+    }
+
     return {
       id: r.id,
       type: fromMediaType(r.type),
@@ -663,6 +671,7 @@ export const requestsRouter = router({
             score: r.releaseScore,
             publishDate: r.releasePublishDate,
             name: r.releaseName,
+            episodeCount,
           }
         : null,
     };
