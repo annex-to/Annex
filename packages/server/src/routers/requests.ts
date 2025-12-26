@@ -752,7 +752,7 @@ export const requestsRouter = router({
   }),
 
   /**
-   * Retry a failed request by restarting its pipeline
+   * Retry a failed request by intelligently resuming from the appropriate step
    */
   retry: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const request = await prisma.mediaRequest.findUnique({
@@ -773,12 +773,53 @@ export const requestsRouter = router({
       throw new Error("No pipeline execution found for this request");
     }
 
-    // Reset request status
+    // Analyze current state to determine where to resume from
+    let status: RequestStatus = RequestStatus.PENDING;
+    let progress = 0;
+    let currentStep = "Starting pipeline...";
+
+    if (request.type === "TV") {
+      // Check episode statuses to determine resume point
+      const episodes = await prisma.tvEpisode.findMany({
+        where: { requestId: input.id },
+        select: { status: true },
+      });
+
+      if (episodes.length > 0) {
+        const statusCounts = episodes.reduce(
+          (acc, ep) => {
+            acc[ep.status] = (acc[ep.status] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>
+        );
+
+        const downloadedOrLater =
+          (statusCounts.DOWNLOADED || 0) +
+          (statusCounts.ENCODING || 0) +
+          (statusCounts.ENCODED || 0) +
+          (statusCounts.DELIVERING || 0) +
+          (statusCounts.COMPLETED || 0);
+
+        // If most episodes are downloaded or beyond, skip search/download
+        if (downloadedOrLater > episodes.length / 2) {
+          status = RequestStatus.DOWNLOADING;
+          progress = 50;
+          currentStep = `${downloadedOrLater} episodes ready - resuming from encoding`;
+          console.log(
+            `[Retry] Skipping search/download for ${request.title} - ${downloadedOrLater}/${episodes.length} episodes already downloaded`
+          );
+        }
+      }
+    }
+
+    // Reset request status to resume point
     await prisma.mediaRequest.update({
       where: { id: input.id },
       data: {
-        status: RequestStatus.PENDING,
-        progress: 0,
+        status,
+        progress,
+        currentStep,
         error: null,
       },
     });

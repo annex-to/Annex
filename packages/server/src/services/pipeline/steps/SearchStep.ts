@@ -87,6 +87,50 @@ export class SearchStep extends BaseStep {
       };
     }
 
+    // For TV shows, check if episodes are already downloaded - skip search if so
+    if (mediaType === MediaType.TV) {
+      const downloadedEpisodes = await prisma.tvEpisode.findMany({
+        where: {
+          requestId,
+          status: {
+            in: [
+              TvEpisodeStatus.DOWNLOADED,
+              TvEpisodeStatus.ENCODING,
+              TvEpisodeStatus.ENCODED,
+              TvEpisodeStatus.DELIVERING,
+              TvEpisodeStatus.COMPLETED,
+            ],
+          },
+        },
+        select: { id: true },
+      });
+
+      const totalEpisodes = await prisma.tvEpisode.count({
+        where: { requestId },
+      });
+
+      // If most episodes are already downloaded or beyond, skip search entirely
+      if (totalEpisodes > 0 && downloadedEpisodes.length > totalEpisodes / 2) {
+        await this.logActivity(
+          requestId,
+          ActivityType.INFO,
+          `Skipping search - ${downloadedEpisodes.length}/${totalEpisodes} episodes already downloaded or beyond`
+        );
+
+        return {
+          success: true,
+          nextStep: "download",
+          data: {
+            search: {
+              selectedRelease: null,
+              qualityMet: true,
+              skippedSearch: true,
+            },
+          },
+        };
+      }
+    }
+
     // Update request status
     await prisma.mediaRequest.update({
       where: { id: requestId },
