@@ -63,13 +63,23 @@ export class DownloadStep extends BaseStep {
       await this.logActivity(
         requestId,
         ActivityType.INFO,
-        "Downloads already created by SearchStep, monitoring will happen per-episode"
+        "Multiple episodes downloading in parallel - will encode/deliver each as it completes"
       );
 
-      // Skip to next step - downloads will be monitored individually per episode
+      // Update request status to DOWNLOADING
+      await prisma.mediaRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.DOWNLOADING,
+          currentStep: "Downloading multiple episodes in parallel...",
+          progress: 30,
+        },
+      });
+
+      // End pipeline - episodes will be processed individually via download monitor
       return {
         success: true,
-        nextStep: "encode",
+        nextStep: null, // End pipeline, download monitor will handle per-episode processing
         data: {},
       };
     }
