@@ -1,4 +1,10 @@
-import { ActivityType, MediaType, RequestStatus, StepType } from "@prisma/client";
+import {
+  ActivityType,
+  MediaType,
+  RequestStatus,
+  StepType,
+  TvEpisodeStatus,
+} from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { getDeliveryService } from "../../delivery.js";
 import { getNamingService } from "../../naming.js";
@@ -321,7 +327,7 @@ export class DeliverStep extends BaseStep {
             await prisma.tvEpisode.update({
               where: { id: episodeId },
               data: {
-                status: "DELIVERED" as never,
+                status: TvEpisodeStatus.COMPLETED,
                 deliveredAt: new Date(),
               },
             });
