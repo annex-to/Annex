@@ -235,8 +235,56 @@ export class SearchStep extends BaseStep {
       // Get all episodes for this request and their statuses
       const allEpisodes = await prisma.tvEpisode.findMany({
         where: { requestId },
-        select: { season: true, episode: true, status: true },
+        select: { id: true, season: true, episode: true, status: true },
       });
+
+      // Check library for episodes that are already on storage servers
+      // Get target server IDs
+      const targetServerIds = (targets as RequestTarget[]).map((t) => t.serverId);
+
+      // Find episodes already in library on ALL target servers
+      const libraryEpisodes = await prisma.episodeLibraryItem.findMany({
+        where: {
+          tmdbId,
+          serverId: { in: targetServerIds },
+        },
+        select: { season: true, episode: true, serverId: true },
+      });
+
+      // Group by episode to check if it's on all target servers
+      const episodeServerMap = new Map<string, Set<string>>();
+      for (const lib of libraryEpisodes) {
+        const key = `S${lib.season}E${lib.episode}`;
+        if (!episodeServerMap.has(key)) {
+          episodeServerMap.set(key, new Set());
+        }
+        episodeServerMap.get(key)!.add(lib.serverId);
+      }
+
+      // Mark episodes as SKIPPED if they're on all target servers
+      for (const ep of allEpisodes) {
+        const key = `S${ep.season}E${ep.episode}`;
+        const serversWithEpisode = episodeServerMap.get(key);
+
+        if (
+          serversWithEpisode &&
+          serversWithEpisode.size === targetServerIds.length &&
+          ep.status === TvEpisodeStatus.PENDING
+        ) {
+          // Episode is already on all target servers - mark as SKIPPED
+          await prisma.tvEpisode.update({
+            where: { id: ep.id },
+            data: { status: TvEpisodeStatus.SKIPPED },
+          });
+          await this.logActivity(
+            requestId,
+            ActivityType.INFO,
+            `Skipped S${String(ep.season).padStart(2, "0")}E${String(ep.episode).padStart(2, "0")} - already in library on all target servers`
+          );
+          console.log(`[Search] Marked ${key} as SKIPPED - already in library`);
+          ep.status = TvEpisodeStatus.SKIPPED; // Update local object
+        }
+      }
 
       const completedStatuses = new Set<TvEpisodeStatus>([
         TvEpisodeStatus.DOWNLOADED,
