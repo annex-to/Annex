@@ -229,67 +229,98 @@ export class SearchStep extends BaseStep {
       }
     );
 
-    // For TV shows, filter out releases for episodes we already have
+    // For TV shows, intelligently select between season packs and individual episodes
     let filteredReleases = searchResult.releases;
     if (mediaType === MediaType.TV) {
-      const completedEpisodes = await prisma.tvEpisode.findMany({
-        where: {
-          requestId,
-          status: {
-            in: [
-              TvEpisodeStatus.DOWNLOADED,
-              TvEpisodeStatus.ENCODING,
-              TvEpisodeStatus.ENCODED,
-              TvEpisodeStatus.DELIVERING,
-              TvEpisodeStatus.COMPLETED,
-              TvEpisodeStatus.SKIPPED,
-            ],
-          },
-        },
-        select: { season: true, episode: true },
+      // Get all episodes for this request and their statuses
+      const allEpisodes = await prisma.tvEpisode.findMany({
+        where: { requestId },
+        select: { season: true, episode: true, status: true },
       });
 
-      const completedSet = new Set(
-        completedEpisodes.map((ep) => `S${ep.season}E${ep.episode}`)
+      const completedStatuses = new Set<TvEpisodeStatus>([
+        TvEpisodeStatus.DOWNLOADED,
+        TvEpisodeStatus.ENCODING,
+        TvEpisodeStatus.ENCODED,
+        TvEpisodeStatus.DELIVERING,
+        TvEpisodeStatus.COMPLETED,
+        TvEpisodeStatus.SKIPPED,
+      ]);
+
+      const neededEpisodes = allEpisodes
+        .filter((ep) => !completedStatuses.has(ep.status))
+        .map((ep) => ({ season: ep.season, episode: ep.episode }));
+
+      const neededSet = new Set(neededEpisodes.map((ep) => `S${ep.season}E${ep.episode}`));
+
+      if (neededEpisodes.length === 0) {
+        await this.logActivity(requestId, ActivityType.INFO, "All episodes already downloaded");
+        return {
+          success: false,
+          shouldRetry: false,
+          nextStep: null,
+          error: "All episodes already downloaded",
+        };
+      }
+
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        `Need ${neededEpisodes.length} episode(s): ${Array.from(neededSet).slice(0, 5).join(", ")}${neededEpisodes.length > 5 ? "..." : ""}`
       );
 
-      if (completedEpisodes.length > 0) {
-        await this.logActivity(
-          requestId,
-          ActivityType.INFO,
-          `Filtering out releases for ${completedEpisodes.length} already-downloaded episode(s)`
-        );
+      // Categorize releases as season packs or individual episodes
+      const seasonPacks: typeof searchResult.releases = [];
+      const individualEpisodes: typeof searchResult.releases = [];
 
-        // Filter releases to exclude those that ONLY contain episodes we already have
-        filteredReleases = searchResult.releases.filter((release) => {
-          // Parse episode info from release title
-          const episodeMatches = release.title.matchAll(/S(\d{1,2})E(\d{1,2})/gi);
-          const releaseEpisodes = Array.from(episodeMatches, (match) => {
-            const season = Number.parseInt(match[1], 10);
-            const episode = Number.parseInt(match[2], 10);
-            return `S${season}E${episode}`;
-          });
-
-          // If we can't parse episodes (might be a season pack), keep it
-          if (releaseEpisodes.length === 0) {
-            return true;
-          }
-
-          // Keep release if it contains at least one episode we don't have
-          const hasNeededEpisode = releaseEpisodes.some((ep) => !completedSet.has(ep));
-          if (!hasNeededEpisode) {
-            console.log(
-              `[Search] Filtering out ${release.title} - all episodes already downloaded`
-            );
-          }
-          return hasNeededEpisode;
+      for (const release of searchResult.releases) {
+        const episodeMatches = release.title.matchAll(/S(\d{1,2})E(\d{1,2})/gi);
+        const releaseEpisodes = Array.from(episodeMatches, (match) => {
+          const season = Number.parseInt(match[1], 10);
+          const episode = Number.parseInt(match[2], 10);
+          return `S${season}E${episode}`;
         });
 
+        // Season pack: no specific episodes in title (e.g., "Show S01")
+        // or contains many episodes (5+)
+        if (releaseEpisodes.length === 0 || releaseEpisodes.length >= 5) {
+          seasonPacks.push(release);
+        } else {
+          // Individual episode release
+          const hasNeededEpisode = releaseEpisodes.some((ep) => neededSet.has(ep));
+          if (hasNeededEpisode) {
+            individualEpisodes.push(release);
+          }
+        }
+      }
+
+      console.log(
+        `[Search] Categorized: ${seasonPacks.length} season packs, ${individualEpisodes.length} individual episodes`
+      );
+
+      // Strategy 1: Prefer season pack if it likely covers all needed episodes
+      if (seasonPacks.length > 0) {
         await this.logActivity(
           requestId,
           ActivityType.INFO,
-          `After filtering: ${filteredReleases.length} releases remain (${searchResult.releases.length - filteredReleases.length} excluded)`
+          `Found ${seasonPacks.length} season pack(s) - preferring complete season download`
         );
+        filteredReleases = seasonPacks;
+      } else if (individualEpisodes.length > 0) {
+        // Strategy 2: Fall back to individual episodes
+        await this.logActivity(
+          requestId,
+          ActivityType.INFO,
+          `No season packs found - using ${individualEpisodes.length} individual episode release(s)`
+        );
+        filteredReleases = individualEpisodes;
+      } else {
+        await this.logActivity(
+          requestId,
+          ActivityType.WARNING,
+          "No suitable releases found for needed episodes"
+        );
+        filteredReleases = [];
       }
     }
 
