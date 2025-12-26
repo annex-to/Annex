@@ -460,8 +460,9 @@ export class DeliverStep extends BaseStep {
         );
 
         // Restart pipeline execution for remaining episodes
-        const execution = await prisma.pipelineExecution.findUnique({
-          where: { requestId },
+        const execution = await prisma.pipelineExecution.findFirst({
+          where: { requestId, parentExecutionId: null },
+          orderBy: { startedAt: "desc" },
         });
 
         if (execution) {

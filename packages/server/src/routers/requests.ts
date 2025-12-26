@@ -682,8 +682,9 @@ export const requestsRouter = router({
    */
   cancel: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     // Find and cancel the pipeline execution
-    const execution = await prisma.pipelineExecution.findUnique({
-      where: { requestId: input.id },
+    const execution = await prisma.pipelineExecution.findFirst({
+      where: { requestId: input.id, parentExecutionId: null },
+      orderBy: { startedAt: "desc" },
     });
 
     if (execution && execution.status === "RUNNING") {
@@ -714,8 +715,9 @@ export const requestsRouter = router({
     }
 
     // Cancel any running pipeline execution first
-    const execution = await prisma.pipelineExecution.findUnique({
-      where: { requestId: input.id },
+    const execution = await prisma.pipelineExecution.findFirst({
+      where: { requestId: input.id, parentExecutionId: null },
+      orderBy: { startedAt: "desc" },
     });
 
     if (execution && execution.status === "RUNNING") {
@@ -764,8 +766,9 @@ export const requestsRouter = router({
     }
 
     // Find the execution to get the template ID
-    const execution = await prisma.pipelineExecution.findUnique({
-      where: { requestId: input.id },
+    const execution = await prisma.pipelineExecution.findFirst({
+      where: { requestId: input.id, parentExecutionId: null },
+      orderBy: { startedAt: "desc" },
       select: { templateId: true },
     });
 
@@ -1129,8 +1132,9 @@ export const requestsRouter = router({
       });
 
       // Restart pipeline with the selected release
-      const execution = await prisma.pipelineExecution.findUnique({
-        where: { requestId: input.id },
+      const execution = await prisma.pipelineExecution.findFirst({
+        where: { requestId: input.id, parentExecutionId: null },
+        orderBy: { startedAt: "desc" },
         select: { templateId: true },
       });
 
@@ -1182,8 +1186,9 @@ export const requestsRouter = router({
         },
       });
 
-      const execution = await prisma.pipelineExecution.findUnique({
-        where: { requestId: input.id },
+      const execution = await prisma.pipelineExecution.findFirst({
+        where: { requestId: input.id, parentExecutionId: null },
+        orderBy: { startedAt: "desc" },
         select: { templateId: true },
       });
 

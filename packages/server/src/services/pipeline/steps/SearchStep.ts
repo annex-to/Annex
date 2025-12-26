@@ -22,6 +22,7 @@ import {
 } from "../../qualityService.js";
 import { getTraktService } from "../../trakt.js";
 import type { PipelineContext } from "../PipelineContext.js";
+import { getPipelineExecutor } from "../PipelineExecutor.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 
 interface SearchStepConfig {
@@ -60,6 +61,19 @@ export class SearchStep extends BaseStep {
     const cfg = (config as SearchStepConfig | undefined) || {};
 
     const { requestId, mediaType, tmdbId, title, year, targets } = context;
+
+    // Get parent execution ID for spawning branch pipelines
+    const parentExecution = await prisma.pipelineExecution.findFirst({
+      where: { requestId, parentExecutionId: null },
+      orderBy: { startedAt: "desc" },
+      select: { id: true },
+    });
+
+    if (!parentExecution) {
+      throw new Error(`Parent execution not found for request ${requestId}`);
+    }
+
+    const parentExecutionId = parentExecution.id;
 
     // For TV shows, check if episodes are already downloaded first - skip everything if so
     if (mediaType === MediaType.TV) {
@@ -515,9 +529,9 @@ export class SearchStep extends BaseStep {
           `[Search] Need ${neededSeasons.size} season(s): ${Array.from(neededSeasons).sort().join(", ")}`
         );
 
-        // Select best pack for each needed season and create downloads
-        const downloadManager = (await import("../../downloadManager.js")).downloadManager;
-        let createdDownloads = 0;
+        // Select best pack for each needed season and spawn episode branch pipelines
+        const executor = getPipelineExecutor();
+        let spawnedBranches = 0;
         const selectedPacks: Array<{ season: number; release: unknown }> = [];
 
         for (const season of Array.from(neededSeasons).sort()) {
@@ -535,73 +549,80 @@ export class SearchStep extends BaseStep {
               const bestPack = ranked[0].release;
               selectedPacks.push({ season, release: bestPack });
 
-              // Create download for this season pack
-              const download = await downloadManager.createDownload({
-                requestId,
-                mediaType: MediaType.TV,
-                release: bestPack as unknown as Release,
-              });
-
-              if (download) {
-                createdDownloads++;
-
-                // Mark all episodes in this season as DOWNLOADING
-                const episodesInSeason = neededEpisodes.filter((ep) => ep.season === season);
-                for (const ep of episodesInSeason) {
-                  await prisma.tvEpisode.update({
-                    where: { id: ep.id },
-                    data: {
-                      status: TvEpisodeStatus.DOWNLOADING,
-                      downloadId: download.id,
-                    },
-                  });
-                }
-
-                await this.logActivity(
+              // Spawn a branch pipeline for each episode in this season
+              const episodesInSeason = neededEpisodes.filter((ep) => ep.season === season);
+              for (const ep of episodesInSeason) {
+                // Spawn branch pipeline for this episode
+                const branchId = await executor.spawnBranchExecution(
+                  parentExecutionId,
                   requestId,
-                  ActivityType.INFO,
-                  `Queued Season ${season}: ${bestPack.title}`,
+                  ep.id,
+                  "episode-branch-pipeline",
                   {
-                    season,
-                    episodes: episodesInSeason.length,
-                    seeders: bestPack.seeders,
-                  }
+                    search: {
+                      selectedRelease: bestPack,
+                      qualityMet: true,
+                    },
+                    season: ep.season,
+                    episode: ep.episode,
+                  } as Partial<PipelineContext>
                 );
+
+                spawnedBranches++;
+
+                // Mark episode as DOWNLOADING (branch will handle it)
+                await prisma.tvEpisode.update({
+                  where: { id: ep.id },
+                  data: {
+                    status: TvEpisodeStatus.DOWNLOADING,
+                  },
+                });
 
                 console.log(
-                  `[Search] Created download for Season ${season}: ${download.id} - ${bestPack.title}`
+                  `[Search] Spawned branch ${branchId} for S${ep.season}E${ep.episode} using ${bestPack.title}`
                 );
               }
+
+              await this.logActivity(
+                requestId,
+                ActivityType.INFO,
+                `Spawned ${episodesInSeason.length} branch pipeline(s) for Season ${season}: ${bestPack.title}`,
+                {
+                  season,
+                  episodes: episodesInSeason.length,
+                  seeders: bestPack.seeders,
+                }
+              );
             }
           }
         }
 
-        if (createdDownloads > 0) {
+        if (spawnedBranches > 0) {
           await this.logActivity(
             requestId,
             ActivityType.SUCCESS,
-            `Queued ${createdDownloads} season pack(s) - all downloading in parallel`
+            `Spawned ${spawnedBranches} episode branch pipeline(s) - processing in parallel`
           );
 
-          // Update request progress
+          // Update request to show branches are running
           await prisma.mediaRequest.update({
             where: { id: requestId },
             data: {
               status: RequestStatus.DOWNLOADING,
               progress: 20,
-              currentStep: `Downloading ${createdDownloads} season pack(s)`,
+              currentStep: `Processing ${spawnedBranches} episode(s) in parallel`,
               currentStepStartedAt: new Date(),
             },
           });
 
-          // Mark that we already created downloads so DownloadStep can skip
+          // Return success - branches are now running independently
           return {
             success: true,
-            nextStep: "download",
+            nextStep: null, // No next step - branches handle everything
             data: {
               search: {
-                bulkDownloadsCreated: true,
-                downloadCount: createdDownloads,
+                branchesSpawned: true,
+                branchCount: spawnedBranches,
                 selectedPacks,
               },
             },
@@ -611,7 +632,7 @@ export class SearchStep extends BaseStep {
         // No quality packs found, fall through to normal selection
         filteredReleases = seasonPacks;
       } else if (individualEpisodes.length > 0) {
-        // Strategy 2: For individual episodes, select best release for EACH needed episode
+        // Strategy 2: For individual episodes, select best release for EACH needed episode and spawn branches
         await this.logActivity(
           requestId,
           ActivityType.INFO,
@@ -638,9 +659,9 @@ export class SearchStep extends BaseStep {
           }
         }
 
-        // Select best release for each needed episode and create downloads
-        const downloadManager = (await import("../../downloadManager.js")).downloadManager;
-        let createdDownloads = 0;
+        // Select best release for each needed episode and spawn branch pipelines
+        const executor = getPipelineExecutor();
+        let spawnedBranches = 0;
 
         for (const ep of neededEpisodes) {
           const key = `S${ep.season}E${ep.episode}`;
@@ -657,32 +678,42 @@ export class SearchStep extends BaseStep {
             if (ranked.length > 0) {
               const bestRelease = ranked[0].release;
 
-              // Create download for this episode
-              const download = await downloadManager.createDownload({
+              // Spawn branch pipeline for this episode
+              const branchId = await executor.spawnBranchExecution(
+                parentExecutionId,
                 requestId,
-                mediaType: MediaType.TV,
-                release: bestRelease as unknown as Release,
+                ep.id,
+                "episode-branch-pipeline",
+                {
+                  search: {
+                    selectedRelease: bestRelease,
+                    qualityMet: true,
+                  },
+                  season: ep.season,
+                  episode: ep.episode,
+                } as Partial<PipelineContext>
+              );
+
+              spawnedBranches++;
+
+              // Mark episode as DOWNLOADING (branch will handle it)
+              await prisma.tvEpisode.update({
+                where: { id: ep.id },
+                data: {
+                  status: TvEpisodeStatus.DOWNLOADING,
+                },
               });
 
-              if (download) {
-                createdDownloads++;
+              await this.logActivity(
+                requestId,
+                ActivityType.INFO,
+                `Spawned branch for ${key}: ${bestRelease.title}`,
+                { episode: key, seeders: bestRelease.seeders }
+              );
 
-                // Mark episode as DOWNLOADING
-                await prisma.tvEpisode.update({
-                  where: { id: ep.id },
-                  data: {
-                    status: TvEpisodeStatus.DOWNLOADING,
-                    downloadId: download.id,
-                  },
-                });
-
-                await this.logActivity(
-                  requestId,
-                  ActivityType.INFO,
-                  `Queued ${key}: ${bestRelease.title}`,
-                  { episode: key, seeders: bestRelease.seeders }
-                );
-              }
+              console.log(
+                `[Search] Spawned branch ${branchId} for ${key} using ${bestRelease.title}`
+              );
             }
           }
         }
@@ -690,17 +721,17 @@ export class SearchStep extends BaseStep {
         await this.logActivity(
           requestId,
           ActivityType.SUCCESS,
-          `Queued ${createdDownloads} episode download(s) - all downloading in parallel`
+          `Spawned ${spawnedBranches} episode branch pipeline(s) - processing in parallel`
         );
 
-        // Mark that we already created downloads so DownloadStep can skip
+        // Return success - branches are now running independently
         return {
           success: true,
-          nextStep: "download",
+          nextStep: null, // No next step - branches handle everything
           data: {
             search: {
-              bulkDownloadsCreated: true,
-              downloadCount: createdDownloads,
+              branchesSpawned: true,
+              branchCount: spawnedBranches,
             },
           },
         };

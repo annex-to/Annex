@@ -574,6 +574,96 @@ export class PipelineExecutor {
     });
     logger.info(`Cancelled pipeline execution ${executionId}`);
   }
+
+  // Spawn a branch pipeline execution (for TV episode processing)
+  async spawnBranchExecution(
+    parentExecutionId: string,
+    requestId: string,
+    episodeId: string,
+    branchTemplateId: string,
+    context: Partial<PipelineContext>
+  ): Promise<string> {
+    try {
+      // Fetch the branch template
+      const template = await prisma.pipelineTemplate.findUnique({
+        where: { id: branchTemplateId },
+      });
+
+      if (!template) {
+        throw new Error(`Branch template ${branchTemplateId} not found`);
+      }
+
+      // Parse steps tree from template
+      const stepsTree = template.steps as unknown as StepTree[];
+
+      // Get parent execution and request for context
+      const parentExecution = await prisma.pipelineExecution.findUnique({
+        where: { id: parentExecutionId },
+        select: { context: true },
+      });
+
+      const request = await prisma.mediaRequest.findUnique({
+        where: { id: requestId },
+      });
+
+      if (!request) {
+        throw new Error(`Request ${requestId} not found`);
+      }
+
+      // Merge parent context with branch-specific context
+      const parentContext = (parentExecution?.context as Record<string, unknown>) || {};
+      const branchContext: PipelineContext = {
+        requestId: request.id,
+        mediaType: request.type,
+        tmdbId: request.tmdbId,
+        title: request.title,
+        year: request.year,
+        targets: request.targets as Array<{ serverId: string; encodingProfileId?: string }>,
+        episodeId, // Add episode ID to context
+        ...parentContext, // Inherit from parent (e.g., selected release)
+        ...context, // Override with branch-specific context
+      };
+
+      // Create branch execution
+      const branchExecution = await prisma.pipelineExecution.create({
+        data: {
+          requestId,
+          templateId: branchTemplateId,
+          parentExecutionId,
+          episodeId,
+          status: "RUNNING" as ExecutionStatus,
+          currentStep: 0,
+          steps: stepsTree as unknown as Prisma.JsonArray,
+          context: branchContext as unknown as Prisma.JsonObject,
+        },
+      });
+
+      logger.info(
+        `Spawned branch execution ${branchExecution.id} for episode ${episodeId} (parent: ${parentExecutionId})`
+      );
+
+      // Start executing the branch asynchronously (don't wait)
+      this.executeStepTree(branchExecution.id, stepsTree, branchContext)
+        .then(async () => {
+          await this.completeExecution(branchExecution.id);
+        })
+        .catch(async (error) => {
+          logger.error(
+            `Branch execution ${branchExecution.id} failed for episode ${episodeId}:`,
+            error
+          );
+          await this.failExecution(
+            branchExecution.id,
+            error instanceof Error ? error.message : "Unknown error"
+          );
+        });
+
+      return branchExecution.id;
+    } catch (error) {
+      logger.error(`Failed to spawn branch execution for episode ${episodeId}:`, error);
+      throw error;
+    }
+  }
 }
 
 // Singleton instance

@@ -327,8 +327,9 @@ export const pipelinesRouter = router({
   getExecutionByRequest: publicProcedure
     .input(z.object({ requestId: z.string() }))
     .query(async ({ input }) => {
-      const execution = await prisma.pipelineExecution.findUnique({
-        where: { requestId: input.requestId },
+      const execution = await prisma.pipelineExecution.findFirst({
+        where: { requestId: input.requestId, parentExecutionId: null },
+        orderBy: { startedAt: "desc" },
         include: {
           stepExecutions: {
             orderBy: { stepOrder: "asc" },

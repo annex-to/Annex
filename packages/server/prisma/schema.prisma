@@ -304,7 +304,7 @@ model MediaRequest {
   tvEpisodes       TvEpisode[]   // Track individual episode status for TV shows
   downloads        Download[]    // All downloads associated with this request
   jobs             Job[]         // All jobs associated with this request
-  pipelineExecution PipelineExecution?
+  pipelineExecutions PipelineExecution[]  // Main execution + episode branches
   approvalQueue    ApprovalQueue[]
 
   @@index([userId])
@@ -431,6 +431,9 @@ model TvEpisode {
   downloadedAt    DateTime?           // When source file became available
   encodedAt       DateTime?           // When encoding completed
   deliveredAt     DateTime?           // When delivered to all targets
+
+  // Branch pipeline execution for this episode
+  branchExecution PipelineExecution?
 
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
@@ -1086,7 +1089,7 @@ model PipelineTemplate {
 
 model PipelineExecution {
   id          String   @id @default(cuid())
-  requestId   String   @unique
+  requestId   String
   request     MediaRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   templateId  String
   template    PipelineTemplate @relation(fields: [templateId], references: [id])
@@ -1098,11 +1101,21 @@ model PipelineExecution {
   startedAt   DateTime @default(now())
   completedAt DateTime?
 
+  // Pipeline branching for TV episodes
+  parentExecutionId String?
+  parent           PipelineExecution?  @relation("BranchHierarchy", fields: [parentExecutionId], references: [id], onDelete: Cascade)
+  branches         PipelineExecution[] @relation("BranchHierarchy")
+
+  episodeId   String?   @unique   // For episode branch pipelines
+  episode     TvEpisode?        @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
   stepExecutions StepExecution[]
 
   @@index([requestId])
   @@index([status])
   @@index([templateId])
+  @@index([parentExecutionId])
+  @@index([episodeId])
 }
 
 model StepExecution {

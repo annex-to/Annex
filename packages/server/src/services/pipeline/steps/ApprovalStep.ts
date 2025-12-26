@@ -66,8 +66,9 @@ export class ApprovalStep extends BaseStep {
     }
 
     // Get execution ID from context or database
-    const execution = await prisma.pipelineExecution.findUnique({
-      where: { requestId: context.requestId },
+    const execution = await prisma.pipelineExecution.findFirst({
+      where: { requestId: context.requestId, parentExecutionId: null },
+      orderBy: { startedAt: "desc" },
       select: { id: true, currentStep: true },
     });
 
