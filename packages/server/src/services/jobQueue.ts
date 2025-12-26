@@ -197,9 +197,11 @@ class JobQueueService {
     await this.cleanupStaleWorkers();
 
     // 3. Find all pending and running jobs from database
+    // Exclude remote:encode jobs as they're handled by encoder dispatch service
     const jobs = await prisma.job.findMany({
       where: {
         status: { in: ["PENDING", "RUNNING"] },
+        type: { not: "remote:encode" },
       },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
@@ -375,10 +377,12 @@ class JobQueueService {
     }
 
     // Find pending jobs, ordered by priority and creation time
+    // Exclude remote:encode jobs as they're handled by encoder dispatch service
     const pendingJobs = await prisma.job.findMany({
       where: {
         status: "PENDING",
         scheduledFor: { lte: new Date() },
+        type: { not: "remote:encode" },
       },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       take: available,
