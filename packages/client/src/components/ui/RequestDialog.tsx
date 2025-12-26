@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { trpc } from "../../trpc";
 import { Button } from "./Button";
 import { Modal } from "./Modal";
@@ -11,6 +12,8 @@ interface RequestDialogProps {
   title: string;
   year: number;
   posterPath?: string | null;
+  seasons?: number[];
+  episodes?: Array<{ season: number; episode: number }>;
 }
 
 interface ServerSelection {
@@ -42,6 +45,8 @@ function RequestDialog({
   title,
   year,
   posterPath,
+  seasons,
+  episodes,
 }: RequestDialogProps) {
   const [serverSelections, setServerSelections] = useState<Map<string, ServerSelection>>(new Map());
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
@@ -132,7 +137,9 @@ function RequestDialog({
         posterPath,
         targets,
         pipelineTemplateId: selectedPipelineId || undefined,
-        // TODO: Add season/episode selection for TV
+        subscribe: !seasons && !episodes,
+        seasons,
+        episodes,
       });
     }
   };
@@ -299,6 +306,40 @@ function RequestDialog({
                   })}
                 </div>
               </div>
+
+              {/* Show different message based on whether selections exist */}
+              {type === "tv" && !seasons && !episodes && (
+                <div className="p-3 bg-white/5 border border-white/10 rounded text-sm text-white/60">
+                  <p>
+                    This will request all episodes and subscribe to future releases.{" "}
+                    <Link
+                      to={`/tv/${tmdbId}`}
+                      className="text-annex-400 hover:text-annex-300 underline transition-colors"
+                      onClick={onClose}
+                    >
+                      View full details
+                    </Link>
+                    {" "}for granular season/episode selection.
+                  </p>
+                </div>
+              )}
+
+              {type === "tv" && (seasons || episodes) && (
+                <div className="p-3 bg-annex-500/10 border border-annex-500/30 rounded text-sm">
+                  <p className="text-white/90 font-medium mb-1">Selected Episodes:</p>
+                  <p className="text-white/70">
+                    {seasons && seasons.length > 0 && (
+                      <span>{seasons.length} full season{seasons.length !== 1 ? 's' : ''}</span>
+                    )}
+                    {episodes && episodes.length > 0 && (
+                      <span>
+                        {seasons && seasons.length > 0 && ', '}
+                        {episodes.length} individual episode{episodes.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
 
               {/* Summary */}
               {selectedServerCount > 0 && (

@@ -289,7 +289,8 @@ model MediaRequest {
   qualitySearchedAt   DateTime?  // When we last searched for quality releases
 
   // TV monitoring - for automatically downloading new episodes
-  monitoring       Boolean       @default(false)  // Keep watching for new episodes
+  monitoring       Boolean       @default(false)  // Keep watching for new episodes (legacy)
+  subscribe        Boolean       @default(false)  // Subscribe to future episode releases
   lastCheckedAt    DateTime?     // Last time we checked for new episodes
 
   createdAt        DateTime      @default(now())

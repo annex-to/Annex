@@ -184,6 +184,7 @@ export const requestsRouter = router({
         episodes: z.array(episodeRequestSchema).optional(),
         selectedRelease: releaseSchema.optional(),
         pipelineTemplateId: z.string().optional(),
+        subscribe: z.boolean().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -199,6 +200,7 @@ export const requestsRouter = router({
           targets: input.targets as unknown as Prisma.JsonArray,
           status: RequestStatus.PENDING,
           progress: 0,
+          subscribe: input.subscribe ?? false,
           // Store manually selected release if provided
           selectedRelease: input.selectedRelease
             ? (input.selectedRelease as unknown as Prisma.JsonObject)

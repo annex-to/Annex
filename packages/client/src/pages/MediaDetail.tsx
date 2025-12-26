@@ -74,6 +74,9 @@ export default function MediaDetailPage() {
   const [showAllCast, setShowAllCast] = useState(false);
   const [showRequestDialog, setShowRequestDialog] = useState(false);
   const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set());
+  const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
+  const [selectedEpisodes, setSelectedEpisodes] = useState<Set<string>>(new Set());
+  const [showRequestWithSelections, setShowRequestWithSelections] = useState(false);
 
   const type = location.pathname.startsWith("/movie") ? "movie" : "tv";
 
@@ -200,6 +203,104 @@ export default function MediaDetailPage() {
         };
       })
       .filter((s) => s.availableCount > 0);
+  };
+
+  // Episode selection helpers
+  const isSeasonFullySelected = (seasonNumber: number, episodeCount: number): boolean => {
+    if (selectedSeasons.has(seasonNumber)) return true;
+
+    const seasonEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
+    return seasonEpisodes.every(ep => selectedEpisodes.has(`${seasonNumber}-${ep}`));
+  };
+
+  const isSeasonPartiallySelected = (seasonNumber: number, episodeCount: number): boolean => {
+    if (selectedSeasons.has(seasonNumber)) return false;
+
+    const seasonEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
+    return seasonEpisodes.some(ep => selectedEpisodes.has(`${seasonNumber}-${ep}`));
+  };
+
+  const toggleSeasonSelection = (seasonNumber: number, episodeCount: number) => {
+    const newSelectedSeasons = new Set(selectedSeasons);
+    const newSelectedEpisodes = new Set(selectedEpisodes);
+
+    if (newSelectedSeasons.has(seasonNumber)) {
+      newSelectedSeasons.delete(seasonNumber);
+    } else if (isSeasonFullySelected(seasonNumber, episodeCount)) {
+      for (let i = 1; i <= episodeCount; i++) {
+        newSelectedEpisodes.delete(`${seasonNumber}-${i}`);
+      }
+    } else {
+      newSelectedSeasons.add(seasonNumber);
+      for (let i = 1; i <= episodeCount; i++) {
+        newSelectedEpisodes.delete(`${seasonNumber}-${i}`);
+      }
+    }
+
+    setSelectedSeasons(newSelectedSeasons);
+    setSelectedEpisodes(newSelectedEpisodes);
+  };
+
+  const toggleEpisodeSelection = (seasonNumber: number, episodeNumber: number, episodeCount: number) => {
+    const newSelectedSeasons = new Set(selectedSeasons);
+    const newSelectedEpisodes = new Set(selectedEpisodes);
+    const key = `${seasonNumber}-${episodeNumber}`;
+
+    if (newSelectedSeasons.has(seasonNumber)) {
+      newSelectedSeasons.delete(seasonNumber);
+      for (let i = 1; i <= episodeCount; i++) {
+        if (i !== episodeNumber) {
+          newSelectedEpisodes.add(`${seasonNumber}-${i}`);
+        }
+      }
+    } else {
+      if (newSelectedEpisodes.has(key)) {
+        newSelectedEpisodes.delete(key);
+      } else {
+        newSelectedEpisodes.add(key);
+      }
+    }
+
+    setSelectedSeasons(newSelectedSeasons);
+    setSelectedEpisodes(newSelectedEpisodes);
+  };
+
+  const getSelectedCount = (): { seasons: number; episodes: number } => {
+    let totalEpisodes = 0;
+
+    if (tvData?.seasons) {
+      for (const season of tvData.seasons) {
+        if (selectedSeasons.has(season.seasonNumber)) {
+          totalEpisodes += season.episodes?.length || season.episodeCount || 0;
+        }
+      }
+    }
+
+    for (const key of selectedEpisodes) {
+      const [season] = key.split('-').map(Number);
+      if (!selectedSeasons.has(season)) {
+        totalEpisodes++;
+      }
+    }
+
+    return { seasons: selectedSeasons.size, episodes: totalEpisodes };
+  };
+
+  const buildRequestPayload = () => {
+    const seasons: number[] = Array.from(selectedSeasons);
+    const episodes: Array<{ season: number; episode: number }> = [];
+
+    for (const key of selectedEpisodes) {
+      const [season, episode] = key.split('-').map(Number);
+      if (!selectedSeasons.has(season)) {
+        episodes.push({ season, episode });
+      }
+    }
+
+    return {
+      seasons: seasons.length > 0 ? seasons : undefined,
+      episodes: episodes.length > 0 ? episodes : undefined,
+    };
   };
 
   // Trailer key is now provided directly instead of videos array
@@ -511,6 +612,34 @@ export default function MediaDetailPage() {
                           onClick={toggleSeason}
                           className="w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors text-left"
                         >
+                          {/* Season checkbox */}
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSeasonSelection(season.seasonNumber, season.episodes?.length || season.episodeCount || 0);
+                            }}
+                            className={`
+                              w-4 h-4 rounded border flex items-center justify-center flex-shrink-0
+                              transition-colors cursor-pointer
+                              ${
+                                selectedSeasons.has(season.seasonNumber) || isSeasonFullySelected(season.seasonNumber, season.episodes?.length || season.episodeCount || 0)
+                                  ? "bg-annex-500 border-annex-500 text-white"
+                                  : isSeasonPartiallySelected(season.seasonNumber, season.episodes?.length || season.episodeCount || 0)
+                                  ? "bg-annex-500/50 border-annex-500 text-white"
+                                  : "border-white/20 bg-white/5 hover:border-white/40"
+                              }
+                            `}
+                          >
+                            {(selectedSeasons.has(season.seasonNumber) || isSeasonFullySelected(season.seasonNumber, season.episodes?.length || season.episodeCount || 0)) && (
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                            {isSeasonPartiallySelected(season.seasonNumber, season.episodes?.length || season.episodeCount || 0) && (
+                              <div className="w-2 h-0.5 bg-current" />
+                            )}
+                          </div>
+
                           {/* Season Poster */}
                           {season.posterPath ? (
                             <img
@@ -592,6 +721,30 @@ export default function MediaDetailPage() {
                                     isAvailable ? "bg-green-500/[0.02]" : ""
                                   }`}
                                 >
+                                  {/* Episode checkbox */}
+                                  <div
+                                    onClick={() => toggleEpisodeSelection(
+                                      season.seasonNumber,
+                                      episode.episodeNumber,
+                                      season.episodes?.length || 0
+                                    )}
+                                    className={`
+                                      w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 mt-1
+                                      transition-colors cursor-pointer
+                                      ${
+                                        selectedSeasons.has(season.seasonNumber) || selectedEpisodes.has(`${season.seasonNumber}-${episode.episodeNumber}`)
+                                          ? "bg-annex-500 border-annex-500 text-white"
+                                          : "border-white/20 bg-white/5 hover:border-white/40"
+                                      }
+                                    `}
+                                  >
+                                    {(selectedSeasons.has(season.seasonNumber) || selectedEpisodes.has(`${season.seasonNumber}-${episode.episodeNumber}`)) && (
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                    )}
+                                  </div>
+
                                   {/* Episode Still */}
                                   <div className="relative flex-shrink-0">
                                     {episode.stillPath ? (
@@ -681,6 +834,60 @@ export default function MediaDetailPage() {
                     );
                   })}
                 </div>
+
+                {/* Selection Summary & Request Button */}
+                {isTvShow && tvData?.seasons && tvData.seasons.length > 0 && (
+                  <div className="sticky bottom-0 mt-6 p-4 bg-black/90 backdrop-blur-xl border border-white/10 rounded">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        {(() => {
+                          const { seasons, episodes } = getSelectedCount();
+                          if (episodes === 0) {
+                            return (
+                              <p className="text-sm text-white/50">
+                                Select seasons or episodes to request
+                              </p>
+                            );
+                          }
+                          return (
+                            <p className="text-sm text-white/90">
+                              <span className="font-medium text-annex-400">{episodes}</span> episode{episodes !== 1 ? 's' : ''} selected
+                              {seasons > 0 && (
+                                <span className="text-white/50">
+                                  {' '}({seasons} full season{seasons !== 1 ? 's' : ''})
+                                </span>
+                              )}
+                            </p>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="flex gap-3">
+                        {getSelectedCount().episodes > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="md"
+                            onClick={() => {
+                              setSelectedSeasons(new Set());
+                              setSelectedEpisodes(new Set());
+                            }}
+                          >
+                            Clear Selection
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="primary"
+                          size="md"
+                          onClick={() => setShowRequestWithSelections(true)}
+                          disabled={getSelectedCount().episodes === 0}
+                        >
+                          Request Selected Episodes
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -838,13 +1045,17 @@ export default function MediaDetailPage() {
 
       {/* Request Dialog */}
       <RequestDialog
-        isOpen={showRequestDialog}
-        onClose={() => setShowRequestDialog(false)}
+        isOpen={showRequestDialog || showRequestWithSelections}
+        onClose={() => {
+          setShowRequestDialog(false);
+          setShowRequestWithSelections(false);
+        }}
         tmdbId={tmdbId}
         type={type}
         title={data.title}
         year={data.year ?? 0}
         posterPath={data.posterPath}
+        {...(showRequestWithSelections && type === 'tv' ? buildRequestPayload() : {})}
       />
     </div>
   );
