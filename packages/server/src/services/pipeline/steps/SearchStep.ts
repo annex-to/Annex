@@ -685,6 +685,45 @@ export class SearchStep extends BaseStep {
 
     // Filter and rank releases by quality
     if (filteredReleases.length === 0) {
+      // For TV shows, check if we have DOWNLOADED episodes that can proceed to encoding
+      // even though we didn't find new releases for remaining episodes
+      if (mediaType === MediaType.TV) {
+        const allEpisodes = await prisma.tvEpisode.findMany({
+          where: { requestId },
+          select: { id: true, season: true, episode: true, status: true },
+        });
+
+        const downloadedEpisodes = allEpisodes.filter(
+          (ep) => ep.status === TvEpisodeStatus.DOWNLOADED
+        );
+
+        if (downloadedEpisodes.length > 0) {
+          await this.logActivity(
+            requestId,
+            ActivityType.INFO,
+            `No new releases found, but ${downloadedEpisodes.length} episodes already downloaded - proceeding to encoding`
+          );
+
+          console.log(
+            `[Search] ${downloadedEpisodes.length} episodes DOWNLOADED, continuing to encode them`
+          );
+
+          // Continue to download step which will handle these downloaded episodes
+          return {
+            success: true,
+            nextStep: "download",
+            data: {
+              search: {
+                selectedRelease: null,
+                qualityMet: true,
+                skippedSearch: true,
+              },
+            },
+          };
+        }
+      }
+
+      // No downloaded episodes to process, mark as awaiting
       await prisma.mediaRequest.update({
         where: { id: requestId },
         data: {
