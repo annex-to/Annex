@@ -61,33 +61,7 @@ export class SearchStep extends BaseStep {
 
     const { requestId, mediaType, tmdbId, title, year, targets } = context;
 
-    // Check if a release was already selected (e.g., user accepted alternative)
-    const existingRequest = await prisma.mediaRequest.findUnique({
-      where: { id: requestId },
-      select: { selectedRelease: true },
-    });
-
-    if (existingRequest?.selectedRelease) {
-      await this.logActivity(
-        requestId,
-        ActivityType.INFO,
-        "Release already selected, skipping search"
-      );
-
-      // Proceed directly to download with the pre-selected release
-      return {
-        success: true,
-        nextStep: "download",
-        data: {
-          search: {
-            selectedRelease: existingRequest.selectedRelease,
-            qualityMet: true,
-          },
-        },
-      };
-    }
-
-    // For TV shows, check if episodes are already downloaded - skip search if so
+    // For TV shows, check if episodes are already downloaded first - skip everything if so
     if (mediaType === MediaType.TV) {
       const downloadedEpisodes = await prisma.tvEpisode.findMany({
         where: {
@@ -129,6 +103,32 @@ export class SearchStep extends BaseStep {
           },
         };
       }
+    }
+
+    // Check if a release was already selected (e.g., user accepted alternative)
+    const existingRequest = await prisma.mediaRequest.findUnique({
+      where: { id: requestId },
+      select: { selectedRelease: true },
+    });
+
+    if (existingRequest?.selectedRelease) {
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        "Release already selected, skipping search"
+      );
+
+      // Proceed directly to download with the pre-selected release
+      return {
+        success: true,
+        nextStep: "download",
+        data: {
+          search: {
+            selectedRelease: existingRequest.selectedRelease,
+            qualityMet: true,
+          },
+        },
+      };
     }
 
     // Update request status
