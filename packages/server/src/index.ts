@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { Server, ServerWebSocket } from "bun";
 import { initConfig } from "./config/index.js";
+import { prisma } from "./db/client.js";
 import { appRouter } from "./routers/index.js";
 import { registerAuthTasks, verifySession } from "./services/auth.js";
 import { getCryptoService } from "./services/crypto.js";
@@ -33,9 +34,23 @@ const __dirname = path.dirname(__filename);
 // Initialize configuration early to catch errors
 const config = initConfig();
 
+// Connect to database before initializing services
+// This prevents "Engine is not yet connected" errors during startup
+const dbConnectionPromise = (async () => {
+  try {
+    await prisma.$connect();
+    console.log("[Startup] Database connected");
+  } catch (error) {
+    console.error("[Startup] Failed to connect to database:", error);
+    throw error;
+  }
+})();
+
 // Initialize crypto service and migrate env secrets to encrypted storage
 // This must happen before any service that might use secrets
 const secretsInitPromise = (async () => {
+  // Wait for database connection first
+  await dbConnectionPromise;
   try {
     const crypto = getCryptoService();
     await crypto.initialize();
