@@ -123,74 +123,63 @@ export class DownloadStep extends BaseStep {
       await this.logActivity(
         requestId,
         ActivityType.INFO,
-        `Found ${downloadedEpisodes.length} downloaded episodes, spawning branch pipelines`
+        `Found ${downloadedEpisodes.length} downloaded episodes, queueing for delivery`
       );
 
-      // Spawn branch pipeline for each downloaded episode
-      const { getPipelineExecutor } = await import("../PipelineExecutor.js");
-      const executor = getPipelineExecutor();
-      let spawnedBranches = 0;
+      // Queue episodes for sequential delivery instead of spawning branch pipelines
+      const { getDeliveryQueue } = await import("../../deliveryQueue.js");
+      const deliveryQueue = getDeliveryQueue();
+      let queuedCount = 0;
 
-      // Get parent execution ID for spawning branch pipelines
-      const parentExecution = await prisma.pipelineExecution.findFirst({
-        where: { requestId, parentExecutionId: null },
-        select: { id: true },
+      // Get request details for delivery jobs
+      const request = await prisma.mediaRequest.findUnique({
+        where: { id: requestId },
+        select: { title: true, year: true, targets: true },
       });
 
-      if (!parentExecution) {
+      if (!request) {
         return {
           success: false,
           shouldRetry: false,
           nextStep: null,
-          error: "Cannot spawn branch pipelines: parent execution not found",
+          error: "Request not found",
         };
       }
 
-      const parentExecutionId = parentExecution.id;
+      const targets = request.targets as unknown as Array<{
+        serverId: string;
+        encodingProfileId?: string;
+      }>;
 
       for (const ep of downloadedEpisodes.filter((e) => e.sourceFilePath !== null)) {
         try {
-          await executor.spawnBranchExecution(
-            parentExecutionId,
+          await deliveryQueue.enqueue({
+            episodeId: ep.id,
             requestId,
-            ep.id,
-            "episode-branch-pipeline",
-            {
-              download: {
-                torrentHash: "", // Empty hash for already-downloaded episodes
-                sourceFilePath: ep.sourceFilePath as string,
-                episodeFiles: [
-                  {
-                    season: ep.season,
-                    episode: ep.episode,
-                    path: ep.sourceFilePath as string,
-                    size: 0,
-                    episodeId: ep.id,
-                  },
-                ],
-                skipDownload: true, // Episode already downloaded
-              },
-              season: ep.season,
-              episode: ep.episode,
-            } as Partial<PipelineContext>
-          );
+            season: ep.season,
+            episode: ep.episode,
+            title: request.title,
+            year: request.year,
+            sourceFilePath: ep.sourceFilePath as string,
+            targetServers: targets.map((t) => ({
+              serverId: t.serverId,
+              encodingProfileId: t.encodingProfileId || "default",
+            })),
+          });
 
-          spawnedBranches++;
+          queuedCount++;
 
           await this.logActivity(
             requestId,
             ActivityType.INFO,
-            `Spawned branch for S${ep.season}E${ep.episode}`,
+            `Queued S${ep.season}E${ep.episode} for delivery`,
             { season: ep.season, episode: ep.episode }
           );
-
-          // Rate limit: small delay between spawns to avoid overwhelming database
-          await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (error) {
           await this.logActivity(
             requestId,
             ActivityType.ERROR,
-            `Failed to spawn branch for S${ep.season}E${ep.episode}: ${error}`,
+            `Failed to queue S${ep.season}E${ep.episode}: ${error}`,
             { season: ep.season, episode: ep.episode }
           );
         }
@@ -199,25 +188,25 @@ export class DownloadStep extends BaseStep {
       await this.logActivity(
         requestId,
         ActivityType.SUCCESS,
-        `Spawned ${spawnedBranches} episode branch pipeline(s) for extracted episodes`
+        `Queued ${queuedCount} episode(s) for sequential delivery`
       );
 
       await prisma.mediaRequest.update({
         where: { id: requestId },
         data: {
           progress: 50,
-          currentStep: `Processing ${spawnedBranches} episode(s) in parallel`,
+          currentStep: `Delivering ${queuedCount} episode(s) sequentially`,
         },
       });
 
-      // Return success - branches are now running independently
+      // Return success - episodes are queued for delivery
       return {
         success: true,
-        nextStep: null, // No next step - branches handle everything
+        nextStep: null,
         data: {
           download: {
-            branchesSpawned: true,
-            branchCount: spawnedBranches,
+            episodesQueued: true,
+            queuedCount,
           },
         },
       };
