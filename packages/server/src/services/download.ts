@@ -753,6 +753,25 @@ class DownloadService {
   }
 
   /**
+   * Add tags to a torrent
+   */
+  async addTags(hash: string, tags: string[]): Promise<boolean> {
+    try {
+      const response = await this.request("/torrents/addTags", {
+        method: "POST",
+        body: new URLSearchParams({
+          hashes: hash.toLowerCase(),
+          tags: tags.join(","),
+        }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Wait for a torrent to complete downloading
    */
   async waitForCompletion(

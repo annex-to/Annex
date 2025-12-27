@@ -546,6 +546,12 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
         `[DownloadManager] Found existing torrent with matching name: ${existing.name} (${existing.hash})`
       );
       torrentHash = existing.hash;
+
+      // Update tags to include the new request tag
+      await qb.addTags(torrentHash, [requestTag, uniqueTag]);
+      console.log(
+        `[DownloadManager] Updated tags on existing torrent ${torrentHash} with ${requestTag}`
+      );
     } else if (!addResult.success) {
       console.error(
         `[DownloadManager] Failed to add torrent and no existing match found: ${addResult.error}`
@@ -573,6 +579,12 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
           `[DownloadManager] Found existing torrent with matching name: ${existing.hash}`
         );
         torrentHash = existing.hash;
+
+        // Update tags to include the new request tag
+        await qb.addTags(torrentHash, [requestTag, uniqueTag]);
+        console.log(
+          `[DownloadManager] Updated tags on existing torrent ${torrentHash} with ${requestTag}`
+        );
       } else {
         console.error(
           `[DownloadManager] Failed to find torrent after adding. Tag: ${uniqueTag}, Release: ${release.title}`
