@@ -366,16 +366,7 @@ export class DeliverStep extends BaseStep {
         } else {
           failedServers.push(server.id);
 
-          // Update TvEpisode status if this is a TV episode
-          if (episodeId) {
-            await prisma.tvEpisode.update({
-              where: { id: episodeId },
-              data: {
-                status: "FAILED" as never,
-                error: result.error,
-              },
-            });
-          }
+          // Don't update episode status here - will be handled at the end based on retry decision
 
           await this.logActivity(
             requestId,
@@ -542,6 +533,24 @@ export class DeliverStep extends BaseStep {
         });
 
         await this.logActivity(requestId, ActivityType.ERROR, `Delivery failed: ${error}`);
+      }
+
+      // Update episode status if delivery failed completely
+      // Mark as FAILED if no servers succeeded (even if we plan to retry, since retry mechanism
+      // will need to detect and resume FAILED episodes with DELIVERING pipelines)
+      if (deliveredServers.length === 0) {
+        for (const encodedFile of encodedFiles) {
+          const { episodeId } = encodedFile as { episodeId?: string };
+          if (episodeId) {
+            await prisma.tvEpisode.update({
+              where: { id: episodeId },
+              data: {
+                status: TvEpisodeStatus.FAILED,
+                error: error,
+              },
+            });
+          }
+        }
       }
 
       return {

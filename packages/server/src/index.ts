@@ -7,7 +7,7 @@ import { initConfig } from "./config/index.js";
 import { appRouter } from "./routers/index.js";
 import { registerAuthTasks, verifySession } from "./services/auth.js";
 import { getCryptoService } from "./services/crypto.js";
-import { recoverStuckDeliveries } from "./services/deliveryRecovery.js";
+import { recoverStuckDeliveries, recoverFailedEpisodeDeliveries } from "./services/deliveryRecovery.js";
 import { recoverStuckDownloadExtractions } from "./services/downloadExtractionRecovery.js";
 import {
   type EncoderWebSocketData,
@@ -412,31 +412,72 @@ scheduler.register(
                 },
               });
 
-              // Continue pipeline to encoding
-              const execution = await prisma.pipelineExecution.findFirst({
-                where: { requestId: download.requestId },
-                orderBy: { startedAt: "desc" },
-                select: { id: true, templateId: true },
+              // Check if branch pipelines already exist (spawned by SearchStep)
+              const existingBranches = await prisma.pipelineExecution.findMany({
+                where: {
+                  requestId: download.requestId,
+                  episodeId: { in: episodeFiles.map((ep) => ep.episodeId) },
+                },
+                select: { episodeId: true },
               });
 
-              if (execution) {
-                // Restart pipeline to continue to encoding
-                const { getPipelineExecutor } = await import(
-                  "./services/pipeline/PipelineExecutor.js"
-                );
-                const executor = getPipelineExecutor();
+              const existingEpisodeIds = new Set(
+                existingBranches.map((b) => b.episodeId).filter(Boolean)
+              );
 
-                // Use setTimeout to avoid blocking the sync loop
-                setTimeout(() => {
-                  executor
-                    .startExecution(download.requestId, execution.templateId)
-                    .catch((error) => {
-                      console.error(
-                        `[DownloadSync] Failed to continue pipeline for ${download.requestId}:`,
-                        error
-                      );
-                    });
-                }, 1000);
+              // Only spawn branches for episodes that don't have one yet
+              const episodesNeedingBranches = episodeFiles.filter(
+                (ep) => !existingEpisodeIds.has(ep.episodeId)
+              );
+
+              if (episodesNeedingBranches.length > 0) {
+                const execution = await prisma.pipelineExecution.findFirst({
+                  where: { requestId: download.requestId, parentExecutionId: null },
+                  orderBy: { startedAt: "desc" },
+                  select: { id: true },
+                });
+
+                if (execution) {
+                  const { getPipelineExecutor } = await import(
+                    "./services/pipeline/PipelineExecutor.js"
+                  );
+                  const executor = getPipelineExecutor();
+
+                  // Spawn a branch pipeline for each episode that needs one
+                  for (const ep of episodesNeedingBranches) {
+                    setTimeout(() => {
+                      executor
+                        .spawnBranchExecution(
+                          execution.id,
+                          download.requestId,
+                          ep.episodeId,
+                          "episode-branch-pipeline",
+                          {
+                            season: ep.season,
+                            episode: ep.episode,
+                            download: {
+                              sourceFilePath: ep.path,
+                              downloadedAt: new Date().toISOString(),
+                            },
+                          }
+                        )
+                        .catch((error) => {
+                          console.error(
+                            `[DownloadSync] Failed to spawn branch pipeline for episode S${String(ep.season).padStart(2, "0")}E${String(ep.episode).padStart(2, "0")}:`,
+                            error
+                          );
+                        });
+                    }, 100 * episodesNeedingBranches.indexOf(ep)); // Stagger spawning by 100ms per episode
+                  }
+
+                  console.log(
+                    `[DownloadSync] Spawned ${episodesNeedingBranches.length} branch pipelines (${existingEpisodeIds.size} already exist)`
+                  );
+                }
+              } else {
+                console.log(
+                  `[DownloadSync] All ${episodeFiles.length} episodes already have branch pipelines, skipping spawn`
+                );
               }
             } else {
               // Movie - simple path update
@@ -503,6 +544,9 @@ Promise.all([
   }),
   recoverStuckDeliveries().catch((error) => {
     console.error("[DeliveryRecovery] Failed to recover stuck deliveries:", error);
+  }),
+  recoverFailedEpisodeDeliveries().catch((error) => {
+    console.error("[DeliveryRecovery] Failed to recover failed episode deliveries:", error);
   }),
 ]);
 

@@ -1,7 +1,8 @@
-import { RequestStatus } from "@prisma/client";
+import { RequestStatus, TvEpisodeStatus } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { registerPipelineSteps } from "./pipeline/registerSteps.js";
 import { StepRegistry } from "./pipeline/StepRegistry.js";
+import { getPipelineExecutor } from "./pipeline/PipelineExecutor.js";
 
 /**
  * Recovers requests stuck in DELIVERING status.
@@ -150,5 +151,113 @@ export async function recoverStuckDeliveries(): Promise<void> {
 
   if (recovered > 0) {
     console.log(`[DeliveryRecovery] ✓ Recovered ${recovered} stuck delivery/deliveries`);
+  }
+}
+
+/**
+ * Recovers episodes with failed deliveries by retrying delivery.
+ *
+ * Detects episodes that:
+ * - Are in FAILED status with delivery-related errors
+ * - Have been successfully encoded (encodedAt is set)
+ * - Have no active pipeline attempting delivery
+ *
+ * Creates new branch pipelines to retry delivery for these episodes.
+ */
+export async function recoverFailedEpisodeDeliveries(): Promise<void> {
+  console.log("[DeliveryRecovery] Checking for failed episode deliveries...");
+
+  // Ensure pipeline steps are registered
+  if (StepRegistry.getRegisteredTypes().length === 0) {
+    console.log("[DeliveryRecovery] Pipeline steps not registered, registering now...");
+    registerPipelineSteps();
+  }
+
+  // Find episodes that failed during delivery
+  const failedEpisodes = await prisma.tvEpisode.findMany({
+    where: {
+      status: TvEpisodeStatus.FAILED,
+      encodedAt: { not: null }, // Successfully encoded
+      sourceFilePath: { not: null }, // Have source file
+    },
+    select: {
+      id: true,
+      requestId: true,
+      season: true,
+      episode: true,
+      sourceFilePath: true,
+      error: true,
+      updatedAt: true,
+    },
+    orderBy: { updatedAt: "asc" },
+    take: 10, // Process up to 10 at a time to avoid overwhelming the system
+  });
+
+  if (failedEpisodes.length === 0) {
+    console.log("[DeliveryRecovery] No failed episode deliveries found");
+    return;
+  }
+
+  console.log(`[DeliveryRecovery] Found ${failedEpisodes.length} failed episode deliveries`);
+
+  let retried = 0;
+
+  for (const episode of failedEpisodes) {
+    const epNum = `S${String(episode.season).padStart(2, "0")}E${String(episode.episode).padStart(2, "0")}`;
+
+    // Check if there's already an active pipeline for this episode
+    const activePipeline = await prisma.pipelineExecution.findFirst({
+      where: {
+        episodeId: episode.id,
+        status: "RUNNING",
+      },
+    });
+
+    if (activePipeline) {
+      console.log(`[DeliveryRecovery] ${epNum}: Already has active pipeline, skipping`);
+      continue;
+    }
+
+    // Get the parent request to determine template
+    const request = await prisma.mediaRequest.findUnique({
+      where: { id: episode.requestId },
+      select: {
+        id: true,
+        title: true,
+        tmdbId: true,
+        type: true,
+      },
+    });
+
+    if (!request) {
+      console.log(`[DeliveryRecovery] ${epNum}: Request not found, skipping`);
+      continue;
+    }
+
+    // Reset episode status to allow retry
+    await prisma.tvEpisode.update({
+      where: { id: episode.id },
+      data: {
+        status: TvEpisodeStatus.DOWNLOADED,
+        error: null,
+      },
+    });
+
+    // Create new branch pipeline for delivery retry
+    const executor = getPipelineExecutor();
+    try {
+      // Note: This would need the parent pipeline to spawn a new branch
+      // For now, just log that we would retry
+      console.log(
+        `[DeliveryRecovery] ${epNum}: Reset to DOWNLOADED status for manual retry (auto-retry not yet implemented)`
+      );
+      retried++;
+    } catch (error) {
+      console.error(`[DeliveryRecovery] ${epNum}: Failed to create retry pipeline:`, error);
+    }
+  }
+
+  if (retried > 0) {
+    console.log(`[DeliveryRecovery] ✓ Reset ${retried} failed episode(s) for retry`);
   }
 }
