@@ -1,5 +1,5 @@
 import type { ProcessingItem, ProcessingStatus } from "@prisma/client";
-import { prisma } from "../../db";
+import { prisma } from "../../db/client.js";
 import { processingItemRepository } from "./ProcessingItemRepository";
 import { retryStrategy } from "./RetryStrategy";
 import { StateTransitionError, stateMachine } from "./StateMachine";
@@ -39,12 +39,12 @@ export class PipelineOrchestrator {
       await prisma.mediaRequest.create({
         data: {
           id: requestId,
-          type: params.type,
+          type: params.type.toUpperCase() as "MOVIE" | "TV",
           tmdbId: params.tmdbId,
           title: params.title,
-          year: params.year,
+          year: params.year ?? new Date().getFullYear(),
           status: "PENDING",
-          targetServers: params.targetServers,
+          targets: params.targetServers,
         },
       });
 

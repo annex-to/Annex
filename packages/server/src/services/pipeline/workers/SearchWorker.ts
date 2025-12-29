@@ -34,8 +34,8 @@ export class SearchWorker extends BaseWorker {
       tmdbId: item.tmdbId,
       title: item.title,
       year: item.year || new Date().getFullYear(),
-      targets: request.targetServers
-        ? (request.targetServers as Array<{ serverId: string; encodingProfileId?: string }>)
+      targets: request.targets
+        ? (request.targets as Array<{ serverId: string; encodingProfileId?: string }>)
         : [],
     };
 

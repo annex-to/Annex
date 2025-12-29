@@ -1,5 +1,5 @@
 import type { Prisma, ProcessingItem, ProcessingStatus, ProcessingType } from "@prisma/client";
-import { prisma } from "../../db";
+import { prisma } from "../../db/client.js";
 
 export class ProcessingItemRepository {
   /**
@@ -193,7 +193,7 @@ export class ProcessingItemRepository {
     return await prisma.processingItem.update({
       where: { id },
       data: {
-        stepContext: mergedContext,
+        stepContext: mergedContext as Prisma.InputJsonValue,
         updatedAt: new Date(),
       },
     });
