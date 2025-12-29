@@ -48,6 +48,19 @@ export class PipelineOrchestrator {
         },
       });
 
+      // Create PipelineExecution for compatibility with existing Steps
+      const templateId =
+        params.type === "movie" ? "default-movie-pipeline" : "default-tv-pipeline";
+      await prisma.pipelineExecution.create({
+        data: {
+          requestId,
+          templateId,
+          status: "RUNNING",
+          steps: [],
+          context: {},
+        },
+      });
+
       // Create ProcessingItems
       const items: ProcessingItem[] = [];
 
