@@ -141,7 +141,7 @@ export const requestsRouter = router({
         where: { id: requestId },
         data: {
           posterPath: input.posterPath ?? null,
-          targetServers: input.targets as unknown as Prisma.JsonArray,
+          targets: input.targets as unknown as Prisma.JsonArray,
           selectedRelease: input.selectedRelease
             ? (input.selectedRelease as unknown as Prisma.JsonObject)
             : undefined,
@@ -382,7 +382,7 @@ export const requestsRouter = router({
             posterPath: input.posterPath ?? null,
             requestedSeasons: input.seasons ?? [],
             requestedEpisodes: input.episodes ?? Prisma.JsonNull,
-            targetServers: input.targets as unknown as Prisma.JsonArray,
+            targets: input.targets as unknown as Prisma.JsonArray,
             selectedRelease: input.selectedRelease
               ? (input.selectedRelease as unknown as Prisma.JsonObject)
               : undefined,
