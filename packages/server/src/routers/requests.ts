@@ -550,8 +550,12 @@ export const requestsRouter = router({
 
       for (const r of results) {
         const targets = r.targets as unknown as RequestTarget[];
-        for (const target of targets) {
-          serverIds.add(target.serverId);
+        if (Array.isArray(targets)) {
+          for (const target of targets) {
+            if (target?.serverId) {
+              serverIds.add(target.serverId);
+            }
+          }
         }
       }
 
@@ -594,10 +598,12 @@ export const requestsRouter = router({
           title: r.title,
           year: r.year,
           posterPath,
-          targets: targets.map((t) => ({
-            serverId: t.serverId,
-            serverName: serverMap.get(t.serverId) || "Unknown",
-          })),
+          targets: Array.isArray(targets)
+            ? targets.map((t) => ({
+                serverId: t.serverId,
+                serverName: serverMap.get(t.serverId) || "Unknown",
+              }))
+            : [],
           requestedSeasons: r.requestedSeasons,
           requestedEpisodes: r.requestedEpisodes as { season: number; episode: number }[] | null,
           status: fromRequestStatus(r.status),
@@ -667,12 +673,17 @@ export const requestsRouter = router({
     const targets = r.targets as unknown as RequestTarget[];
 
     // Get server names
-    const serverIds = targets.map((t) => t.serverId);
+    const serverIds = Array.isArray(targets)
+      ? targets.map((t) => t.serverId).filter((id) => id !== undefined)
+      : [];
 
-    const servers = await prisma.storageServer.findMany({
-      where: { id: { in: serverIds } },
-      select: { id: true, name: true },
-    });
+    const servers =
+      serverIds.length > 0
+        ? await prisma.storageServer.findMany({
+            where: { id: { in: serverIds } },
+            select: { id: true, name: true },
+          })
+        : [];
 
     type ServerInfo = Prisma.StorageServerGetPayload<{ select: { id: true; name: true } }>;
 
@@ -938,20 +949,25 @@ export const requestsRouter = router({
 
       // Get target server IDs from the request
       const targets = request.targets as unknown as RequestTarget[];
-      const serverIds = targets.map((t) => t.serverId);
+      const serverIds = Array.isArray(targets)
+        ? targets.map((t) => t.serverId).filter((id) => id !== undefined)
+        : [];
 
       // Get library availability for episodes on target servers
-      const libraryEpisodes = await prisma.episodeLibraryItem.findMany({
-        where: {
-          tmdbId: request.tmdbId,
-          serverId: { in: serverIds },
-        },
-        select: {
-          season: true,
-          episode: true,
-          serverId: true,
-        },
-      });
+      const libraryEpisodes =
+        serverIds.length > 0
+          ? await prisma.episodeLibraryItem.findMany({
+              where: {
+                tmdbId: request.tmdbId,
+                serverId: { in: serverIds },
+              },
+              select: {
+                season: true,
+                episode: true,
+                serverId: true,
+              },
+            })
+          : [];
 
       // Create a map of available episodes: "season-episode" -> set of server IDs
       const availableMap = new Map<string, Set<string>>();
