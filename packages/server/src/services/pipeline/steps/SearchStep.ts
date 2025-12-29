@@ -174,10 +174,33 @@ export class SearchStep extends BaseStep {
     );
 
     // Check qBittorrent for existing downloads (if enabled)
-    if (cfg.checkExistingDownloads !== false && mediaType === MediaType.MOVIE) {
-      const existingMatch = await downloadManager.findExistingMovieDownload(title, year);
+    if (cfg.checkExistingDownloads !== false) {
+      let existingMatch: { found: boolean; match?: { torrent: { hash: string; name: string } }; isComplete?: boolean } | null = null;
 
-      if (existingMatch.found && existingMatch.match) {
+      if (mediaType === MediaType.MOVIE) {
+        existingMatch = await downloadManager.findExistingMovieDownload(title, year);
+      } else if (mediaType === MediaType.TV) {
+        // Check for existing TV downloads (season or episode)
+        const requestedEpisodes = context.requestedEpisodes;
+        if (requestedEpisodes && requestedEpisodes.length === 1) {
+          // Single episode - check for existing episode download
+          const ep = requestedEpisodes[0];
+          existingMatch = await downloadManager.findExistingEpisodeDownload(
+            title,
+            year,
+            ep.season,
+            ep.episode
+          );
+        } else if (requestedEpisodes && requestedEpisodes.length > 1) {
+          // Multiple episodes - check for season pack
+          const seasons = [...new Set(requestedEpisodes.map((ep) => ep.season))];
+          if (seasons.length === 1) {
+            existingMatch = await downloadManager.findExistingSeasonDownload(title, year, seasons[0]);
+          }
+        }
+      }
+
+      if (existingMatch?.found && existingMatch.match) {
         const torrentName = existingMatch.match.torrent.name;
         const torrentHash = existingMatch.match.torrent.hash;
 
