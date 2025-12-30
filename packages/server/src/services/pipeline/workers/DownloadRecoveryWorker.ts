@@ -33,11 +33,11 @@ export class DownloadRecoveryWorker extends BaseWorker {
       searchData?.selectedRelease ||
       (stepContext.selectedRelease as Record<string, unknown> | undefined);
 
-    if (!selectedRelease) {
+    if (!selectedRelease || typeof selectedRelease.title !== "string") {
       console.log(`[${this.name}] No release info in context, skipping ${item.title}`);
       return;
     }
-    const releaseName = selectedRelease.title;
+    const releaseName = selectedRelease.title as string;
 
     // Search qBittorrent for a matching torrent
     const qb = getDownloadService();

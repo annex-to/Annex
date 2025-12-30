@@ -246,41 +246,45 @@ export function createMockPrisma() {
       findUnique: mock(async ({ where }: { where: { id: string } }) => {
         return pipelineExecutionStore.get(where.id) || null;
       }),
-      findFirst: mock(async ({ where, orderBy, select }: { where?: any; orderBy?: any; select?: any } = {}) => {
-        let values = Array.from(pipelineExecutionStore.values());
+      findFirst: mock(
+        async ({ where, orderBy, select }: { where?: any; orderBy?: any; select?: any } = {}) => {
+          let values = Array.from(pipelineExecutionStore.values());
 
-        // Apply where filter
-        if (where) {
-          values = values.filter((v) =>
-            Object.keys(where).every((k) => {
-              if (k === "parentExecutionId" && where[k] === null) {
-                return v[k] === null || v[k] === undefined;
-              }
-              return v[k] === where[k];
-            })
-          );
-        }
-
-        // Apply orderBy
-        if (orderBy?.startedAt === "desc") {
-          values.sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime());
-        }
-
-        const result = values[0] || null;
-
-        // Apply select
-        if (result && select) {
-          const selectedFields: any = {};
-          for (const key of Object.keys(select)) {
-            if (select[key]) {
-              selectedFields[key] = result[key];
-            }
+          // Apply where filter
+          if (where) {
+            values = values.filter((v) =>
+              Object.keys(where).every((k) => {
+                if (k === "parentExecutionId" && where[k] === null) {
+                  return v[k] === null || v[k] === undefined;
+                }
+                return v[k] === where[k];
+              })
+            );
           }
-          return selectedFields;
-        }
 
-        return result;
-      }),
+          // Apply orderBy
+          if (orderBy?.startedAt === "desc") {
+            values.sort(
+              (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime()
+            );
+          }
+
+          const result = values[0] || null;
+
+          // Apply select
+          if (result && select) {
+            const selectedFields: any = {};
+            for (const key of Object.keys(select)) {
+              if (select[key]) {
+                selectedFields[key] = result[key];
+              }
+            }
+            return selectedFields;
+          }
+
+          return result;
+        }
+      ),
       update: mock(async ({ where, data }: { where: { id: string }; data: any }) => {
         const record = pipelineExecutionStore.get(where.id);
         if (!record) return null;

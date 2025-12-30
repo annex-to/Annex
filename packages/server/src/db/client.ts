@@ -1,8 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 
 // Singleton pattern for Prisma client
-// biome-ignore lint/suspicious/noExplicitAny: Global cache for Prisma client can be extended type
 const globalForPrisma = globalThis as unknown as {
+  // biome-ignore lint/suspicious/noExplicitAny: Global cache for Prisma client can be extended type
   prisma: any;
 };
 

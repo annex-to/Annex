@@ -730,6 +730,9 @@ export class SearchStep extends BaseStep {
 
           // Filter releases for this specific episode
           const ep = context.requestedEpisodes?.[0];
+          if (!ep) {
+            throw new Error("No episode specified in context.requestedEpisodes");
+          }
           const key = `S${ep.season}E${ep.episode}`;
 
           const releasesForEp = individualEpisodes.filter((release) => {

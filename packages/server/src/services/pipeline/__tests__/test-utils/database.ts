@@ -2,7 +2,13 @@
  * Database Test Utilities - Helpers for managing test database state
  */
 
-import { type MediaType, type Prisma, RequestStatus, type Resolution } from "@prisma/client";
+import {
+	type ExecutionStatus,
+	type MediaType,
+	type Prisma,
+	RequestStatus,
+	type Resolution,
+} from "@prisma/client";
 import { prisma } from "../../../../db/client.js";
 
 /**

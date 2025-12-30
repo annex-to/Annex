@@ -342,7 +342,6 @@ export const requestsRouter = router({
             console.error(`Failed to fetch episodes for season ${seasonNumber}:`, error);
           }
         }
-
       } catch (error) {
         console.error("Failed to fetch episode data from Trakt:", error);
         // Continue anyway - the request will be created but may not have complete episode data
@@ -1021,9 +1020,7 @@ export const requestsRouter = router({
         select: { jobId: true; status: true };
       }>;
 
-      const assignmentMap = new Map(
-        assignments.map((a: AssignmentData) => [a.jobId, a.status])
-      );
+      const assignmentMap = new Map(assignments.map((a: AssignmentData) => [a.jobId, a.status]));
 
       // Build map of pending encode episodes: "season-episode" -> true
       const pendingEncodeMap = new Map<string, boolean>();

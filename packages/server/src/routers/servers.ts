@@ -155,7 +155,7 @@ export const serversRouter = router({
       orderBy: { name: "asc" },
     });
 
-    return results.map((s: typeof results[number]) => ({
+    return results.map((s: (typeof results)[number]) => ({
       id: s.id,
       name: s.name,
       host: s.host,
@@ -771,7 +771,7 @@ export const serversRouter = router({
       orderBy: { name: "asc" },
     });
 
-    return servers.map((s: typeof servers[number]) => ({
+    return servers.map((s: (typeof servers)[number]) => ({
       id: s.id,
       name: s.name,
       mediaServerType: fromMediaServerType(s.mediaServerType),
