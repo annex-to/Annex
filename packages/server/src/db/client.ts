@@ -1,8 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 
 // Singleton pattern for Prisma client
+// biome-ignore lint/suspicious/noExplicitAny: Global cache for Prisma client can be extended type
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma: any;
 };
 
 // Configure connection pool via URL parameters

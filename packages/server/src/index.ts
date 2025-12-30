@@ -431,27 +431,32 @@ scheduler.register(
                 },
               });
 
+              // LEGACY: Old branch pipeline spawning code - superseded by ProcessingItem/Worker system
+              // The new system uses workers to automatically pick up DOWNLOADED ProcessingItems
+              // and process them through encode/deliver steps
+              //
               // Check if branch pipelines already exist (spawned by SearchStep)
-              const existingBranches = await prisma.pipelineExecution.findMany({
-                where: {
-                  requestId: download.requestId,
-                  episodeId: { in: episodeFiles.map((ep) => ep.episodeId) },
-                },
-                select: { episodeId: true },
-              });
+              // const existingBranches = await prisma.pipelineExecution.findMany({
+              //   where: {
+              //     requestId: download.requestId,
+              //     parentExecutionId: { not: null }, // Only get branch pipelines
+              //   },
+              //   select: { id: true, context: true },
+              // });
+              //
+              // const existingEpisodeIds = new Set(
+              //   existingBranches
+              //     .map((b) => (b.context as any)?.episodeId)
+              //     .filter(Boolean)
+              // );
+              //
+              // // Only spawn branches for episodes that don't have one yet
+              // const episodesNeedingBranches = episodeFiles.filter(
+              //   (ep) => !existingEpisodeIds.has(ep.episodeId)
+              // );
 
-              const existingEpisodeIds = new Set(
-                existingBranches
-                  .map((b: { episodeId: string | null }) => b.episodeId)
-                  .filter(Boolean)
-              );
-
-              // Only spawn branches for episodes that don't have one yet
-              const episodesNeedingBranches = episodeFiles.filter(
-                (ep) => !existingEpisodeIds.has(ep.episodeId)
-              );
-
-              if (episodesNeedingBranches.length > 0) {
+              // Workers will automatically pick up DOWNLOADED episodes
+              if (false) { // Disabled: legacy branch spawning code
                 const execution = await prisma.pipelineExecution.findFirst({
                   where: { requestId: download.requestId, parentExecutionId: null },
                   orderBy: { startedAt: "desc" },
