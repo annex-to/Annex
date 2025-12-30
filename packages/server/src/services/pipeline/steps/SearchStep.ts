@@ -1032,18 +1032,43 @@ export class SearchStep extends BaseStep {
 
     // Rank matching releases
     const maxResults = cfg.maxResults || 5;
-    const { matching: rankedMatching } = rankReleasesWithQualityFilter(
+    const { matching: rankedMatching, rejected } = rankReleasesWithQualityFilter(
       matching,
       requiredResolution,
       maxResults
     );
 
+    // Log rejected releases with reasons
+    if (rejected.length > 0) {
+      const rejectionSummary = rejected
+        .map((r) => `${r.release.title.substring(0, 60)}: ${r.rejectionReason}`)
+        .join("; ");
+      await this.logActivity(
+        requestId,
+        ActivityType.WARNING,
+        `${rejected.length} release(s) rejected by quality profile: ${rejectionSummary}`,
+        {
+          rejectedCount: rejected.length,
+          rejections: rejected.map((r) => ({
+            title: r.release.title,
+            reason: r.rejectionReason,
+            size: r.release.size,
+            resolution: r.release.resolution,
+          })),
+        }
+      );
+    }
+
     if (rankedMatching.length === 0) {
+      const errorMsg =
+        rejected.length > 0
+          ? `All ${rejected.length} release(s) rejected by quality profile`
+          : "No suitable release found within quality constraints";
       return {
         success: false,
         shouldRetry: false,
         nextStep: null,
-        error: "No suitable release found within quality constraints",
+        error: errorMsg,
       };
     }
 

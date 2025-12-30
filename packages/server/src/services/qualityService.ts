@@ -204,17 +204,21 @@ export function rankReleasesWithQualityFilter(
 ): {
   matching: ScoredRelease[];
   belowQuality: ScoredRelease[];
+  rejected: ScoredRelease[];
 } {
   // Build a quality profile for the required resolution
   const profile = buildQualityProfile(requiredResolution);
 
   // Score all releases
   const scored: ScoredRelease[] = [];
+  const rejected: ScoredRelease[] = [];
   for (const r of releases) {
     const indexerRelease = r as IndexerRelease;
     const result = scoreRelease(indexerRelease, profile);
     if (result.score >= 0) {
       scored.push(result);
+    } else {
+      rejected.push(result);
     }
   }
 
@@ -236,10 +240,12 @@ export function rankReleasesWithQualityFilter(
   // Sort both by score (descending)
   matching.sort((a, b) => b.score - a.score);
   belowQuality.sort((a, b) => b.score - a.score);
+  rejected.sort((a, b) => b.score - a.score);
 
   return {
     matching: matching.slice(0, topN),
     belowQuality: belowQuality.slice(0, topN),
+    rejected: rejected.slice(0, topN),
   };
 }
 

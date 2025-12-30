@@ -202,9 +202,11 @@ export class PipelineOrchestrator {
         nextRetryAt || undefined
       );
 
-      // Update error message
-      await processingItemRepository.updateStatus(itemId, item.status, {
+      // Reset to PENDING status so workers can pick it up for retry
+      // Store error message and clear current step
+      await processingItemRepository.updateStatus(itemId, "PENDING", {
         lastError: retryStrategy.formatError(error),
+        currentStep: null,
       });
 
       return updatedItem;
