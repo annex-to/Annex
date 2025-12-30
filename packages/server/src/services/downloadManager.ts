@@ -990,7 +990,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   const qbTorrents = await qb.getAllTorrents();
   const qbHashes = new Set(qbTorrents.map((t) => t.hash));
 
-  const orphanedDownloads = dbDownloads.filter((d) => !qbHashes.has(d.torrentHash)).length;
+  const orphanedDownloads = dbDownloads.filter((d: typeof dbDownloads[number]) => !qbHashes.has(d.torrentHash)).length;
 
   // Disk space check (simplified - would need actual disk check in production)
   const diskSpaceFreeGB = 100; // Placeholder

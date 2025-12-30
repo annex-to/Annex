@@ -80,7 +80,7 @@ export const systemRouter = router({
     });
 
     // Get poster paths from MediaItem
-    const mediaItemIds = results.map((r) => `tmdb-${r.type.toLowerCase()}-${r.tmdbId}`);
+    const mediaItemIds = results.map((r: typeof results[number]) => `tmdb-${r.type.toLowerCase()}-${r.tmdbId}`);
     const mediaItems = await prisma.mediaItem.findMany({
       where: { id: { in: mediaItemIds } },
       select: { id: true, posterPath: true },
@@ -288,7 +288,7 @@ export const systemRouter = router({
         ]);
 
         return {
-          jobs: jobs.map((job) => ({
+          jobs: jobs.map((job: typeof jobs[number]) => ({
             id: job.id,
             type: job.type,
             status: fromJobStatus(job.status),
@@ -482,7 +482,7 @@ export const systemRouter = router({
           take: input.limit,
         });
 
-        return jobs.map((job) => ({
+        return jobs.map((job: typeof jobs[number]) => ({
           id: job.id,
           type: job.type,
           status: fromJobStatus(job.status),
@@ -499,7 +499,7 @@ export const systemRouter = router({
           startedAt: job.startedAt,
           completedAt: job.completedAt,
           createdAt: job.createdAt,
-          childJobs: job.childJobs.map((child) => ({
+          childJobs: job.childJobs.map((child: typeof job.childJobs[number]) => ({
             id: child.id,
             type: child.type,
             status: fromJobStatus(child.status),
@@ -507,7 +507,7 @@ export const systemRouter = router({
             error: child.error,
             startedAt: child.startedAt,
             completedAt: child.completedAt,
-            childJobs: child.childJobs.map((grandchild) => ({
+            childJobs: child.childJobs.map((grandchild: typeof child.childJobs[number]) => ({
               id: grandchild.id,
               type: grandchild.type,
               status: fromJobStatus(grandchild.status),
@@ -531,7 +531,7 @@ export const systemRouter = router({
         orderBy: { startedAt: "desc" },
       });
 
-      return workers.map((w) => ({
+      return workers.map((w: typeof workers[number]) => ({
         id: w.id,
         workerId: w.workerId,
         hostname: w.hostname,

@@ -171,7 +171,10 @@ class LibraryStatusService {
     });
 
     for (const item of mediaItems) {
-      const totalEps = item.seasons.reduce((sum: number, s: { fileCount?: number }) => sum + s._count.episodes, 0);
+      const totalEps = item.seasons.reduce(
+        (sum: number, s: { _count: { episodes: number } }) => sum + s._count.episodes,
+        0
+      );
       if (totalEps > 0) {
         totalEpisodeCounts.set(item.tmdbId, totalEps);
       }

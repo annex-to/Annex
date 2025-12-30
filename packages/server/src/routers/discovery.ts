@@ -120,17 +120,19 @@ export async function refreshTraktListCache(
   }>;
 
   // Create lookup map
-  const localMap = new Map(localItems.map((item: LocalMediaItem) => [item.id, item]));
+  const localMap = new Map<string, LocalMediaItem>(
+    localItems.map((item: LocalMediaItem) => [item.id, item])
+  );
 
   // Build results with hydrated status
   const results: TrendingResult[] = traktItems.map((traktItem) => {
     const localId = `tmdb-${traktItem.type}-${traktItem.tmdbId}`;
-    const local = localMap.get(localId);
+    const local: LocalMediaItem | undefined = localMap.get(localId);
     const key = `${traktItem.type}-${traktItem.tmdbId}`;
 
     const baseResult =
       local && local.ratings !== undefined
-        ? mediaItemToTrendingResult(local as LocalMediaItem)
+        ? mediaItemToTrendingResult(local)
         : mediaItemToTrendingResult({
             type: (traktItem.type === "movie" ? "MOVIE" : "TV") as "MOVIE" | "TV",
             tmdbId: traktItem.tmdbId,
@@ -193,8 +195,8 @@ export async function refreshTraktListCache(
   const itemsToHydrate = traktItems
     .filter((item) => {
       const localId = `tmdb-${item.type}-${item.tmdbId}`;
-      const local = localMap.get(localId);
-      return !local || !local?.ratings;
+      const local: LocalMediaItem | undefined = localMap.get(localId);
+      return !local || !local.ratings;
     })
     .map((item) => ({
       tmdbId: item.tmdbId,
