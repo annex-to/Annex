@@ -455,56 +455,10 @@ scheduler.register(
               //   (ep) => !existingEpisodeIds.has(ep.episodeId)
               // );
 
-              // Workers will automatically pick up DOWNLOADED episodes
-              if (false) { // Disabled: legacy branch spawning code
-                const execution = await prisma.pipelineExecution.findFirst({
-                  where: { requestId: download.requestId, parentExecutionId: null },
-                  orderBy: { startedAt: "desc" },
-                  select: { id: true },
-                });
-
-                if (execution) {
-                  const { getPipelineExecutor } = await import(
-                    "./services/pipeline/PipelineExecutor.js"
-                  );
-                  const executor = getPipelineExecutor();
-
-                  // Spawn a branch pipeline for each episode that needs one
-                  for (const ep of episodesNeedingBranches) {
-                    setTimeout(() => {
-                      executor
-                        .spawnBranchExecution(
-                          execution.id,
-                          download.requestId,
-                          ep.episodeId,
-                          "episode-branch-pipeline",
-                          {
-                            season: ep.season,
-                            episode: ep.episode,
-                            download: {
-                              torrentHash: download.torrentHash,
-                              sourceFilePath: ep.path,
-                            },
-                          }
-                        )
-                        .catch((error) => {
-                          console.error(
-                            `[DownloadSync] Failed to spawn branch pipeline for episode S${String(ep.season).padStart(2, "0")}E${String(ep.episode).padStart(2, "0")}:`,
-                            error
-                          );
-                        });
-                    }, 100 * episodesNeedingBranches.indexOf(ep)); // Stagger spawning by 100ms per episode
-                  }
-
-                  console.log(
-                    `[DownloadSync] Spawned ${episodesNeedingBranches.length} branch pipelines (${existingEpisodeIds.size} already exist)`
-                  );
-                }
-              } else {
-                console.log(
-                  `[DownloadSync] All ${episodeFiles.length} episodes already have branch pipelines, skipping spawn`
-                );
-              }
+              // Workers will automatically pick up DOWNLOADED episodes and process them
+              console.log(
+                `[DownloadSync] Episodes extracted and marked as DOWNLOADED, workers will handle encoding/delivery`
+              );
             } else {
               // Movie - simple path update
               const videoFile = await qb.getMainVideoFile(download.torrentHash);
