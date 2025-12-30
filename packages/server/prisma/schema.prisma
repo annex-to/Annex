@@ -503,6 +503,15 @@ model ProcessingItem {
   downloadId    String?
   encodingJobId String?
 
+  // Episode-specific tracking fields (migrated from TvEpisode)
+  sourceFilePath    String?   // Path to extracted episode file
+  airDate           DateTime? // When episode airs (for AWAITING status)
+  downloadedAt      DateTime? // When source became available
+  encodedAt         DateTime? // When encoding completed
+  deliveredAt       DateTime? // When delivered to all targets
+  qualityMet        Boolean   @default(false) // Quality requirement met
+  availableReleases Json?     // Lower-quality alternatives
+
   // Relations
   request  MediaRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   download Download?    @relation(fields: [downloadId], references: [id], onDelete: SetNull)
