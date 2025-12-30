@@ -474,8 +474,8 @@ describe("config module behavior", () => {
 
   test("getConfig returns a config object", async () => {
     // Ensure encoder ID is set (uses HOSTNAME as fallback in CI)
-    const { getConfig } = await import("../config.js");
-    const config = getConfig();
+    const { initConfig } = await import("../config.js");
+    const config = initConfig(); // Use initConfig to ensure fresh load
     expect(config).toBeDefined();
     expect(typeof config.encoderId).toBe("string");
     expect(config.encoderId.length).toBeGreaterThan(0);
