@@ -3271,12 +3271,12 @@ function SchedulerSettings() {
     if (shouldAutoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [logsQuery.data, shouldAutoScroll]);
+  }, [shouldAutoScroll]);
 
   // Reset auto-scroll when expanding a different task
   useEffect(() => {
     setShouldAutoScroll(true);
-  }, [expandedTaskId]);
+  }, []);
 
   // Handle scroll events to detect manual scrolling
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {

@@ -35,7 +35,9 @@ export class DownloadProgressWorker extends BaseWorker {
       });
 
       if (!download) {
-        console.warn(`[${this.name}] Download record ${item.downloadId} not found for item ${item.id}`);
+        console.warn(
+          `[${this.name}] Download record ${item.downloadId} not found for item ${item.id}`
+        );
         return;
       }
 

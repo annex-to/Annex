@@ -339,9 +339,9 @@ export class SearchStep extends BaseStep {
       );
 
       // Get unique seasons from needed episodes
-      seasonsToSearch = ([
-        ...new Set(neededEpisodes.map((ep: { season: number | null }) => ep.season!)),
-      ] as number[]).sort();
+      seasonsToSearch = (
+        [...new Set(neededEpisodes.map((ep: { season: number | null }) => ep.season!))] as number[]
+      ).sort();
       console.log(`[Search] Seasons to search: ${seasonsToSearch.join(", ")}`);
     }
 
@@ -712,7 +712,7 @@ export class SearchStep extends BaseStep {
           );
 
           // Filter releases for this specific episode
-          const ep = context.requestedEpisodes![0];
+          const ep = context.requestedEpisodes?.[0];
           const key = `S${ep.season}E${ep.episode}`;
 
           const releasesForEp = individualEpisodes.filter((release) => {

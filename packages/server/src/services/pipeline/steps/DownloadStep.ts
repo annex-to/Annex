@@ -882,9 +882,9 @@ export class DownloadStep extends BaseStep {
           data: {
             requestId,
             type: "EPISODE",
-            tmdbId: request!.tmdbId,
+            tmdbId: request?.tmdbId,
             title: `S${season}E${episode}`,
-            year: request!.year,
+            year: request?.year,
             season,
             episode,
             status: ProcessingStatus.PENDING,

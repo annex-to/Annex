@@ -73,8 +73,10 @@ export class DownloadWorker extends BaseWorker {
     });
 
     // Set callback to update downloadId immediately when Download record is created
-    this.downloadStep.setDownloadCreatedCallback(async (downloadId, torrentHash) => {
-      console.log(`[${this.name}] Download created for ${item.title}, setting downloadId=${downloadId}`);
+    this.downloadStep.setDownloadCreatedCallback(async (downloadId, _torrentHash) => {
+      console.log(
+        `[${this.name}] Download created for ${item.title}, setting downloadId=${downloadId}`
+      );
 
       // Update ProcessingItem with downloadId immediately (before waiting for completion)
       await prisma.processingItem.update({

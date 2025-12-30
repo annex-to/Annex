@@ -42,7 +42,7 @@ export class DownloadRecoveryWorker extends BaseWorker {
     const torrents = await qb.getAllTorrents();
 
     // Try to find a matching torrent by name (fuzzy match)
-    const matchingTorrent = torrents.find(t => {
+    const matchingTorrent = torrents.find((t) => {
       // Normalize both names for comparison
       const torrentName = t.name.toLowerCase().replace(/[.\s_-]+/g, " ");
       const searchName = releaseName.toLowerCase().replace(/[.\s_-]+/g, " ");

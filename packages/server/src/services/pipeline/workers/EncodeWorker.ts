@@ -2,8 +2,25 @@ import type { MediaType, ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import type { PipelineContext } from "../PipelineContext";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
-import { EncodeStep } from "../steps/EncodeStep";
 import { BaseWorker } from "./BaseWorker";
+
+/**
+ * Encoding configuration from pipeline template
+ */
+interface EncodingConfig {
+  videoEncoder?: string;
+  crf?: number;
+  maxResolution?: string;
+  maxBitrate?: number;
+  hwAccel?: string;
+  hwDevice?: string;
+  videoFlags?: Record<string, unknown>;
+  preset?: string;
+  audioEncoder?: string;
+  audioFlags?: Record<string, unknown>;
+  subtitlesMode?: string;
+  container?: string;
+}
 
 /**
  * EncodeWorker - Encodes media for items in DOWNLOADED status
@@ -13,8 +30,6 @@ export class EncodeWorker extends BaseWorker {
   readonly processingStatus = "DOWNLOADED" as const;
   readonly nextStatus = "ENCODED" as const;
   readonly name = "EncodeWorker";
-
-  private encodeStep = new EncodeStep();
 
   protected async processItem(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] ========== ENCODE WORKER CALLED ==========`);
@@ -51,10 +66,10 @@ export class EncodeWorker extends BaseWorker {
     };
     const steps = execution.steps as StepConfig[];
 
-    const findEncodeConfig = (stepList: StepConfig[]): Record<string, unknown> | null => {
+    const findEncodeConfig = (stepList: StepConfig[]): EncodingConfig | null => {
       for (const step of stepList) {
         if (step.type === "ENCODE" && step.config) {
-          return step.config;
+          return step.config as EncodingConfig;
         }
         if (step.children) {
           const found = findEncodeConfig(step.children);
@@ -110,18 +125,18 @@ export class EncodeWorker extends BaseWorker {
 
     // Build encoding configuration
     const encodingConfig = {
-      videoEncoder: (encodeConfig as any).videoEncoder || "av1_vaapi",
-      crf: (encodeConfig as any).crf || 20,
-      maxResolution: (encodeConfig as any).maxResolution || "2160p",
-      maxBitrate: (encodeConfig as any).maxBitrate,
-      hwAccel: (encodeConfig as any).hwAccel || "VAAPI",
-      hwDevice: (encodeConfig as any).hwDevice || "/dev/dri/renderD128",
-      videoFlags: (encodeConfig as any).videoFlags || {},
-      preset: (encodeConfig as any).preset || "medium",
-      audioEncoder: (encodeConfig as any).audioEncoder || "copy",
-      audioFlags: (encodeConfig as any).audioFlags || {},
-      subtitlesMode: (encodeConfig as any).subtitlesMode || "COPY",
-      container: (encodeConfig as any).container || "MKV",
+      videoEncoder: encodeConfig.videoEncoder || "av1_vaapi",
+      crf: encodeConfig.crf || 20,
+      maxResolution: encodeConfig.maxResolution || "2160p",
+      maxBitrate: encodeConfig.maxBitrate,
+      hwAccel: encodeConfig.hwAccel || "VAAPI",
+      hwDevice: encodeConfig.hwDevice || "/dev/dri/renderD128",
+      videoFlags: encodeConfig.videoFlags || {},
+      preset: encodeConfig.preset || "medium",
+      audioEncoder: encodeConfig.audioEncoder || "copy",
+      audioFlags: encodeConfig.audioFlags || {},
+      subtitlesMode: encodeConfig.subtitlesMode || "COPY",
+      container: encodeConfig.container || "MKV",
     };
 
     // Create Job record

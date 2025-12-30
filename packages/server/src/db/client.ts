@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {
-  prisma: any;
+  prisma: PrismaClient | undefined;
 };
 
 // Configure connection pool via URL parameters
