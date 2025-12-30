@@ -72,6 +72,17 @@ export class DownloadWorker extends BaseWorker {
       this.updateProgress(item.id, progress, message);
     });
 
+    // Set callback to update downloadId immediately when Download record is created
+    this.downloadStep.setDownloadCreatedCallback(async (downloadId, torrentHash) => {
+      console.log(`[${this.name}] Download created for ${item.title}, setting downloadId=${downloadId}`);
+
+      // Update ProcessingItem with downloadId immediately (before waiting for completion)
+      await prisma.processingItem.update({
+        where: { id: item.id },
+        data: { downloadId },
+      });
+    });
+
     // Execute download
     const output = await this.downloadStep.execute(context, {
       pollInterval: 5000,
@@ -125,13 +136,37 @@ export class DownloadWorker extends BaseWorker {
 
     console.log(`[${this.name}] Existing torrent: ${torrent.name}, progress: ${torrent.progress}%`);
 
+    // Find or create Download record for this torrent
+    let download = await prisma.download.findUnique({
+      where: { torrentHash },
+    });
+
+    if (!download) {
+      console.log(`[${this.name}] Creating Download record for existing torrent ${torrentHash}`);
+      download = await prisma.download.create({
+        data: {
+          id: torrentHash,
+          requestId: item.requestId,
+          mediaType: request.type as "MOVIE" | "TV",
+          torrentHash,
+          torrentName: torrent.name,
+          status: torrent.isComplete ? "COMPLETED" : "DOWNLOADING",
+          progress: torrent.progress,
+          savePath: torrent.savePath,
+          contentPath: torrent.contentPath,
+          completedAt: torrent.isComplete ? new Date() : null,
+        },
+      });
+    }
+
     // If torrent is already complete, transition quickly to DOWNLOADED
     if (torrent.progress >= 100 || torrent.isComplete) {
       console.log(`[${this.name}] Torrent already complete, moving to DOWNLOADED`);
 
-      // Transition to DOWNLOADING (required by state machine, but don't set downloadId)
+      // Transition to DOWNLOADING with downloadId set immediately
       await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
         currentStep: "download",
+        downloadId: download.id,
       });
 
       // Get file paths from torrent
@@ -184,6 +219,7 @@ export class DownloadWorker extends BaseWorker {
 
       await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
         currentStep: "download",
+        downloadId: download.id,
       });
 
       await this.monitorExistingDownload(item, torrentHash, qb);

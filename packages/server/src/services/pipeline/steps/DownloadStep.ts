@@ -43,6 +43,16 @@ interface DownloadStepConfig {
 export class DownloadStep extends BaseStep {
   readonly type = StepType.DOWNLOAD;
 
+  // Callback invoked immediately after Download record is created
+  private downloadCreatedCallback?: (downloadId: string, torrentHash: string) => Promise<void>;
+
+  // Set callback for when download is created
+  setDownloadCreatedCallback(
+    callback: (downloadId: string, torrentHash: string) => Promise<void>
+  ): void {
+    this.downloadCreatedCallback = callback;
+  }
+
   validateConfig(config: unknown): void {
     if (config !== undefined && typeof config !== "object") {
       throw new Error("DownloadStep config must be an object");
@@ -304,6 +314,11 @@ export class DownloadStep extends BaseStep {
       );
       downloadId = download.id;
 
+      // Notify that download record is created (set downloadId on ProcessingItem immediately)
+      if (this.downloadCreatedCallback) {
+        await this.downloadCreatedCallback(downloadId, torrentHash);
+      }
+
       if (existingDownload.isComplete) {
         // Already complete - get video file(s)
         const qb = getDownloadService();
@@ -413,6 +428,11 @@ export class DownloadStep extends BaseStep {
 
       downloadId = download.id;
       torrentHash = download.torrentHash;
+
+      // Notify that download record is created (set downloadId on ProcessingItem immediately)
+      if (this.downloadCreatedCallback) {
+        await this.downloadCreatedCallback(downloadId, torrentHash);
+      }
 
       // For TV shows, mark episodes as DOWNLOADING
       if (mediaType === MediaType.TV) {
