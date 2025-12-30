@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
 import {
   Badge,
@@ -3244,15 +3244,50 @@ function EncodersSettings() {
 }
 
 function SchedulerSettings() {
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
   const healthQuery = trpc.system.scheduler.health.useQuery(undefined, {
     refetchInterval: 2000, // Refresh every 2 seconds
   });
+
+  const logsQuery = trpc.system.scheduler.getLogs.useQuery(
+    { taskId: expandedTaskId! },
+    {
+      enabled: expandedTaskId !== null,
+      refetchInterval: 1000, // Refresh logs every second
+    }
+  );
 
   const toggleTaskMutation = trpc.system.scheduler.toggleTask.useMutation({
     onSuccess: () => {
       healthQuery.refetch();
     },
   });
+
+  // Auto-scroll to bottom when logs update (if shouldAutoScroll is true)
+  useEffect(() => {
+    if (shouldAutoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logsQuery.data, shouldAutoScroll]);
+
+  // Reset auto-scroll when expanding a different task
+  useEffect(() => {
+    setShouldAutoScroll(true);
+  }, [expandedTaskId]);
+
+  // Handle scroll events to detect manual scrolling
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const element = e.currentTarget;
+    const isAtBottom =
+      Math.abs(element.scrollHeight - element.scrollTop - element.clientHeight) < 10;
+
+    // If user scrolled to bottom, enable auto-scroll
+    // If user scrolled up, disable auto-scroll
+    setShouldAutoScroll(isAtBottom);
+  };
 
   const health = healthQuery.data;
 
@@ -3345,59 +3380,128 @@ function SchedulerSettings() {
           <div className="text-white/50 text-center py-4">No tasks registered</div>
         ) : (
           <div className="space-y-2">
-            {health.recurringTasks.map((task) => (
-              <div
-                key={task.id}
-                className={`bg-white/5 rounded p-3 flex items-center gap-4 ${!task.enabled ? "opacity-50" : ""}`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{task.name}</span>
-                    {task.isRunning && (
-                      <Badge variant="info" className="text-xs">
-                        Running
-                      </Badge>
-                    )}
-                    {task.lastError && (
-                      <Badge variant="danger" className="text-xs">
-                        Error
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-xs text-white/50 flex gap-3 mt-1">
-                    <span>Every {formatInterval(task.intervalMs)}</span>
-                    <span>Last: {formatLastRun(task.lastRun)}</span>
-                    {task.lastDurationMs !== null && (
-                      <span>Took: {formatDuration(task.lastDurationMs)}</span>
-                    )}
-                    <span>Runs: {task.runCount}</span>
-                    {task.errorCount > 0 && (
-                      <span className="text-red-400">Errors: {task.errorCount}</span>
-                    )}
-                  </div>
-                  {task.lastError && (
-                    <div className="text-xs text-red-400 mt-1 truncate">{task.lastError}</div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {task.nextRunIn !== null && task.enabled && !task.isRunning && (
-                    <span className="text-xs text-white/40">
-                      Next: {formatDuration(task.nextRunIn)}
-                    </span>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={task.enabled ? "secondary" : "primary"}
-                    onClick={() =>
-                      toggleTaskMutation.mutate({ taskId: task.id, enabled: !task.enabled })
-                    }
-                    disabled={toggleTaskMutation.isLoading}
+            {[...health.recurringTasks]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((task) => {
+                const isExpanded = expandedTaskId === task.id;
+                const taskLogs = isExpanded ? logsQuery.data : null;
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`bg-white/5 rounded overflow-hidden ${!task.enabled ? "opacity-50" : ""}`}
                   >
-                    {task.enabled ? "Disable" : "Enable"}
-                  </Button>
-                </div>
-              </div>
-            ))}
+                    <div className="p-3 flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
+                            className="text-white/60 hover:text-white transition-colors"
+                          >
+                            <svg
+                              className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9 5l7 7-7 7"
+                              />
+                            </svg>
+                          </button>
+                          <span className="font-medium">{task.name}</span>
+                          {task.isRunning && (
+                            <Badge variant="info" className="text-xs">
+                              Running
+                            </Badge>
+                          )}
+                          {task.lastError && (
+                            <Badge variant="danger" className="text-xs">
+                              Error
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-white/50 flex gap-3 mt-1 ml-6">
+                          <span>Every {formatInterval(task.intervalMs)}</span>
+                          <span>Last: {formatLastRun(task.lastRun)}</span>
+                          {task.lastDurationMs !== null && (
+                            <span>Took: {formatDuration(task.lastDurationMs)}</span>
+                          )}
+                          <span>Runs: {task.runCount}</span>
+                          {task.errorCount > 0 && (
+                            <span className="text-red-400">Errors: {task.errorCount}</span>
+                          )}
+                        </div>
+                        {task.lastError && (
+                          <div className="text-xs text-red-400 mt-1 ml-6 truncate">
+                            {task.lastError}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {task.nextRunIn !== null && task.enabled && !task.isRunning && (
+                          <span className="text-xs text-white/40">
+                            Next: {formatDuration(task.nextRunIn)}
+                          </span>
+                        )}
+                        <Button
+                          size="sm"
+                          variant={task.enabled ? "secondary" : "primary"}
+                          onClick={() =>
+                            toggleTaskMutation.mutate({ taskId: task.id, enabled: !task.enabled })
+                          }
+                          disabled={toggleTaskMutation.isLoading}
+                        >
+                          {task.enabled ? "Disable" : "Enable"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="border-t border-white/10 bg-black/20 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-medium text-white/70">Logs (last 100)</h4>
+                          {logsQuery.isFetching && (
+                            <span className="text-xs text-white/40">Updating...</span>
+                          )}
+                        </div>
+                        <div
+                          ref={logContainerRef}
+                          onScroll={handleScroll}
+                          className="bg-black/40 rounded p-3 max-h-96 overflow-y-auto font-mono text-xs"
+                        >
+                          {taskLogs && taskLogs.length > 0 ? (
+                            <div className="space-y-1">
+                              {taskLogs.map((log, idx) => (
+                                <div
+                                  key={idx}
+                                  className={`flex gap-2 ${
+                                    log.level === "error"
+                                      ? "text-red-400"
+                                      : log.level === "warn"
+                                        ? "text-yellow-400"
+                                        : "text-white/70"
+                                  }`}
+                                >
+                                  <span className="text-white/40 shrink-0">
+                                    {new Date(log.timestamp).toLocaleTimeString()}
+                                  </span>
+                                  <span className="break-all">{log.message}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-white/40 text-center py-4">No logs yet</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         )}
       </Card>

@@ -175,25 +175,54 @@ export class SearchStep extends BaseStep {
 
     // Check qBittorrent for existing downloads (if enabled)
     if (cfg.checkExistingDownloads !== false) {
-      let existingMatch: { found: boolean; match?: { torrent: { hash: string; name: string } }; isComplete?: boolean } | null = null;
+      console.log(`[Search] Checking qBittorrent for existing downloads: ${title}`);
+      let existingMatch: {
+        found: boolean;
+        match?: { torrent: { hash: string; name: string } };
+        isComplete?: boolean;
+      } | null = null;
 
       if (mediaType === MediaType.MOVIE) {
+        console.log(`[Search] Checking for existing movie download`);
         existingMatch = await downloadManager.findExistingMovieDownload(title, year);
       } else if (mediaType === MediaType.TV) {
         // Check for existing TV downloads (season or episode)
         const requestedEpisodes = context.requestedEpisodes;
         if (requestedEpisodes && requestedEpisodes.length === 1) {
-          // Single episode - check for existing episode download
+          // Single episode - check BOTH individual episode AND season pack
           const ep = requestedEpisodes[0];
+
+          // First check for individual episode download (S01E01)
+          console.log(
+            `[Search] Checking for existing episode download: S${ep.season}E${ep.episode}`
+          );
           existingMatch = await downloadManager.findExistingEpisodeDownload(
             title,
             ep.season,
             ep.episode
           );
+          console.log(
+            `[Search] Episode check result:`,
+            existingMatch?.found ? `Found: ${existingMatch.match?.torrent.name}` : "Not found"
+          );
+
+          // If not found, check for season pack that contains this episode (S01)
+          if (!existingMatch?.found) {
+            console.log(`[Search] Checking for existing season pack: S${ep.season}`);
+            const seasonMatch = await downloadManager.findExistingSeasonDownload(title, ep.season);
+            console.log(
+              `[Search] Season pack check result:`,
+              seasonMatch?.found ? `Found: ${seasonMatch.match?.torrent.name}` : "Not found"
+            );
+            if (seasonMatch?.found) {
+              existingMatch = seasonMatch;
+            }
+          }
         } else if (requestedEpisodes && requestedEpisodes.length > 1) {
           // Multiple episodes - check for season pack
           const seasons = [...new Set(requestedEpisodes.map((ep) => ep.season))];
           if (seasons.length === 1) {
+            console.log(`[Search] Checking for existing season pack: S${seasons[0]}`);
             existingMatch = await downloadManager.findExistingSeasonDownload(title, seasons[0]);
           }
         }
@@ -216,6 +245,9 @@ export class SearchStep extends BaseStep {
           // Fall through to indexer search
         } else {
           const meetsQuality = resolutionMeetsRequirement(torrentName, requiredResolution);
+          console.log(
+            `[Search] Quality check: torrent="${torrentName}", required="${requiredResolution}", meetsQuality=${meetsQuality}`
+          );
 
           if (meetsQuality) {
             await this.logActivity(
@@ -645,109 +677,146 @@ export class SearchStep extends BaseStep {
         // No quality packs found, fall through to normal selection
         filteredReleases = seasonPacks;
       } else if (individualEpisodes.length > 0) {
-        // Strategy 2: For individual episodes, select best release for EACH needed episode and spawn branches
-        await this.logActivity(
-          requestId,
-          ActivityType.INFO,
-          `No season packs found - selecting releases for ${neededEpisodes.length} individual episodes`
-        );
+        // Strategy 2: For individual episodes
+        // If processing a SINGLE episode (Worker-based system), select and return the best release
+        // If processing MULTIPLE episodes (OLD pipeline system), spawn branch pipelines
+        const isSingleEpisode = context.requestedEpisodes && context.requestedEpisodes.length === 1;
 
-        // Group releases by episode
-        const releasesByEpisode = new Map<string, typeof searchResult.releases>();
-        for (const release of individualEpisodes) {
-          const episodeMatches = release.title.matchAll(/S(\d{1,2})E(\d{1,2})/gi);
-          const releaseEpisodes = Array.from(episodeMatches, (match) => {
-            const season = Number.parseInt(match[1], 10);
-            const episode = Number.parseInt(match[2], 10);
-            return `S${season}E${episode}`;
+        if (isSingleEpisode) {
+          // NEW Worker-based system: Processing a single episode as a ProcessingItem
+          // Just select the best release and return it
+          await this.logActivity(
+            requestId,
+            ActivityType.INFO,
+            `Selecting best release for this episode`
+          );
+
+          // Filter releases for this specific episode
+          const ep = context.requestedEpisodes![0];
+          const key = `S${ep.season}E${ep.episode}`;
+
+          const releasesForEp = individualEpisodes.filter((release) => {
+            const episodeMatches = release.title.matchAll(/S(\d{1,2})E(\d{1,2})/gi);
+            const releaseEpisodes = Array.from(episodeMatches, (match) => {
+              const season = Number.parseInt(match[1], 10);
+              const episode = Number.parseInt(match[2], 10);
+              return `S${season}E${episode}`;
+            });
+            return releaseEpisodes.includes(key);
           });
 
-          for (const ep of releaseEpisodes) {
-            if (neededSet.has(ep)) {
-              if (!releasesByEpisode.has(ep)) {
-                releasesByEpisode.set(ep, []);
+          if (releasesForEp.length === 0) {
+            await this.logActivity(requestId, ActivityType.WARNING, `No releases found for ${key}`);
+            filteredReleases = [];
+          } else {
+            // Use the episode releases for normal ranking/selection below
+            filteredReleases = releasesForEp;
+          }
+        } else {
+          // OLD pipeline system: Processing multiple episodes, spawn branches
+          await this.logActivity(
+            requestId,
+            ActivityType.INFO,
+            `No season packs found - selecting releases for ${neededEpisodes.length} individual episodes`
+          );
+
+          // Group releases by episode
+          const releasesByEpisode = new Map<string, typeof searchResult.releases>();
+          for (const release of individualEpisodes) {
+            const episodeMatches = release.title.matchAll(/S(\d{1,2})E(\d{1,2})/gi);
+            const releaseEpisodes = Array.from(episodeMatches, (match) => {
+              const season = Number.parseInt(match[1], 10);
+              const episode = Number.parseInt(match[2], 10);
+              return `S${season}E${episode}`;
+            });
+
+            for (const ep of releaseEpisodes) {
+              if (neededSet.has(ep)) {
+                if (!releasesByEpisode.has(ep)) {
+                  releasesByEpisode.set(ep, []);
+                }
+                releasesByEpisode.get(ep)?.push(release);
               }
-              releasesByEpisode.get(ep)?.push(release);
             }
           }
-        }
 
-        // Select best release for each needed episode and spawn branch pipelines
-        const executor = getPipelineExecutor();
-        let spawnedBranches = 0;
+          // Select best release for each needed episode and spawn branch pipelines
+          const executor = getPipelineExecutor();
+          let spawnedBranches = 0;
 
-        for (const ep of neededEpisodes) {
-          const key = `S${ep.season}E${ep.episode}`;
-          const releasesForEp = releasesByEpisode.get(key);
+          for (const ep of neededEpisodes) {
+            const key = `S${ep.season}E${ep.episode}`;
+            const releasesForEp = releasesByEpisode.get(key);
 
-          if (releasesForEp && releasesForEp.length > 0) {
-            // Rank releases for this episode and pick the best
-            const { matching: ranked } = rankReleasesWithQualityFilter(
-              releasesForEp,
-              requiredResolution,
-              1
-            );
+            if (releasesForEp && releasesForEp.length > 0) {
+              // Rank releases for this episode and pick the best
+              const { matching: ranked } = rankReleasesWithQualityFilter(
+                releasesForEp,
+                requiredResolution,
+                1
+              );
 
-            if (ranked.length > 0) {
-              const bestRelease = ranked[0].release;
+              if (ranked.length > 0) {
+                const bestRelease = ranked[0].release;
 
-              // Spawn branch pipeline for this episode
-              const branchId = await executor.spawnBranchExecution(
-                parentExecutionId,
-                requestId,
-                ep.id,
-                "episode-branch-pipeline",
-                {
-                  search: {
-                    selectedRelease: bestRelease,
-                    qualityMet: true,
+                // Spawn branch pipeline for this episode
+                const branchId = await executor.spawnBranchExecution(
+                  parentExecutionId,
+                  requestId,
+                  ep.id,
+                  "episode-branch-pipeline",
+                  {
+                    search: {
+                      selectedRelease: bestRelease,
+                      qualityMet: true,
+                    },
+                    season: ep.season,
+                    episode: ep.episode,
+                  } as Partial<PipelineContext>
+                );
+
+                spawnedBranches++;
+
+                // Mark episode as DOWNLOADING (branch will handle it)
+                await prisma.tvEpisode.update({
+                  where: { id: ep.id },
+                  data: {
+                    status: TvEpisodeStatus.DOWNLOADING,
                   },
-                  season: ep.season,
-                  episode: ep.episode,
-                } as Partial<PipelineContext>
-              );
+                });
 
-              spawnedBranches++;
+                await this.logActivity(
+                  requestId,
+                  ActivityType.INFO,
+                  `Spawned branch for ${key}: ${bestRelease.title}`,
+                  { episode: key, seeders: bestRelease.seeders }
+                );
 
-              // Mark episode as DOWNLOADING (branch will handle it)
-              await prisma.tvEpisode.update({
-                where: { id: ep.id },
-                data: {
-                  status: TvEpisodeStatus.DOWNLOADING,
-                },
-              });
-
-              await this.logActivity(
-                requestId,
-                ActivityType.INFO,
-                `Spawned branch for ${key}: ${bestRelease.title}`,
-                { episode: key, seeders: bestRelease.seeders }
-              );
-
-              console.log(
-                `[Search] Spawned branch ${branchId} for ${key} using ${bestRelease.title}`
-              );
+                console.log(
+                  `[Search] Spawned branch ${branchId} for ${key} using ${bestRelease.title}`
+                );
+              }
             }
           }
-        }
 
-        await this.logActivity(
-          requestId,
-          ActivityType.SUCCESS,
-          `Spawned ${spawnedBranches} episode branch pipeline(s) - processing in parallel`
-        );
+          await this.logActivity(
+            requestId,
+            ActivityType.SUCCESS,
+            `Spawned ${spawnedBranches} episode branch pipeline(s) - processing in parallel`
+          );
 
-        // Return success - branches are now running independently
-        return {
-          success: true,
-          nextStep: null, // No next step - branches handle everything
-          data: {
-            search: {
-              branchesSpawned: true,
-              branchCount: spawnedBranches,
+          // Return success - branches are now running independently
+          return {
+            success: true,
+            nextStep: null, // No next step - branches handle everything
+            data: {
+              search: {
+                branchesSpawned: true,
+                branchCount: spawnedBranches,
+              },
             },
-          },
-        };
+          };
+        }
       } else {
         await this.logActivity(
           requestId,

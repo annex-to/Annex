@@ -1,79 +1,67 @@
 import type { BaseWorker } from "./BaseWorker";
 import { deliverWorker } from "./DeliverWorker";
 import { downloadWorker } from "./DownloadWorker";
+import { encoderMonitorWorker } from "./EncoderMonitorWorker";
 import { encodeWorker } from "./EncodeWorker";
 import { searchWorker } from "./SearchWorker";
 
 /**
  * WorkerManager - Manages all pipeline workers
- * Starts/stops workers and handles lifecycle
+ * Registers workers with the scheduler system
  */
 export class WorkerManager {
   private workers: BaseWorker[] = [];
-  private isRunning = false;
+  private isRegistered = false;
 
   constructor() {
-    this.workers = [searchWorker, downloadWorker, encodeWorker, deliverWorker];
+    this.workers = [
+      searchWorker,
+      downloadWorker,
+      encodeWorker,
+      encoderMonitorWorker,
+      deliverWorker,
+    ];
   }
 
   /**
-   * Start all workers
+   * Register all workers with the scheduler
    */
-  start(): void {
-    if (this.isRunning) {
-      console.log("[WorkerManager] Already running");
+  async registerWithScheduler(): Promise<void> {
+    if (this.isRegistered) {
+      console.log("[WorkerManager] Workers already registered");
       return;
     }
 
-    console.log("[WorkerManager] Starting all workers...");
-    this.isRunning = true;
+    console.log("[WorkerManager] Registering workers with scheduler...");
+
+    const { getSchedulerService } = await import("../../scheduler.js");
+    const scheduler = getSchedulerService();
 
     for (const worker of this.workers) {
-      worker.start();
+      const taskId = `worker-${worker.name.toLowerCase().replace(/\s+/g, "-")}`;
+
+      scheduler.register(taskId, `Worker: ${worker.name}`, worker.pollInterval, () =>
+        worker.processBatch()
+      );
     }
 
-    console.log(`[WorkerManager] Started ${this.workers.length} workers`);
-  }
-
-  /**
-   * Stop all workers
-   */
-  stop(): void {
-    if (!this.isRunning) {
-      console.log("[WorkerManager] Not running");
-      return;
-    }
-
-    console.log("[WorkerManager] Stopping all workers...");
-    this.isRunning = false;
-
-    for (const worker of this.workers) {
-      worker.stop();
-    }
-
-    console.log("[WorkerManager] Stopped all workers");
-  }
-
-  /**
-   * Restart all workers
-   */
-  restart(): void {
-    this.stop();
-    setTimeout(() => this.start(), 1000);
+    this.isRegistered = true;
+    console.log(`[WorkerManager] Registered ${this.workers.length} workers with scheduler`);
   }
 
   /**
    * Get worker status
    */
   getStatus(): {
-    isRunning: boolean;
-    workers: Array<{ name: string; status: string }>;
+    registered: boolean;
+    workers: Array<{ name: string; processingStatus: string; pollInterval: number }>;
   } {
     return {
-      isRunning: this.isRunning,
+      registered: this.isRegistered,
       workers: this.workers.map((w) => ({
         name: w.name,
-        status: this.isRunning ? "running" : "stopped",
+        processingStatus: w.processingStatus,
+        pollInterval: w.pollInterval,
       })),
     };
   }

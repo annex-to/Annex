@@ -330,9 +330,13 @@ export class EncodeStep extends BaseStep {
       },
     });
 
-    // Determine output path (same directory, .mkv extension)
+    // Determine output path using processingItemId for deterministic naming
     const inputDir = sourceFilePath.substring(0, sourceFilePath.lastIndexOf("/"));
-    const outputPath = `${inputDir}/encoded_${Date.now()}.mkv`;
+    const processingItemId = (context as { processingItemId?: string }).processingItemId;
+    const outputFilename = processingItemId
+      ? `encoded_${processingItemId}.mkv`
+      : `encoded_${Date.now()}.mkv`;
+    const outputPath = `${inputDir}/${outputFilename}`;
 
     // Queue encoding job with encoder dispatch service
     const encoderService = getEncoderDispatchService();
@@ -437,6 +441,7 @@ export class EncodeStep extends BaseStep {
           success: true,
           data: {
             encode: {
+              jobId: job.id,
               encodedFiles: [
                 {
                   profileId: context.targets[0]?.encodingProfileId || "default",
@@ -549,9 +554,13 @@ export class EncodeStep extends BaseStep {
       },
     });
 
-    // Determine output path
+    // Determine output path using episodeId for deterministic naming
     const inputDir = sourceFilePath.substring(0, sourceFilePath.lastIndexOf("/"));
-    const outputPath = `${inputDir}/encoded_${epNum}_${Date.now()}.mkv`;
+    const processingItemId = (context as { processingItemId?: string }).processingItemId;
+    const outputFilename = processingItemId
+      ? `encoded_${processingItemId}.mkv`
+      : `encoded_${epNum}_${Date.now()}.mkv`;
+    const outputPath = `${inputDir}/${outputFilename}`;
 
     // Queue encoding job
     const encoderService = getEncoderDispatchService();
@@ -631,6 +640,7 @@ export class EncodeStep extends BaseStep {
           success: true,
           data: {
             encode: {
+              jobId: job.id,
               encodedFiles: [
                 {
                   profileId: context.targets[0]?.encodingProfileId || "default",
@@ -816,9 +826,10 @@ export class EncodeStep extends BaseStep {
           },
         });
 
-        // Determine output path
+        // Determine output path using episodeId for deterministic naming
         const inputDir = ep.path.substring(0, ep.path.lastIndexOf("/"));
-        const outputPath = `${inputDir}/encoded_${epNum}_${Date.now()}.mkv`;
+        const outputFilename = `encoded_${ep.episodeId}.mkv`;
+        const outputPath = `${inputDir}/${outputFilename}`;
 
         // Queue encoding job
         const assignment = await encoderService.queueEncodingJob(

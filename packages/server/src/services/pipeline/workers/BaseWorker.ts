@@ -1,14 +1,14 @@
 import type { ProcessingItem, ProcessingStatus } from "@prisma/client";
+import { prisma } from "../../../db/client.js";
 import { pipelineOrchestrator } from "../PipelineOrchestrator";
 
 /**
  * Base Worker class for processing items through pipeline stages
- * Workers poll for items in specific statuses and process them using Steps
+ * Workers are invoked by the scheduler to process items at specific statuses
  */
 export abstract class BaseWorker {
-  protected isRunning = false;
-  protected pollInterval = 5000; // 5 seconds
-  private pollTimeout?: NodeJS.Timeout;
+  readonly pollInterval = 5000; // 5 seconds - used by scheduler
+  readonly concurrency = 3; // Process up to 3 items in parallel
 
   /**
    * The status this worker processes
@@ -31,53 +31,9 @@ export abstract class BaseWorker {
   protected abstract processItem(item: ProcessingItem): Promise<void>;
 
   /**
-   * Start the worker polling loop
+   * Process a batch of items (called by scheduler)
    */
-  start(): void {
-    if (this.isRunning) {
-      console.log(`[${this.name}] Already running`);
-      return;
-    }
-
-    this.isRunning = true;
-    console.log(`[${this.name}] Started`);
-    this.poll();
-  }
-
-  /**
-   * Stop the worker
-   */
-  stop(): void {
-    this.isRunning = false;
-    if (this.pollTimeout) {
-      clearTimeout(this.pollTimeout);
-      this.pollTimeout = undefined;
-    }
-    console.log(`[${this.name}] Stopped`);
-  }
-
-  /**
-   * Poll for work
-   */
-  private async poll(): Promise<void> {
-    if (!this.isRunning) return;
-
-    try {
-      await this.processBatch();
-    } catch (error) {
-      console.error(`[${this.name}] Poll error:`, error);
-    }
-
-    // Schedule next poll
-    if (this.isRunning) {
-      this.pollTimeout = setTimeout(() => this.poll(), this.pollInterval);
-    }
-  }
-
-  /**
-   * Process a batch of items
-   */
-  private async processBatch(): Promise<void> {
+  async processBatch(): Promise<void> {
     const items = await pipelineOrchestrator.getItemsForProcessing(this.processingStatus);
 
     if (items.length === 0) {
@@ -87,9 +43,8 @@ export abstract class BaseWorker {
     console.log(`[${this.name}] Processing ${items.length} items`);
 
     // Process items in parallel (with concurrency limit)
-    const concurrency = 3;
-    for (let i = 0; i < items.length; i += concurrency) {
-      const batch = items.slice(i, i + concurrency);
+    for (let i = 0; i < items.length; i += this.concurrency) {
+      const batch = items.slice(i, i + this.concurrency);
       await Promise.allSettled(batch.map((item) => this.processItemSafe(item)));
     }
   }
@@ -149,7 +104,6 @@ export abstract class BaseWorker {
    * Get request details for an item
    */
   protected async getRequest(requestId: string) {
-    const { prisma } = await import("../../../db/client.js");
     return await prisma.mediaRequest.findUnique({
       where: { id: requestId },
       include: {

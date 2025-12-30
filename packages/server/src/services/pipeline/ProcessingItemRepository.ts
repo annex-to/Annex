@@ -239,7 +239,37 @@ export class ProcessingItemRepository {
    * Update request aggregate fields based on ProcessingItems
    */
   async updateRequestAggregates(requestId: string): Promise<void> {
+    const items = await this.findByRequestId(requestId);
     const stats = await this.getRequestStats(requestId);
+
+    // Determine request status based on ProcessingItem statuses
+    let requestStatus: import("@prisma/client").RequestStatus;
+
+    if (stats.total === 0) {
+      requestStatus = "PENDING";
+    } else if (stats.completed === stats.total) {
+      requestStatus = "COMPLETED";
+    } else if (stats.failed === stats.total) {
+      requestStatus = "FAILED";
+    } else {
+      // Determine status from the earliest active step
+      const hasSearching = items.some((i) => i.status === "SEARCHING" || i.status === "PENDING");
+      const hasDownloading = items.some((i) => i.status === "DOWNLOADING" || i.status === "FOUND");
+      const hasEncoding = items.some((i) => i.status === "ENCODING" || i.status === "DOWNLOADED");
+      const hasDelivering = items.some((i) => i.status === "DELIVERING" || i.status === "ENCODED");
+
+      if (hasSearching) {
+        requestStatus = "SEARCHING";
+      } else if (hasDownloading) {
+        requestStatus = "DOWNLOADING";
+      } else if (hasEncoding) {
+        requestStatus = "ENCODING";
+      } else if (hasDelivering) {
+        requestStatus = "DELIVERING";
+      } else {
+        requestStatus = "PENDING";
+      }
+    }
 
     await prisma.mediaRequest.update({
       where: { id: requestId },
@@ -247,6 +277,7 @@ export class ProcessingItemRepository {
         totalItems: stats.total,
         completedItems: stats.completed,
         failedItems: stats.failed,
+        status: requestStatus,
       },
     });
   }

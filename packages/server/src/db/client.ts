@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma: any;
 };
 
 // Configure connection pool via URL parameters
@@ -81,9 +81,8 @@ export const prisma =
     },
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Always cache the instance globally to prevent multiple clients
+globalForPrisma.prisma = prisma;
 
 // Graceful shutdown
 process.on("beforeExit", async () => {

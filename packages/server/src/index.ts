@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DownloadStatus } from "@prisma/client";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { Server, ServerWebSocket } from "bun";
 import { initConfig } from "./config/index.js";
@@ -12,6 +13,7 @@ import {
   recoverFailedEpisodeDeliveries,
   recoverStuckDeliveries,
 } from "./services/deliveryRecovery.js";
+import { getDownloadService } from "./services/download.js";
 import { recoverStuckDownloadExtractions } from "./services/downloadExtractionRecovery.js";
 import {
   type EncoderWebSocketData,
@@ -348,10 +350,6 @@ scheduler.register(
   "Download Progress Sync",
   500, // 500ms
   async () => {
-    const { prisma } = await import("./db/client.js");
-    const { getDownloadService } = await import("./services/download.js");
-    const { DownloadStatus } = await import("@prisma/client");
-
     // Get all downloads that are actively downloading
     const activeDownloads = await prisma.download.findMany({
       where: { status: DownloadStatus.DOWNLOADING },

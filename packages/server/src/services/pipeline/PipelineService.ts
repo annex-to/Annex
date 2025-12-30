@@ -19,8 +19,8 @@ export class PipelineService {
     console.log("[PipelineService] Initializing pipeline system...");
 
     try {
-      // Start all workers
-      workerManager.start();
+      // Register all workers with the scheduler
+      await workerManager.registerWithScheduler();
 
       this.isInitialized = true;
       console.log("[PipelineService] Pipeline system initialized successfully");
@@ -42,9 +42,7 @@ export class PipelineService {
     console.log("[PipelineService] Stopping pipeline system...");
 
     try {
-      // Stop all workers
-      workerManager.stop();
-
+      // Workers are managed by scheduler - no cleanup needed
       this.isInitialized = false;
       console.log("[PipelineService] Pipeline system stopped");
     } catch (error) {

@@ -336,7 +336,8 @@ export class CardigannLoginHandler {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "sec-ch-ua": '"Chromium";v="143", "Not-A.Brand";v="8"',
@@ -366,14 +367,18 @@ export class CardigannLoginHandler {
     // Log response body for non-200 responses (especially 403 for Cloudflare detection)
     if (response.status !== 200) {
       console.log("[Cardigann Login] Non-200 response detected");
-      console.log("[Cardigann Login] Response headers:", Object.fromEntries(response.headers.entries()));
+      console.log(
+        "[Cardigann Login] Response headers:",
+        Object.fromEntries(response.headers.entries())
+      );
       console.log("[Cardigann Login] Response body preview (first 1000 chars):");
       console.log(responseText.substring(0, 1000));
 
       // Check for common Cloudflare indicators
-      const hasCloudflare = responseText.toLowerCase().includes("cloudflare") ||
-                           responseText.includes("cf-ray") ||
-                           response.headers.has("cf-ray");
+      const hasCloudflare =
+        responseText.toLowerCase().includes("cloudflare") ||
+        responseText.includes("cf-ray") ||
+        response.headers.has("cf-ray");
       console.log("[Cardigann Login] Cloudflare detected:", hasCloudflare);
     }
 
@@ -406,12 +411,13 @@ export class CardigannLoginHandler {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": new URL(url).origin,
-        "Referer": url,
+        Origin: new URL(url).origin,
+        Referer: url,
         "sec-ch-ua": '"Chromium";v="143", "Not-A.Brand";v="8"',
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Windows"',
@@ -444,14 +450,18 @@ export class CardigannLoginHandler {
     // Log response body for non-200/non-redirect responses (especially 403 for Cloudflare detection)
     if (response.status !== 200 && !(response.status >= 300 && response.status < 400)) {
       console.log("[Cardigann Login] POST non-200 response detected");
-      console.log("[Cardigann Login] Response headers:", Object.fromEntries(response.headers.entries()));
+      console.log(
+        "[Cardigann Login] Response headers:",
+        Object.fromEntries(response.headers.entries())
+      );
       console.log("[Cardigann Login] Response body preview (first 1000 chars):");
       console.log(responseText.substring(0, 1000));
 
       // Check for common Cloudflare indicators
-      const hasCloudflare = responseText.toLowerCase().includes("cloudflare") ||
-                           responseText.includes("cf-ray") ||
-                           response.headers.has("cf-ray");
+      const hasCloudflare =
+        responseText.toLowerCase().includes("cloudflare") ||
+        responseText.includes("cf-ray") ||
+        response.headers.has("cf-ray");
       console.log("[Cardigann Login] Cloudflare detected:", hasCloudflare);
     }
 

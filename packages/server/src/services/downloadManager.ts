@@ -220,6 +220,11 @@ export async function findExistingSeasonDownload(
   const torrents = await qb.getAllTorrents();
   const normalizedShow = normalizeTitle(showName);
 
+  console.log(
+    `[DownloadManager] findExistingSeasonDownload: show="${showName}", normalized="${normalizedShow}", season=${season}`
+  );
+  console.log(`[DownloadManager] Checking ${torrents.length} torrents`);
+
   const matches: TorrentMatch[] = [];
 
   for (const torrent of torrents) {
@@ -232,7 +237,19 @@ export async function findExistingSeasonDownload(
     if (parsed.episode !== undefined) continue;
 
     // Title must match
-    if (normalizeTitle(parsed.title) !== normalizedShow) continue;
+    const normalizedTorrent = normalizeTitle(parsed.title);
+    console.log(
+      `[DownloadManager] Candidate: "${torrent.name}" -> title="${parsed.title}", normalized="${normalizedTorrent}", season=${parsed.season}, episode=${parsed.episode}`
+    );
+
+    if (normalizedTorrent !== normalizedShow) {
+      console.log(
+        `[DownloadManager] Title mismatch: "${normalizedTorrent}" !== "${normalizedShow}"`
+      );
+      continue;
+    }
+
+    console.log(`[DownloadManager] MATCH FOUND: ${torrent.name}`);
 
     const score = calculateMatchScore(parsed, torrent);
     matches.push({

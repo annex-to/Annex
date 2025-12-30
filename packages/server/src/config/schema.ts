@@ -159,7 +159,7 @@ const rssSchema = z
 // Scheduler configuration
 const schedulerSchema = z
   .object({
-    intervalMs: z.coerce.number().int().min(100).max(10000).default(1000), // Main loop interval
+    intervalMs: z.coerce.number().int().min(100).max(10000).default(100), // Main loop interval
   })
   .default({});
 

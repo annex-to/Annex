@@ -73,6 +73,7 @@ export interface PipelineContext {
       season?: number;
       episode?: number;
       episodeId?: string;
+      episodeTitle?: string;
     }>;
   };
 

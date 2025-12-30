@@ -32,7 +32,8 @@ export class SearchWorker extends BaseWorker {
       requestId: item.requestId,
       mediaType: request.type as MediaType,
       tmdbId: item.tmdbId,
-      title: item.title,
+      // Use request.title (show title) for TV, item.title (movie title) for movies
+      title: item.type === "EPISODE" ? request.title : item.title,
       year: item.year || new Date().getFullYear(),
       targets: request.targets
         ? (request.targets as Array<{ serverId: string; encodingProfileId?: string }>)
@@ -61,7 +62,9 @@ export class SearchWorker extends BaseWorker {
 
     // Extract search results
     const searchContext = output.data?.search as PipelineContext["search"];
-    if (!searchContext?.selectedRelease) {
+
+    // Either a new release or existing download must be found
+    if (!searchContext?.selectedRelease && !searchContext?.existingDownload) {
       throw new Error("No release found for this item");
     }
 
@@ -73,15 +76,15 @@ export class SearchWorker extends BaseWorker {
       existingDownload: searchContext.existingDownload,
     };
 
+    console.log(
+      `[${this.name}] Found ${searchContext.existingDownload ? "existing download" : "new release"} for ${request.title}`
+    );
+
     // Transition to FOUND with search results
     await this.transitionToNext(item.id, {
       currentStep: "search_complete",
       stepContext,
     });
-
-    console.log(
-      `[${this.name}] Found release for ${item.title}: ${searchContext.selectedRelease.title}`
-    );
   }
 }
 

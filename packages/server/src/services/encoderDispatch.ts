@@ -204,7 +204,10 @@ class EncoderDispatchService {
       // 5. Assign jobs: Match PENDING jobs to available encoders
       await this.assignPendingJobs();
 
-      // 6. Sync episode progress: Update all ENCODING episodes with latest progress
+      // 6. Sync ProcessingItem progress: Update all ENCODING items with latest progress
+      await this.syncProcessingItemProgress();
+
+      // 7. Sync episode progress: Update all ENCODING episodes with latest progress (legacy)
       await this.syncEpisodeProgress();
     } catch (error) {
       console.error("[EncoderDispatch] Tick error:", error);
@@ -648,6 +651,93 @@ class EncoderDispatchService {
     }
   }
 
+  async syncProcessingItemProgress(): Promise<void> {
+    // Find all ENCODING ProcessingItems with encodingJobId set
+    const encodingItems = await prisma.processingItem.findMany({
+      where: {
+        status: "ENCODING",
+        encodingJobId: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        season: true,
+        episode: true,
+        encodingJobId: true,
+        progress: true,
+        requestId: true,
+      },
+    });
+
+    if (encodingItems.length === 0) {
+      return;
+    }
+
+    console.log(
+      `[EncoderDispatch] Syncing progress for ${encodingItems.length} ENCODING ProcessingItems`
+    );
+
+    // Get all active encoding assignments
+    const assignments = await prisma.encoderAssignment.findMany({
+      where: {
+        status: { in: ["ASSIGNED", "ENCODING", "COMPLETED"] },
+      },
+      select: {
+        jobId: true,
+        progress: true,
+        status: true,
+      },
+    });
+
+    // Build map of jobId -> assignment
+    const assignmentMap = new Map(assignments.map((a) => [a.jobId, a]));
+
+    let updated = 0;
+    for (const item of encodingItems) {
+      const assignment = assignmentMap.get(item.encodingJobId!);
+      if (!assignment) {
+        continue;
+      }
+
+      // Update progress if it differs
+      const newProgress = assignment.progress || 0;
+      if (Math.abs(item.progress - newProgress) > 0.01) {
+        const title =
+          item.season && item.episode
+            ? `${item.title} S${item.season.toString().padStart(2, "0")}E${item.episode.toString().padStart(2, "0")}`
+            : item.title;
+
+        console.log(
+          `[EncoderDispatch] Updating ${title} progress: ${item.progress.toFixed(1)}% → ${newProgress.toFixed(1)}%`
+        );
+
+        // Update ProcessingItem progress
+        await prisma.processingItem.update({
+          where: { id: item.id },
+          data: { progress: newProgress },
+        });
+
+        // Also update TvEpisode progress if this is an episode
+        if (item.season !== null && item.episode !== null) {
+          await prisma.tvEpisode.updateMany({
+            where: {
+              requestId: item.requestId,
+              season: item.season,
+              episode: item.episode,
+            },
+            data: { progress: newProgress },
+          });
+        }
+
+        updated++;
+      }
+    }
+
+    if (updated > 0) {
+      console.log(`[EncoderDispatch] Updated ${updated} ProcessingItem progress values`);
+    }
+  }
+
   // ==========================================================================
   // WebSocket Handlers
   // ==========================================================================
@@ -1066,6 +1156,9 @@ class EncoderDispatchService {
     outputPath: string,
     _encodingConfig: Record<string, unknown>
   ): Promise<EncoderAssignment> {
+    console.log(`[EncoderDispatch] queueEncodingJob called for job ${jobId}`);
+    console.log(`[EncoderDispatch]   inputPath: ${inputPath}`);
+
     // Check for existing active assignment for THIS job (deduplication for retry scenarios)
     const existingAssignment = await prisma.encoderAssignment.findFirst({
       where: {
@@ -1090,10 +1183,18 @@ class EncoderDispatchService {
     });
 
     if (completedAssignment) {
-      console.log(
-        `[EncoderDispatch] Reusing completed assignment ${completedAssignment.id} for ${inputPath}`
-      );
-      return completedAssignment;
+      // Verify output file still exists before reusing
+      const fileExists = await Bun.file(completedAssignment.outputPath).exists();
+      if (fileExists) {
+        console.log(
+          `[EncoderDispatch] Reusing completed assignment ${completedAssignment.id} for ${inputPath}`
+        );
+        return completedAssignment;
+      } else {
+        console.log(
+          `[EncoderDispatch] Completed assignment ${completedAssignment.id} found but output file was cleaned up - will re-encode`
+        );
+      }
     }
 
     // Select initial encoder

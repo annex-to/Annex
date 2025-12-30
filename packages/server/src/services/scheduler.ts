@@ -78,7 +78,7 @@ class SchedulerService {
 
   constructor() {
     const config = getConfig();
-    this.loopIntervalMs = config.scheduler?.intervalMs ?? 1000;
+    this.loopIntervalMs = config.scheduler.intervalMs;
     console.log(`[Scheduler] Initialized with ${this.loopIntervalMs}ms loop interval`);
   }
 
@@ -378,24 +378,53 @@ class SchedulerService {
         task.isRunning = true;
         const taskStart = Date.now();
 
-        task
-          .handler()
-          .then(() => {
-            task.lastDuration = Date.now() - taskStart;
-            task.lastError = null;
-            task.runCount++;
+        // Import log capture service
+        import("./schedulerLogs.js")
+          .then(({ schedulerLogService }) => {
+            // Capture logs for this task execution
+            const restoreConsole = schedulerLogService.captureLogsForTask(task.id, task.name);
+
+            return task
+              .handler()
+              .then(() => {
+                task.lastDuration = Date.now() - taskStart;
+                task.lastError = null;
+                task.runCount++;
+              })
+              .catch((error: Error) => {
+                task.lastDuration = Date.now() - taskStart;
+                task.lastError = error.message;
+                task.errorCount++;
+                console.error(`[Scheduler] Task ${task.name} failed:`, error.message);
+              })
+              .finally(() => {
+                restoreConsole(); // Restore original console
+                task.isRunning = false;
+                task.lastRun = new Date();
+                // Persist to database for crash recovery
+                this.saveLastRunTime(task.id).catch(() => {});
+              });
           })
-          .catch((error: Error) => {
-            task.lastDuration = Date.now() - taskStart;
-            task.lastError = error.message;
-            task.errorCount++;
-            console.error(`[Scheduler] Task ${task.name} failed:`, error.message);
-          })
-          .finally(() => {
-            task.isRunning = false;
-            task.lastRun = new Date();
-            // Persist to database for crash recovery
-            this.saveLastRunTime(task.id).catch(() => {});
+          .catch((_error) => {
+            // Fallback if log service fails to load
+            task
+              .handler()
+              .then(() => {
+                task.lastDuration = Date.now() - taskStart;
+                task.lastError = null;
+                task.runCount++;
+              })
+              .catch((error: Error) => {
+                task.lastDuration = Date.now() - taskStart;
+                task.lastError = error.message;
+                task.errorCount++;
+                console.error(`[Scheduler] Task ${task.name} failed:`, error.message);
+              })
+              .finally(() => {
+                task.isRunning = false;
+                task.lastRun = new Date();
+                this.saveLastRunTime(task.id).catch(() => {});
+              });
           });
       }
     }

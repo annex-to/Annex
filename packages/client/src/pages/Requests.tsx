@@ -311,6 +311,7 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                   episode.status
                 );
                 const hasProgress = episode.progress != null && isProcessing;
+                const isPendingEncode = episode.isPendingEncode && episode.status === "encoding";
 
                 return (
                   <div
@@ -323,7 +324,7 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                     `}
                     title={`Episode ${episode.episodeNumber}: ${episode.status}${episode.error ? ` - ${episode.error}` : ""}`}
                   >
-                    {hasProgress && (
+                    {hasProgress && !isPendingEncode && (
                       <div
                         className="absolute inset-0 bg-white/10 transition-all"
                         style={{ width: `${episode.progress}%` }}
@@ -332,10 +333,14 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                     <span className="relative flex items-center gap-1">
                       <EpisodeStatusIcon status={episode.status as EpisodeStatus} />
                       <span>{episode.episodeNumber}</span>
-                      {hasProgress && (
-                        <span className="text-[10px] opacity-70">
-                          {Math.round(episode.progress || 0)}%
-                        </span>
+                      {isPendingEncode ? (
+                        <span className="text-[10px] opacity-70">Pending</span>
+                      ) : (
+                        hasProgress && (
+                          <span className="text-[10px] opacity-70">
+                            {Math.round(episode.progress || 0)}%
+                          </span>
+                        )
                       )}
                     </span>
                   </div>

@@ -2,8 +2,8 @@ import { MediaType, Prisma, RequestStatus, TvEpisodeStatus } from "@prisma/clien
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getDownloadService } from "../services/download.js";
-import { pipelineOrchestrator } from "../services/pipeline/PipelineOrchestrator.js";
 import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
+import { pipelineOrchestrator } from "../services/pipeline/PipelineOrchestrator.js";
 import { getTraktService } from "../services/trakt.js";
 import { publicProcedure, router } from "../trpc.js";
 
@@ -390,21 +390,11 @@ export const requestsRouter = router({
           },
         });
 
-        // Create TvEpisode records for frontend compatibility
-        await prisma.tvEpisode.createMany({
-          data: episodesToCreate.map((ep) => ({
-            requestId: newRequestId,
-            season: ep.season,
-            episode: ep.episode,
-            title: ep.title || `Episode ${ep.episode}`,
-            airDate: ep.airDate || null,
-            status: TvEpisodeStatus.PENDING,
-            progress: 0,
-          })),
-        });
+        // TvEpisode records are created by PipelineOrchestrator.createRequest()
+        // No need to create them here
 
         console.log(
-          `[Requests] Created TV request ${newRequestId} with ${items.length} ProcessingItem(s) and ${episodesToCreate.length} TvEpisode(s)`
+          `[Requests] Created TV request ${newRequestId} with ${items.length} ProcessingItem(s)`
         );
 
         // Delete the old request we created earlier, use the new one from orchestrator
@@ -1039,6 +1029,44 @@ export const requestsRouter = router({
         }
       }
 
+      // Get ProcessingItems for encoding episodes to check if they're pending an encoder
+      const processingItems = await prisma.processingItem.findMany({
+        where: {
+          requestId: input.requestId,
+          status: "ENCODING",
+        },
+        select: {
+          season: true,
+          episode: true,
+          encodingJobId: true,
+        },
+      });
+
+      // Check encoding job assignments for pending status
+      const jobIds = processingItems
+        .map((item) => item.encodingJobId)
+        .filter((id): id is string => id !== null);
+
+      const assignments = await prisma.encoderAssignment.findMany({
+        where: { jobId: { in: jobIds } },
+        select: { jobId: true, status: true },
+      });
+
+      const assignmentMap = new Map(assignments.map((a) => [a.jobId, a.status]));
+
+      // Build map of pending encode episodes: "season-episode" -> true
+      const pendingEncodeMap = new Map<string, boolean>();
+      for (const item of processingItems) {
+        if (item.season === null || item.episode === null) continue;
+        const key = `${item.season}-${item.episode}`;
+        const assignmentStatus = item.encodingJobId
+          ? assignmentMap.get(item.encodingJobId)
+          : undefined;
+        // Pending if no job, or job exists but assignment is PENDING
+        const isPending = !item.encodingJobId || assignmentStatus === "PENDING";
+        pendingEncodeMap.set(key, isPending);
+      }
+
       // Group by season
       const seasons: Record<
         number,
@@ -1055,6 +1083,7 @@ export const requestsRouter = router({
             progress: number | null;
             speed: number | null;
             releaseName: string | null;
+            isPendingEncode: boolean;
           }[];
         }
       > = {};
@@ -1092,6 +1121,8 @@ export const requestsRouter = router({
           progress = ep.progress;
         }
 
+        const isPendingEncode = pendingEncodeMap.get(key) ?? false;
+
         seasons[ep.season].episodes.push({
           id: ep.id,
           episodeNumber: ep.episode,
@@ -1103,6 +1134,7 @@ export const requestsRouter = router({
           progress,
           speed: downloadProgress?.speed ?? null,
           releaseName: download?.torrentName ?? null,
+          isPendingEncode,
         });
       }
 

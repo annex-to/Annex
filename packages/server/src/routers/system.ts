@@ -628,5 +628,32 @@ export const systemRouter = router({
         const success = scheduler.setTaskEnabled(input.taskId, input.enabled);
         return { success };
       }),
+
+    /**
+     * Get logs for a specific task
+     */
+    getLogs: publicProcedure.input(z.object({ taskId: z.string() })).query(async ({ input }) => {
+      const { schedulerLogService } = await import("../services/schedulerLogs.js");
+      return schedulerLogService.getLogsForTask(input.taskId);
+    }),
+
+    /**
+     * Get logs for all tasks
+     */
+    getAllLogs: publicProcedure.query(async () => {
+      const { schedulerLogService } = await import("../services/schedulerLogs.js");
+      return schedulerLogService.getAllLogs();
+    }),
+
+    /**
+     * Clear logs for a specific task
+     */
+    clearLogs: publicProcedure
+      .input(z.object({ taskId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { schedulerLogService } = await import("../services/schedulerLogs.js");
+        schedulerLogService.clearLogsForTask(input.taskId);
+        return { success: true };
+      }),
   }),
 });

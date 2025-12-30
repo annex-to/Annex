@@ -45,66 +45,69 @@ export class ValidationFramework {
         break;
 
       case "FOUND": {
-        // Requires search results in stepContext
+        // Requires either a selected release or existing download in stepContext
         const searchContext = item.stepContext as Record<string, unknown>;
-        if (!searchContext?.selectedRelease) {
+        const hasSelectedRelease = !!searchContext?.selectedRelease;
+        const hasExistingDownload = !!searchContext?.existingDownload;
+
+        if (!hasSelectedRelease && !hasExistingDownload) {
           errors.push("No release selected from search results");
         }
         break;
       }
 
       case "DOWNLOADING":
-        if (!item.downloadId) {
-          errors.push("Download ID required to start downloading");
-        }
+        // Download ID is optional for existing downloads in qBittorrent
         break;
 
       case "DOWNLOADED": {
-        if (!item.downloadId) {
-          errors.push("Download ID required for downloaded state");
-        }
+        // Download ID is optional for existing downloads
         // File validation should be done before transition
         const downloadContext = item.stepContext as Record<string, unknown>;
-        if (!downloadContext?.filePath) {
-          errors.push("File path required for downloaded state");
+        const downloadData = downloadContext?.download as Record<string, unknown>;
+
+        if (!downloadData?.sourceFilePath && !downloadData?.episodeFiles) {
+          errors.push("Download file path required for downloaded state");
         }
         break;
       }
 
       case "ENCODING": {
-        if (!item.encodingJobId) {
-          errors.push("Encoding job ID required to start encoding");
-        }
+        // Encoding job ID is optional - it gets set during the encoding process
+        // Require download data to be present (contains source file)
         const encodeEntryContext = item.stepContext as Record<string, unknown>;
-        if (!encodeEntryContext?.inputPath) {
-          errors.push("Input path required for encoding");
+        const downloadData = encodeEntryContext?.download as Record<string, unknown>;
+
+        if (!downloadData?.sourceFilePath && !downloadData?.episodeFiles) {
+          errors.push("Download data required for encoding");
         }
         break;
       }
 
       case "ENCODED": {
-        if (!item.encodingJobId) {
-          errors.push("Encoding job ID required for encoded state");
-        }
+        // encodingJobId is optional - not all encoding workflows set it
         // Encoded file validation should be done before transition
         const encodeExitContext = item.stepContext as Record<string, unknown>;
-        if (!encodeExitContext?.outputPath) {
-          errors.push("Output path required for encoded state");
+        const encodeData = encodeExitContext?.encode as Record<string, unknown>;
+        const encodedFiles = encodeData?.encodedFiles as Array<Record<string, unknown>>;
+
+        if (!encodedFiles || encodedFiles.length === 0 || !encodedFiles[0]?.path) {
+          errors.push("Encoded file path required for encoded state");
         }
         break;
       }
 
       case "DELIVERING": {
+        // Check for encoded files from the encode step
         const deliveryContext = item.stepContext as Record<string, unknown>;
-        if (!deliveryContext?.encodedFilePath) {
+        const encodeData = deliveryContext?.encode as Record<string, unknown>;
+        const encodedFiles = encodeData?.encodedFiles as Array<Record<string, unknown>>;
+
+        if (!encodedFiles || encodedFiles.length === 0 || !encodedFiles[0]?.path) {
           errors.push("Encoded file path required for delivery");
         }
-        if (
-          !deliveryContext?.targetServers ||
-          (deliveryContext.targetServers as unknown[]).length === 0
-        ) {
-          errors.push("At least one target server required for delivery");
-        }
+        // Note: Target servers are stored in the MediaRequest, not in stepContext
+        // So we don't validate them here - DeliverWorker will handle that
         break;
       }
 
@@ -150,21 +153,24 @@ export class ValidationFramework {
         break;
 
       case "SEARCHING": {
-        // Must have found at least one release
+        // Must have found either a new release or existing download
         const searchContext = item.stepContext as Record<string, unknown>;
-        if (
-          !searchContext?.searchResults ||
-          (searchContext.searchResults as unknown[]).length === 0
-        ) {
+        const hasSelectedRelease = !!searchContext?.selectedRelease;
+        const hasExistingDownload = !!searchContext?.existingDownload;
+
+        if (!hasSelectedRelease && !hasExistingDownload) {
           errors.push("No search results found");
         }
         break;
       }
 
       case "FOUND": {
-        // Must have selected a release
+        // Must have either selected a release or found existing download
         const foundContext = item.stepContext as Record<string, unknown>;
-        if (!foundContext?.selectedRelease) {
+        const hasSelectedRelease = !!foundContext?.selectedRelease;
+        const hasExistingDownload = !!foundContext?.existingDownload;
+
+        if (!hasSelectedRelease && !hasExistingDownload) {
           errors.push("No release selected");
         }
         break;
@@ -172,42 +178,50 @@ export class ValidationFramework {
 
       case "DOWNLOADING": {
         // Download must be complete
-        const downloadContext = item.stepContext as Record<string, unknown>;
-        if (!downloadContext?.downloadComplete) {
+        const stepContext = item.stepContext as Record<string, unknown>;
+        const downloadData = stepContext?.download as Record<string, unknown>;
+
+        if (
+          !downloadData?.isComplete &&
+          !downloadData?.sourceFilePath &&
+          !downloadData?.episodeFiles
+        ) {
           errors.push("Download not marked as complete");
         }
         break;
       }
 
       case "DOWNLOADED": {
-        // File must exist and be validated
+        // File must exist (validation done in entry check)
         const downloadedContext = item.stepContext as Record<string, unknown>;
-        if (!downloadedContext?.fileValidated) {
-          errors.push("File validation not performed");
-        }
-        if (!downloadedContext?.filePath) {
-          errors.push("File path not set");
+        const downloadData = downloadedContext?.download as Record<string, unknown>;
+
+        if (!downloadData?.sourceFilePath && !downloadData?.episodeFiles) {
+          errors.push("Download file path not set");
         }
         break;
       }
 
       case "ENCODING": {
-        // Encoding must be complete
+        // Encoding must be complete - check for encoded files
         const encodingContext = item.stepContext as Record<string, unknown>;
-        if (!encodingContext?.encodingComplete) {
-          errors.push("Encoding not marked as complete");
+        const encodeData = encodingContext?.encode as Record<string, unknown>;
+        const encodedFiles = encodeData?.encodedFiles as Array<Record<string, unknown>>;
+
+        if (!encodedFiles || encodedFiles.length === 0 || !encodedFiles[0]?.path) {
+          errors.push("Encoding not complete - no encoded files found");
         }
         break;
       }
 
       case "ENCODED": {
-        // Encoded file must be validated
+        // Encoded file must be present
         const encodedContext = item.stepContext as Record<string, unknown>;
-        if (!encodedContext?.outputValidated) {
-          errors.push("Output file validation not performed");
-        }
-        if (!encodedContext?.outputPath) {
-          errors.push("Output path not set");
+        const encodeData = encodedContext?.encode as Record<string, unknown>;
+        const encodedFiles = encodeData?.encodedFiles as Array<Record<string, unknown>>;
+
+        if (!encodedFiles || encodedFiles.length === 0 || !encodedFiles[0]?.path) {
+          errors.push("Encoded file path not set");
         }
         break;
       }
@@ -243,10 +257,25 @@ export class ValidationFramework {
   async validateTransition(
     item: ProcessingItem,
     fromStatus: ProcessingStatus,
-    toStatus: ProcessingStatus
+    toStatus: ProcessingStatus,
+    newContext?: {
+      stepContext?: Record<string, unknown>;
+      downloadId?: string;
+      encodingJobId?: string;
+    }
   ): Promise<ValidationResult> {
-    // First validate exit from current status
-    const exitValidation = await this.validateExit(item, fromStatus);
+    // Create a temporary item with new fields for validation
+    const itemForValidation = {
+      ...item,
+      ...(newContext?.stepContext && {
+        stepContext: newContext.stepContext as import("@prisma/client").Prisma.JsonValue,
+      }),
+      ...(newContext?.downloadId && { downloadId: newContext.downloadId }),
+      ...(newContext?.encodingJobId && { encodingJobId: newContext.encodingJobId }),
+    };
+
+    // First validate exit from current status (using new context)
+    const exitValidation = await this.validateExit(itemForValidation, fromStatus);
     if (!exitValidation.valid) {
       return {
         valid: false,
@@ -254,8 +283,8 @@ export class ValidationFramework {
       };
     }
 
-    // Then validate entry to new status
-    const entryValidation = await this.validateEntry(item, toStatus);
+    // Then validate entry to new status (using new context)
+    const entryValidation = await this.validateEntry(itemForValidation, toStatus);
     if (!entryValidation.valid) {
       return {
         valid: false,

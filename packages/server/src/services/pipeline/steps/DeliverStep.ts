@@ -108,11 +108,15 @@ export class DeliverStep extends BaseStep {
             throw new Error("Missing season/episode metadata for TV recovery check");
           }
 
+          // Extract episode title from encodedFile
+          const episodeTitle = (encodedFile as { episodeTitle?: string }).episodeTitle;
+
           remotePath = naming.getTvDestinationPath(server.pathTv, {
             series: title,
             year,
             season,
             episode,
+            episodeTitle,
             quality: resolution,
             codec,
             container,
@@ -263,11 +267,15 @@ export class DeliverStep extends BaseStep {
             throw new Error("Missing season/episode metadata for TV delivery");
           }
 
+          // Extract episode title from encodedFile
+          const episodeTitle = (encodedFile as { episodeTitle?: string }).episodeTitle;
+
           remotePath = naming.getTvDestinationPath(server.pathTv, {
             series: title,
             year,
             season,
             episode,
+            episodeTitle,
             quality: resolution,
             codec,
             container,
@@ -395,13 +403,16 @@ export class DeliverStep extends BaseStep {
           _count: { status: true },
         });
 
-        const totalEpisodes = episodeStats.reduce((sum, stat) => sum + stat._count.status, 0);
+        const totalEpisodes = episodeStats.reduce(
+          (sum: number, stat) => sum + stat._count.status,
+          0
+        );
         const completedEpisodes = episodeStats
           .filter(
             (stat) =>
               stat.status === TvEpisodeStatus.COMPLETED || stat.status === TvEpisodeStatus.SKIPPED
           )
-          .reduce((sum, stat) => sum + stat._count.status, 0);
+          .reduce((sum: number, stat) => sum + stat._count.status, 0);
 
         remainingEpisodes = totalEpisodes - completedEpisodes;
         allEpisodesComplete = remainingEpisodes === 0;
@@ -498,9 +509,11 @@ export class DeliverStep extends BaseStep {
         success: true,
         nextStep: null,
         data: {
-          deliveredServers,
-          failedServers,
-          completedAt: new Date().toISOString(),
+          deliver: {
+            deliveredServers,
+            failedServers,
+            completedAt: new Date().toISOString(),
+          },
         },
       };
     } else {
@@ -559,8 +572,11 @@ export class DeliverStep extends BaseStep {
         nextStep: null,
         error,
         data: {
-          deliveredServers,
-          failedServers,
+          deliver: {
+            deliveredServers,
+            failedServers,
+            completedAt: new Date().toISOString(),
+          },
         },
       };
     }

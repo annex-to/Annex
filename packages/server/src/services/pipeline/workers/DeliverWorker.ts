@@ -44,7 +44,7 @@ export class DeliverWorker extends BaseWorker {
       requestId: item.requestId,
       mediaType: request.type as MediaType,
       tmdbId: item.tmdbId,
-      title: item.title,
+      title: item.type === "EPISODE" ? request.title : item.title, // Use series title for episodes
       year: item.year || new Date().getFullYear(),
       targets: request.targets
         ? (request.targets as Array<{ serverId: string; encodingProfileId?: string }>)
