@@ -101,7 +101,7 @@ export class DownloadProgressWorker extends BaseWorker {
    */
   async processBatch(): Promise<void> {
     try {
-      const items = await this.findItemsToProcess();
+      const items = await pipelineOrchestrator.getItemsForProcessing(this.processingStatus);
 
       if (items.length === 0) {
         return;
@@ -111,7 +111,9 @@ export class DownloadProgressWorker extends BaseWorker {
 
       // Process all items, catching individual errors
       for (const item of items) {
-        await this.processItemSafe(item);
+        await this.processItem(item).catch((err) => {
+          console.error(`[${this.name}] Error processing item ${item.id}:`, err);
+        });
       }
     } catch (error) {
       console.error(`[${this.name}] Error in processBatch:`, error);

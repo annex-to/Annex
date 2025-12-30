@@ -48,8 +48,8 @@ export class DownloadRecoveryWorker extends BaseWorker {
       const searchName = releaseName.toLowerCase().replace(/[.\s_-]+/g, " ");
 
       // Check if torrent name contains the main parts of the release name
-      const releaseWords = searchName.split(" ").filter(w => w.length > 2);
-      const matchCount = releaseWords.filter(word => torrentName.includes(word)).length;
+      const releaseWords = searchName.split(" ").filter((w: string) => w.length > 2);
+      const matchCount = releaseWords.filter((word: string) => torrentName.includes(word)).length;
 
       // Require at least 80% of words to match
       return matchCount / releaseWords.length >= 0.8;

@@ -1017,8 +1017,8 @@ class EncoderDispatchService {
       }
     }
 
-    // Select initial encoder
-    const encoder = await prisma.remoteEncoder.findFirst({
+    // Get all available encoders and filter by capacity
+    const availableEncoders = await prisma.remoteEncoder.findMany({
       where: {
         status: { in: ["IDLE", "ENCODING"] },
         OR: [{ blockedUntil: null }, { blockedUntil: { lt: new Date() } }],
@@ -1026,8 +1026,14 @@ class EncoderDispatchService {
       orderBy: [{ currentJobs: "asc" }, { totalJobsCompleted: "desc" }],
     });
 
+    // CRITICAL: Filter to only encoders with available capacity
+    const encoder = availableEncoders.find((enc) => enc.currentJobs < enc.maxConcurrentJobs);
+
     if (!encoder) {
-      throw new Error("No encoders available");
+      const totalEncoders = await prisma.remoteEncoder.count();
+      throw new Error(
+        `No encoders available - all ${totalEncoders} encoder(s) are at capacity. Available encoders: ${availableEncoders.map((e) => `${e.encoderId} (${e.currentJobs}/${e.maxConcurrentJobs})`).join(", ") || "none"}`
+      );
     }
 
     // Create assignment
