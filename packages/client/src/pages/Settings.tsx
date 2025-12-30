@@ -3253,7 +3253,7 @@ function SchedulerSettings() {
   });
 
   const logsQuery = trpc.system.scheduler.getLogs.useQuery(
-    { taskId: expandedTaskId! },
+    { taskId: expandedTaskId || "" },
     {
       enabled: expandedTaskId !== null,
       refetchInterval: 1000, // Refresh logs every second
@@ -3477,7 +3477,7 @@ function SchedulerSettings() {
                             <div className="space-y-1">
                               {taskLogs.map((log, idx) => (
                                 <div
-                                  key={idx}
+                                  key={`${log.timestamp}-${idx}`}
                                   className={`flex gap-2 ${
                                     log.level === "error"
                                       ? "text-red-400"
