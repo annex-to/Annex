@@ -3,11 +3,11 @@
  */
 
 import {
-	type ExecutionStatus,
-	type MediaType,
-	type Prisma,
-	RequestStatus,
-	type Resolution,
+  type ExecutionStatus,
+  type MediaType,
+  type Prisma,
+  RequestStatus,
+  type Resolution,
 } from "@prisma/client";
 import { prisma } from "../../../../db/client.js";
 
