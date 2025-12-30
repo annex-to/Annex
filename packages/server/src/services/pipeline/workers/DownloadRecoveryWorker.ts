@@ -29,7 +29,9 @@ export class DownloadRecoveryWorker extends BaseWorker {
 
     // Check both locations: stepContext.search.selectedRelease and stepContext.selectedRelease
     const searchData = stepContext.search as PipelineContext["search"];
-    const selectedRelease = searchData?.selectedRelease || (stepContext.selectedRelease as any);
+    const selectedRelease =
+      searchData?.selectedRelease ||
+      (stepContext.selectedRelease as Record<string, unknown> | undefined);
 
     if (!selectedRelease) {
       console.log(`[${this.name}] No release info in context, skipping ${item.title}`);

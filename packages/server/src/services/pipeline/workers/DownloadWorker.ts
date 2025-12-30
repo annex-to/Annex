@@ -119,7 +119,7 @@ export class DownloadWorker extends BaseWorker {
 
   private async handleExistingDownload(
     item: ProcessingItem,
-    request: any,
+    request: { type: string },
     searchData: PipelineContext["search"]
   ): Promise<void> {
     const existingDownload = searchData?.existingDownload;
@@ -231,7 +231,7 @@ export class DownloadWorker extends BaseWorker {
   private async monitorExistingDownload(
     item: ProcessingItem,
     torrentHash: string,
-    qb: any
+    qb: ReturnType<typeof getDownloadService>
   ): Promise<void> {
     // Poll for completion
     const maxWaitTime = 24 * 60 * 60 * 1000; // 24 hours
