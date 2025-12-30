@@ -130,18 +130,16 @@ export async function refreshTraktListCache(
 
     const baseResult = local
       ? mediaItemToTrendingResult(local)
-      : {
+      : mediaItemToTrendingResult({
           type: traktItem.type,
           tmdbId: traktItem.tmdbId,
           title: traktItem.title,
           posterPath: traktItem.posterUrl || null,
           backdropPath: traktItem.fanartUrl || null,
           year: traktItem.year,
-          voteAverage: 0,
           overview: "",
-          ratings: undefined,
-          trailerKey: null,
-        };
+          ratings: null,
+        });
 
     // Add hydrated status
     return {
@@ -195,7 +193,7 @@ export async function refreshTraktListCache(
     .filter((item) => {
       const localId = `tmdb-${item.type}-${item.tmdbId}`;
       const local = localMap.get(localId);
-      return !local || !local.ratings;
+      return !local || !local?.ratings;
     })
     .map((item) => ({
       tmdbId: item.tmdbId,

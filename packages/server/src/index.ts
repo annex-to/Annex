@@ -441,7 +441,9 @@ scheduler.register(
               });
 
               const existingEpisodeIds = new Set(
-                existingBranches.map((b) => b.episodeId).filter(Boolean)
+                existingBranches
+                  .map((b: { episodeId: string | null }) => b.episodeId)
+                  .filter(Boolean)
               );
 
               // Only spawn branches for episodes that don't have one yet
@@ -476,7 +478,6 @@ scheduler.register(
                             episode: ep.episode,
                             download: {
                               sourceFilePath: ep.path,
-                              downloadedAt: new Date().toISOString(),
                             },
                           }
                         )
