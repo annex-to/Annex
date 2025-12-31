@@ -548,6 +548,13 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   const outputDir = path.dirname(job.outputPath);
   fs.mkdirSync(outputDir, { recursive: true });
 
+  // Set directory permissions to allow other services to access files
+  try {
+    fs.chmodSync(outputDir, 0o755);
+  } catch (e) {
+    console.warn(`[Encoder] WARNING: Could not set directory permissions: ${e}`);
+  }
+
   // Probe input file
   const mediaInfo = await probeMedia(job.inputPath);
   console.log(
@@ -716,8 +723,11 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   let outputSize = 0;
   try {
     outputSize = fs.statSync(job.outputPath).size;
-  } catch {
-    /* ignore */
+
+    // Set file permissions to allow other services to read the encoded file
+    fs.chmodSync(job.outputPath, 0o644);
+  } catch (e) {
+    console.warn(`[Encoder] WARNING: Could not set output file permissions: ${e}`);
   }
 
   const compressionRatio = mediaInfo.fileSize > 0 ? mediaInfo.fileSize / outputSize : 1;
