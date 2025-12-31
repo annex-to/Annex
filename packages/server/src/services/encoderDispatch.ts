@@ -50,16 +50,22 @@ interface PathMapping {
 }
 
 // Default path mappings from environment variables (fallback when DB has no mappings)
-const DEFAULT_PATH_MAPPINGS: PathMapping[] = [
-  {
-    server: process.env.ENCODER_SERVER_ENCODING_PATH || "/media/encoding",
-    remote: process.env.ENCODER_REMOTE_ENCODING_PATH || "/mnt/downloads/encoding",
-  },
-  {
-    server: process.env.ENCODER_SERVER_MEDIA_PATH || "/media",
-    remote: process.env.ENCODER_REMOTE_MEDIA_PATH || "/mnt/downloads",
-  },
-];
+// Build path mappings only from explicitly configured env vars
+const DEFAULT_PATH_MAPPINGS: PathMapping[] = [];
+
+if (process.env.ENCODER_SERVER_ENCODING_PATH && process.env.ENCODER_REMOTE_ENCODING_PATH) {
+  DEFAULT_PATH_MAPPINGS.push({
+    server: process.env.ENCODER_SERVER_ENCODING_PATH,
+    remote: process.env.ENCODER_REMOTE_ENCODING_PATH,
+  });
+}
+
+if (process.env.ENCODER_SERVER_MEDIA_PATH && process.env.ENCODER_REMOTE_MEDIA_PATH) {
+  DEFAULT_PATH_MAPPINGS.push({
+    server: process.env.ENCODER_SERVER_MEDIA_PATH,
+    remote: process.env.ENCODER_REMOTE_MEDIA_PATH,
+  });
+}
 
 // Path mappings cache with 5-minute TTL
 interface CachedMappings {
