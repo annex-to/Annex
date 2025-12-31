@@ -271,6 +271,10 @@ export class ProcessingItemRepository {
       }
     }
 
+    // Calculate average progress across all items
+    const totalProgress = items.reduce((sum, item) => sum + item.progress, 0);
+    const avgProgress = items.length > 0 ? Math.round(totalProgress / items.length) : 0;
+
     await prisma.mediaRequest.update({
       where: { id: requestId },
       data: {
@@ -278,6 +282,7 @@ export class ProcessingItemRepository {
         completedItems: stats.completed,
         failedItems: stats.failed,
         status: requestStatus,
+        progress: avgProgress,
       },
     });
   }

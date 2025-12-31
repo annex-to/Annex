@@ -526,6 +526,8 @@ class EncoderDispatchService {
     const assignmentMap = new Map(assignments.map((a: AssignmentData) => [a.jobId, a] as const));
 
     let updated = 0;
+    const updatedRequestIds = new Set<string>();
+
     for (const item of encodingItems) {
       // encodingJobId should always be set due to query filter, but check to be safe
       if (!item.encodingJobId) continue;
@@ -554,11 +556,18 @@ class EncoderDispatchService {
         });
 
         updated++;
+        updatedRequestIds.add(item.requestId);
       }
     }
 
     if (updated > 0) {
       console.log(`[EncoderDispatch] Updated ${updated} ProcessingItem progress values`);
+
+      // Update request aggregates for all affected requests
+      const { processingItemRepository } = await import("./pipeline/ProcessingItemRepository.js");
+      for (const requestId of updatedRequestIds) {
+        await processingItemRepository.updateRequestAggregates(requestId);
+      }
     }
   }
 
