@@ -853,6 +853,43 @@ export const requestsRouter = router({
       }
     }
 
+    // Check for active encoding jobs to avoid duplicates
+    const activeEncodingJobs = await prisma.job.findMany({
+      where: {
+        requestId: input.id,
+        type: "remote:encode",
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      include: {
+        encoderAssignments: {
+          where: {
+            status: { in: ["PENDING", "ASSIGNED", "ENCODING"] },
+          },
+        },
+      },
+    });
+
+    if (activeEncodingJobs.length > 0) {
+      console.log(
+        `[Retry] Found ${activeEncodingJobs.length} active encoding jobs for ${request.title}, cancelling them first`
+      );
+
+      // Cancel active encoding assignments
+      for (const job of activeEncodingJobs) {
+        for (const assignment of job.encoderAssignments) {
+          await prisma.encoderAssignment.update({
+            where: { id: assignment.id },
+            data: { status: "CANCELLED" },
+          });
+        }
+        // Mark job as failed so it can be retried
+        await prisma.job.update({
+          where: { id: job.id },
+          data: { status: "FAILED" },
+        });
+      }
+    }
+
     // Reset request status to resume point
     await prisma.mediaRequest.update({
       where: { id: input.id },
