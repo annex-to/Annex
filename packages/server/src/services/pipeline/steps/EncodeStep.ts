@@ -227,6 +227,45 @@ export class EncodeStep extends BaseStep {
       };
     }
 
+    // Clean up any partial files from cancelled/failed jobs
+    const cancelledOrFailedJobs = await prisma.encoderAssignment.findMany({
+      where: {
+        jobId: {
+          in: (
+            await prisma.job.findMany({
+              where: {
+                type: "remote:encode",
+                requestId,
+              },
+              select: { id: true },
+              orderBy: { createdAt: "desc" },
+              take: 10,
+            })
+          ).map((j: { id: string }) => j.id),
+        },
+        status: { in: [AssignmentStatus.CANCELLED, AssignmentStatus.FAILED] },
+      },
+    });
+
+    for (const job of cancelledOrFailedJobs) {
+      if (job.outputPath) {
+        try {
+          const file = Bun.file(job.outputPath);
+          if (await file.exists()) {
+            await Bun.write(job.outputPath, ""); // Truncate
+            await import("node:fs/promises").then((fs) => fs.unlink(job.outputPath));
+            await this.logActivity(
+              requestId,
+              ActivityType.INFO,
+              `Cleaned up partial file from ${job.status} job: ${job.outputPath}`
+            );
+          }
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
     // Check if we have a recent completed encoding job for this request
     // This allows retry to skip re-encoding if the encoded file still exists
     const recentCompletedJob = await prisma.encoderAssignment.findFirst({
