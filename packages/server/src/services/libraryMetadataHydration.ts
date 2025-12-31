@@ -2,7 +2,7 @@
  * Library Metadata Hydration Service
  *
  * Automatically fetches and caches metadata (cover images, ratings, etc.)
- * for all library items from media servers.
+ * for all library items from media servers using Trakt.
  *
  * Features:
  * - Rate-limited to respect API limits
@@ -13,7 +13,7 @@
 
 import { MediaType } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { getMDBListService } from "./mdblist.js";
+import { getTraktService } from "./trakt.js";
 
 interface HydrationResult {
   processed: number;
@@ -70,12 +70,12 @@ export async function hydrateLibraryMetadata(
       .filter((item: { tmdbId: number; type: MediaType }) => item.type === MediaType.TV)
       .map((item: { tmdbId: number; type: MediaType }) => item.tmdbId);
 
-    const mdblist = getMDBListService();
+    const trakt = getTraktService();
 
     // Process movies in batches
     if (movieIds.length > 0) {
       console.log(`[LibraryHydration] Processing ${movieIds.length} movies...`);
-      const movieResults = await hydrateBatch(mdblist, movieIds, "movie");
+      const movieResults = await hydrateBatch(trakt, movieIds, "movie");
       processed += movieResults.processed;
       hydrated += movieResults.hydrated;
       failed += movieResults.failed;
@@ -85,7 +85,7 @@ export async function hydrateLibraryMetadata(
     // Process TV shows in batches
     if (tvIds.length > 0) {
       console.log(`[LibraryHydration] Processing ${tvIds.length} TV shows...`);
-      const tvResults = await hydrateBatch(mdblist, tvIds, "tv");
+      const tvResults = await hydrateBatch(trakt, tvIds, "tv");
       processed += tvResults.processed;
       hydrated += tvResults.hydrated;
       failed += tvResults.failed;
@@ -108,7 +108,7 @@ export async function hydrateLibraryMetadata(
  * Hydrate a batch of items with rate limiting
  */
 async function hydrateBatch(
-  mdblist: ReturnType<typeof getMDBListService>,
+  trakt: ReturnType<typeof getTraktService>,
   tmdbIds: number[],
   type: "movie" | "tv"
 ): Promise<HydrationResult> {
@@ -118,12 +118,12 @@ async function hydrateBatch(
   let skipped = 0;
 
   // Process items one at a time to respect rate limits
-  // MDBList service has built-in rate limiting (10 req/sec)
+  // Trakt service has built-in rate limiting (4 req/sec)
   for (const tmdbId of tmdbIds) {
     processed++;
 
     try {
-      const success = await mdblist.hydrateMediaItem(tmdbId, type);
+      const success = await hydrateMediaItemFromTrakt(trakt, tmdbId, type);
 
       if (success) {
         hydrated++;
@@ -143,6 +143,118 @@ async function hydrateBatch(
   }
 
   return { processed, hydrated, failed, skipped };
+}
+
+/**
+ * Hydrate a single media item from Trakt
+ */
+async function hydrateMediaItemFromTrakt(
+  trakt: ReturnType<typeof getTraktService>,
+  tmdbId: number,
+  type: "movie" | "tv"
+): Promise<boolean> {
+  try {
+    const data =
+      type === "movie" ? await trakt.getMovieDetails(tmdbId) : await trakt.getTvShowDetails(tmdbId);
+
+    if (!data) {
+      return false;
+    }
+
+    const id = `tmdb-${type}-${tmdbId}`;
+    const prismaType = type === "movie" ? MediaType.MOVIE : MediaType.TV;
+
+    // Convert Trakt rating from 0-10 to 0-100 for storage
+    const traktScore = data.rating ? Math.round(data.rating * 10) : null;
+
+    await prisma.mediaItem.upsert({
+      where: { id },
+      create: {
+        id,
+        tmdbId,
+        imdbId: data.ids.imdb || null,
+        traktId: data.ids.trakt || null,
+        tvdbId: "ids" in data && "tvdb" in data.ids ? data.ids.tvdb || null : null,
+        type: prismaType,
+        title: data.title,
+        year: data.year || null,
+        releaseDate:
+          type === "movie" && "released" in data
+            ? data.released
+            : type === "tv" && "first_aired" in data
+              ? data.first_aired?.split("T")[0]
+              : null,
+        overview: data.overview || null,
+        tagline: type === "movie" && "tagline" in data ? data.tagline : null,
+        genres: data.genres || [],
+        certification: data.certification || null,
+        runtime: data.runtime || null,
+        status: data.status || null,
+        language: data.language || null,
+        country: data.country || null,
+        numberOfSeasons: type === "tv" && "aired_episodes" in data ? null : null, // TV shows need separate season fetch
+        numberOfEpisodes: type === "tv" && "aired_episodes" in data ? data.aired_episodes : null,
+        networks:
+          type === "tv" && "network" in data && data.network ? [{ name: data.network }] : null,
+        traktUpdatedAt: new Date(),
+        ratings: {
+          upsert: {
+            create: {
+              traktScore,
+              traktVotes: data.votes || null,
+            },
+            update: {
+              traktScore,
+              traktVotes: data.votes || null,
+            },
+          },
+        },
+      },
+      update: {
+        imdbId: data.ids.imdb || undefined,
+        traktId: data.ids.trakt || undefined,
+        tvdbId: "ids" in data && "tvdb" in data.ids ? data.ids.tvdb || undefined : undefined,
+        title: data.title,
+        year: data.year || undefined,
+        releaseDate:
+          type === "movie" && "released" in data
+            ? data.released
+            : type === "tv" && "first_aired" in data
+              ? data.first_aired?.split("T")[0]
+              : undefined,
+        overview: data.overview || undefined,
+        tagline: type === "movie" && "tagline" in data ? data.tagline : undefined,
+        genres: data.genres || [],
+        certification: data.certification || undefined,
+        runtime: data.runtime || undefined,
+        status: data.status || undefined,
+        language: data.language || undefined,
+        country: data.country || undefined,
+        numberOfEpisodes:
+          type === "tv" && "aired_episodes" in data ? data.aired_episodes : undefined,
+        networks:
+          type === "tv" && "network" in data && data.network ? [{ name: data.network }] : undefined,
+        traktUpdatedAt: new Date(),
+        ratings: {
+          upsert: {
+            create: {
+              traktScore,
+              traktVotes: data.votes || null,
+            },
+            update: {
+              traktScore,
+              traktVotes: data.votes || undefined,
+            },
+          },
+        },
+      },
+    });
+
+    return true;
+  } catch (error) {
+    console.error(`[LibraryHydration] Failed to save Trakt data for ${type} ${tmdbId}:`, error);
+    return false;
+  }
 }
 
 /**
@@ -206,9 +318,9 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
       SELECT DISTINCT mi.tmdbId, mi.type
       FROM "MediaItem" mi
       INNER JOIN "LibraryItem" li ON li.tmdbId = mi.tmdbId AND li.type = mi.type
-      WHERE mi."mdblistUpdatedAt" < ${staleDate}
-         OR mi."mdblistUpdatedAt" IS NULL
-      ORDER BY mi."mdblistUpdatedAt" ASC NULLS FIRST
+      WHERE mi."traktUpdatedAt" < ${staleDate}
+         OR mi."traktUpdatedAt" IS NULL
+      ORDER BY mi."traktUpdatedAt" ASC NULLS FIRST
       LIMIT ${limit}
     `;
 
@@ -227,11 +339,11 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
       .filter((item: { tmdbId: number; type: MediaType }) => item.type === MediaType.TV)
       .map((item: { tmdbId: number; type: MediaType }) => item.tmdbId);
 
-    const mdblist = getMDBListService();
+    const trakt = getTraktService();
 
     // Refresh movies
     if (movieIds.length > 0) {
-      const movieResults = await hydrateBatch(mdblist, movieIds, "movie");
+      const movieResults = await hydrateBatch(trakt, movieIds, "movie");
       processed += movieResults.processed;
       hydrated += movieResults.hydrated;
       failed += movieResults.failed;
@@ -240,7 +352,7 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
 
     // Refresh TV shows
     if (tvIds.length > 0) {
-      const tvResults = await hydrateBatch(mdblist, tvIds, "tv");
+      const tvResults = await hydrateBatch(trakt, tvIds, "tv");
       processed += tvResults.processed;
       hydrated += tvResults.hydrated;
       failed += tvResults.failed;
