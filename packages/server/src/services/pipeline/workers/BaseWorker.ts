@@ -101,6 +101,13 @@ export abstract class BaseWorker {
   }
 
   /**
+   * Transition item to FAILED status
+   */
+  protected async transitionToFailed(itemId: string, error: string): Promise<void> {
+    await pipelineOrchestrator.transitionStatus(itemId, "FAILED", { error });
+  }
+
+  /**
    * Get request details for an item
    */
   protected async getRequest(requestId: string) {

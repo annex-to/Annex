@@ -773,9 +773,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
       finalPath = job.finalOutputPath;
       console.log(`[Encoder] Renamed: ${job.outputPath} -> ${job.finalOutputPath}`);
     } catch (e) {
-      console.warn(
-        `[Encoder] WARNING: Could not rename to final path, using temp path: ${e}`
-      );
+      console.warn(`[Encoder] WARNING: Could not rename to final path, using temp path: ${e}`);
       // Continue with temp path if rename fails
     }
   }
