@@ -542,6 +542,9 @@ class DeliveryService {
         };
       }
 
+      // Set ownership and permissions after upload
+      await this.setRemotePermissions(server, remotePath);
+
       return {
         success: true,
         serverId: server.id,
@@ -558,6 +561,60 @@ class DeliveryService {
       }
       await sftp.end();
     }
+  }
+
+  /**
+   * Set ownership and permissions on remote file via SSH
+   * Sets ownership to nobody:users and permissions to 644
+   */
+  private async setRemotePermissions(server: StorageServer, remotePath: string): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      const sshKeys = getSshKeyService();
+      const keyPath = sshKeys.getPrivateKeyPath();
+
+      // Escape path for shell
+      const escapedPath = remotePath.replace(/'/g, "'\\''");
+
+      // Run chown and chmod commands
+      const command = `chown nobody:users '${escapedPath}' && chmod 644 '${escapedPath}'`;
+
+      const sshCmd = [
+        "ssh",
+        "-i",
+        keyPath,
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-p",
+        server.port.toString(),
+        `${server.username}@${server.host}`,
+        command,
+      ];
+
+      const proc = spawn(sshCmd[0], sshCmd.slice(1));
+      let stderr = "";
+
+      proc.stderr?.on("data", (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          console.log(`[Delivery] Set permissions on ${remotePath}: nobody:users 644`);
+          resolve();
+        } else {
+          // Log warning but don't fail the delivery
+          console.warn(
+            `[Delivery] WARNING: Failed to set permissions on ${remotePath}: ${stderr.trim()}`
+          );
+          resolve(); // Resolve anyway, don't fail delivery
+        }
+      });
+
+      proc.on("error", (error) => {
+        console.warn(`[Delivery] WARNING: Failed to set permissions: ${error.message}`);
+        resolve(); // Resolve anyway, don't fail delivery
+      });
+    });
   }
 
   /**
@@ -656,12 +713,15 @@ class DeliveryService {
         stderr += data.toString();
       });
 
-      process.on("close", (code) => {
+      process.on("close", async (code) => {
         if (jobId) {
           this.activeTransfers.delete(jobId);
         }
 
         if (code === 0) {
+          // Set ownership and permissions after successful rsync
+          await this.setRemotePermissions(server, remotePath);
+
           resolve({
             success: true,
             serverId: server.id,
