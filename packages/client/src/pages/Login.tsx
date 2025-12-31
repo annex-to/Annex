@@ -55,13 +55,15 @@ export default function LoginPage() {
 
   // Check if Plex/Emby servers exist
   const { data: plexServers } = trpc.servers.hasPlexServers.useQuery();
-  const { data: embyServers } = trpc.servers.hasEmbyServers.useQuery();
+  const { data: embyServerList } = trpc.auth.getEmbyServers.useQuery();
   const { data: embyConfig } = trpc.auth.embyConfigured.useQuery();
 
   const isPlexAvailable = plexServers?.exists ?? false;
-  const isEmbyAvailable = (embyServers?.exists && embyConfig?.configured) ?? false;
+  const isEmbyAvailable = embyConfig?.configured ?? false;
+  const availableEmbyServers = embyServerList?.servers ?? [];
 
   // Emby form state
+  const [selectedEmbyServerId, setSelectedEmbyServerId] = useState<string>("");
   const [embyUsername, setEmbyUsername] = useState("");
   const [embyPassword, setEmbyPassword] = useState("");
 
@@ -139,6 +141,7 @@ export default function LoginPage() {
       const result = await embyLogin.mutateAsync({
         username: embyUsername,
         password: embyPassword,
+        serverId: selectedEmbyServerId || undefined,
       });
 
       if (result.success && result.token) {
@@ -164,6 +167,7 @@ export default function LoginPage() {
     cancelLogin();
     setAuthMethod("select");
     // Reset Emby form
+    setSelectedEmbyServerId("");
     setEmbyUsername("");
     setEmbyPassword("");
   };
@@ -214,17 +218,25 @@ export default function LoginPage() {
                       Sign in with Plex
                     </Button>
                   )}
-                  {isEmbyAvailable && (
-                    <Button
-                      onClick={() => setAuthMethod("emby")}
-                      variant="secondary"
-                      className="w-full flex items-center justify-center gap-3"
-                      size="lg"
-                    >
-                      <EmbyLogo className="w-5 h-5" />
-                      Sign in with Emby
-                    </Button>
-                  )}
+                  {isEmbyAvailable &&
+                    availableEmbyServers.map((server) => (
+                      <Button
+                        key={server.id}
+                        onClick={() => {
+                          setSelectedEmbyServerId(server.id);
+                          setAuthMethod("emby");
+                        }}
+                        variant="secondary"
+                        className="w-full flex items-center justify-center gap-3"
+                        size="lg"
+                      >
+                        <EmbyLogo className="w-5 h-5" />
+                        <span className="flex flex-col items-start gap-0.5">
+                          <span>{server.name}</span>
+                          <span className="text-xs text-white/40">Emby</span>
+                        </span>
+                      </Button>
+                    ))}
                 </div>
               </>
             )}
