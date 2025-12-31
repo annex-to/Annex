@@ -45,9 +45,7 @@ export async function hydrateLibraryMetadata(
   try {
     // Find library items without corresponding MediaItem records
     // Prioritize recently added items
-    const missingItems = await prisma.$queryRaw<
-      Array<{ tmdbId: number; type: MediaType }>
-    >`
+    const missingItems = await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
       SELECT DISTINCT li.tmdbId, li.type
       FROM "LibraryItem" li
       LEFT JOIN "MediaItem" mi ON mi.tmdbId = li.tmdbId AND mi.type = li.type
@@ -188,11 +186,10 @@ export async function getHydrationStats(): Promise<{
  * @param daysStale Number of days since last update to consider stale
  * @param limit Maximum number of items to refresh
  */
-export async function refreshStaleMetadata(
-  daysStale = 30,
-  limit = 50
-): Promise<HydrationResult> {
-  console.log(`[LibraryHydration] Refreshing metadata older than ${daysStale} days (limit: ${limit})`);
+export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<HydrationResult> {
+  console.log(
+    `[LibraryHydration] Refreshing metadata older than ${daysStale} days (limit: ${limit})`
+  );
 
   const startTime = Date.now();
   let processed = 0;
@@ -205,9 +202,7 @@ export async function refreshStaleMetadata(
     const staleDate = new Date();
     staleDate.setDate(staleDate.getDate() - daysStale);
 
-    const staleItems = await prisma.$queryRaw<
-      Array<{ tmdbId: number; type: MediaType }>
-    >`
+    const staleItems = await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
       SELECT DISTINCT mi.tmdbId, mi.type
       FROM "MediaItem" mi
       INNER JOIN "LibraryItem" li ON li.tmdbId = mi.tmdbId AND li.type = mi.type

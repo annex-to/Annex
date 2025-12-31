@@ -10,10 +10,7 @@ import type { Job } from "@prisma/client";
 import { getConfig } from "../config/index.js";
 import { prisma } from "../db/client.js";
 import { getJobEventService, type JobEventData, type JobUpdateType } from "./jobEvents.js";
-import {
-  hydrateLibraryMetadata,
-  refreshStaleMetadata,
-} from "./libraryMetadataHydration.js";
+import { hydrateLibraryMetadata, refreshStaleMetadata } from "./libraryMetadataHydration.js";
 import { syncAllLibraries, syncServerLibrary } from "./librarySync.js";
 import { getSchedulerService } from "./scheduler.js";
 
@@ -110,8 +107,7 @@ class JobQueueService {
     });
 
     this.registerHandler("library:hydrate-metadata", async (payload) => {
-      const { limit = 100, priorityServerId } = (payload ||
-        {}) as LibraryHydrateMetadataPayload;
+      const { limit = 100, priorityServerId } = (payload || {}) as LibraryHydrateMetadataPayload;
       const result = await hydrateLibraryMetadata(limit, priorityServerId);
       console.log(
         `[LibraryHydration] Metadata hydration: ${result.hydrated} hydrated, ${result.failed} failed, ${result.skipped} skipped`
@@ -749,14 +745,19 @@ class JobQueueService {
     const intervalMs = 15 * 60 * 1000; // 15 minutes
 
     // Hydrate missing metadata
-    scheduler.register("library-hydrate-metadata", "Library Metadata Hydration", intervalMs, async () => {
-      await this.addJobIfNotExists(
-        "library:hydrate-metadata",
-        { limit: 100 },
-        "library:hydrate-metadata",
-        { priority: 3, maxAttempts: 3 }
-      );
-    });
+    scheduler.register(
+      "library-hydrate-metadata",
+      "Library Metadata Hydration",
+      intervalMs,
+      async () => {
+        await this.addJobIfNotExists(
+          "library:hydrate-metadata",
+          { limit: 100 },
+          "library:hydrate-metadata",
+          { priority: 3, maxAttempts: 3 }
+        );
+      }
+    );
 
     console.log("[JobQueue] Registered library metadata hydration task (15m interval)");
 
