@@ -221,16 +221,20 @@ export async function recoverFailedEpisodeDeliveries(): Promise<void> {
   for (const episode of failedEpisodes) {
     const epNum = `S${String(episode.season ?? 0).padStart(2, "0")}E${String(episode.episode ?? 0).padStart(2, "0")}`;
 
-    // Check if there's already an active pipeline for this episode
-    const activePipeline = await prisma.pipelineExecution.findFirst({
-      where: {
-        episodeId: episode.id,
-        status: "RUNNING",
-      },
+    // Check if episode is currently being processed (not in a failed state)
+    const currentEpisode = await prisma.processingItem.findUnique({
+      where: { id: episode.id },
+      select: { status: true },
     });
 
-    if (activePipeline) {
-      console.log(`[DeliveryRecovery] ${epNum}: Already has active pipeline, skipping`);
+    if (
+      currentEpisode &&
+      currentEpisode.status !== ProcessingStatus.FAILED &&
+      currentEpisode.status !== ProcessingStatus.CANCELLED
+    ) {
+      console.log(
+        `[DeliveryRecovery] ${epNum}: Already in ${currentEpisode.status} status, skipping`
+      );
       continue;
     }
 

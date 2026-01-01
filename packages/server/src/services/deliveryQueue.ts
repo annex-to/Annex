@@ -5,7 +5,7 @@
  * overwhelming SFTP connections.
  *
  * Key principles:
- * - Process one delivery at a time to avoid concurrent SFTP connections
+ * - Process up to MAX_CONCURRENT_DELIVERIES at a time
  * - Queue episodes for delivery instead of spawning branch pipelines
  * - Database-backed queue for crash resilience
  */
@@ -14,6 +14,12 @@ import { ProcessingStatus } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getDeliveryService } from "./delivery.js";
 import { getNamingService } from "./naming.js";
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_CONCURRENT_DELIVERIES = 3;
 
 // =============================================================================
 // Types
@@ -47,7 +53,7 @@ interface DeliveryResult {
 class DeliveryQueueService {
   private queue: DeliveryJob[] = [];
   private processing = false;
-  private processingEpisodeId: string | null = null;
+  private activeDeliveries = new Set<string>();
 
   /**
    * Add an episode to the delivery queue
@@ -60,14 +66,14 @@ class DeliveryQueueService {
     }
 
     // Check if currently processing this episode
-    if (this.processingEpisodeId === job.episodeId) {
+    if (this.activeDeliveries.has(job.episodeId)) {
       console.log(`[DeliveryQueue] Episode ${job.episodeId} currently processing, skipping`);
       return;
     }
 
     this.queue.push(job);
     console.log(
-      `[DeliveryQueue] Enqueued S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")} for ${job.title} (queue size: ${this.queue.length})`
+      `[DeliveryQueue] Enqueued S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")} for ${job.title} (queue: ${this.queue.length}, active: ${this.activeDeliveries.size})`
     );
 
     // Update episode status to DELIVERING
@@ -83,7 +89,7 @@ class DeliveryQueueService {
   }
 
   /**
-   * Process the delivery queue sequentially
+   * Process the delivery queue with concurrent deliveries
    */
   private async processQueue(): Promise<void> {
     if (this.processing) {
@@ -92,72 +98,85 @@ class DeliveryQueueService {
 
     this.processing = true;
 
-    while (this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (!job) {
-        break;
+    while (this.queue.length > 0 || this.activeDeliveries.size > 0) {
+      // Start new deliveries up to the concurrency limit
+      while (
+        this.queue.length > 0 &&
+        this.activeDeliveries.size < MAX_CONCURRENT_DELIVERIES
+      ) {
+        const job = this.queue.shift();
+        if (!job) {
+          break;
+        }
+
+        // Process delivery async (don't await)
+        this.activeDeliveries.add(job.episodeId);
+        this.processDelivery(job).finally(() => {
+          this.activeDeliveries.delete(job.episodeId);
+        });
       }
 
-      this.processingEpisodeId = job.episodeId;
+      // Wait a bit before checking again
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
 
-      const epNum = `S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")}`;
-      console.log(
-        `[DeliveryQueue] Processing ${epNum} for ${job.title} (${this.queue.length} remaining)`
-      );
+    this.processing = false;
+    console.log("[DeliveryQueue] Queue processing complete");
+  }
 
-      try {
-        const result = await this.deliverEpisode(job);
+  /**
+   * Process a single delivery
+   */
+  private async processDelivery(job: DeliveryJob): Promise<void> {
+    const epNum = `S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")}`;
+    console.log(
+      `[DeliveryQueue] Processing ${epNum} for ${job.title} (queue: ${this.queue.length}, active: ${this.activeDeliveries.size})`
+    );
 
-        if (result.success) {
-          console.log(
-            `[DeliveryQueue] ✓ ${epNum} delivered to ${result.deliveredServers.length} server(s)`
-          );
+    try {
+      const result = await this.deliverEpisode(job);
 
-          await prisma.processingItem.update({
-            where: { id: job.episodeId },
-            data: {
-              status: ProcessingStatus.COMPLETED,
-              deliveredAt: new Date(),
-              lastError: null,
-            },
-          });
-        } else {
-          console.error(`[DeliveryQueue] ✗ ${epNum} failed: ${result.error}`);
-
-          await prisma.processingItem.update({
-            where: { id: job.episodeId },
-            data: {
-              status: ProcessingStatus.FAILED,
-              lastError: result.error,
-            },
-          });
-        }
-      } catch (error) {
-        console.error(
-          `[DeliveryQueue] ✗ ${epNum} error:`,
-          error instanceof Error ? error.message : error
+      if (result.success) {
+        console.log(
+          `[DeliveryQueue] ✓ ${epNum} delivered to ${result.deliveredServers.length} server(s)`
         );
 
         await prisma.processingItem.update({
           where: { id: job.episodeId },
           data: {
+            status: ProcessingStatus.COMPLETED,
+            deliveredAt: new Date(),
+            lastError: null,
+          },
+        });
+      } else {
+        console.error(`[DeliveryQueue] ✗ ${epNum} failed: ${result.error}`);
+
+        await prisma.processingItem.update({
+          where: { id: job.episodeId },
+          data: {
             status: ProcessingStatus.FAILED,
-            lastError: error instanceof Error ? error.message : String(error),
+            lastError: result.error,
           },
         });
       }
+    } catch (error) {
+      console.error(
+        `[DeliveryQueue] ✗ ${epNum} error:`,
+        error instanceof Error ? error.message : error
+      );
 
-      this.processingEpisodeId = null;
-
-      // Check if all episodes for this request are complete
-      await this.updateRequestStatus(job.requestId);
-
-      // Small delay between deliveries to avoid overwhelming servers
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await prisma.processingItem.update({
+        where: { id: job.episodeId },
+        data: {
+          status: ProcessingStatus.FAILED,
+          lastError: error instanceof Error ? error.message : String(error),
+        },
+      });
     }
 
-    this.processing = false;
-    console.log("[DeliveryQueue] Queue processing complete");
+    // Check if all episodes for this request are complete
+    await this.updateRequestStatus(job.requestId);
   }
 
   /**
@@ -308,12 +327,12 @@ class DeliveryQueueService {
   getStatus(): {
     queueSize: number;
     processing: boolean;
-    currentEpisode: string | null;
+    activeDeliveries: number;
   } {
     return {
       queueSize: this.queue.length,
       processing: this.processing,
-      currentEpisode: this.processingEpisodeId,
+      activeDeliveries: this.activeDeliveries.size,
     };
   }
 

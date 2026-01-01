@@ -47,20 +47,20 @@ export async function hydrateLibraryMetadata(
     // Prioritize recently added items
     const missingItems = priorityServerId
       ? await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-          SELECT DISTINCT li."tmdbId", li.type
+          SELECT DISTINCT ON (li."tmdbId", li.type) li."tmdbId", li.type
           FROM "LibraryItem" li
           LEFT JOIN "MediaItem" mi ON mi."tmdbId" = li."tmdbId" AND mi.type = li.type
           WHERE mi.id IS NULL
             AND li."serverId" = ${priorityServerId}
-          ORDER BY li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
+          ORDER BY li."tmdbId", li.type, li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
           LIMIT ${limit}
         `
       : await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-          SELECT DISTINCT li."tmdbId", li.type
+          SELECT DISTINCT ON (li."tmdbId", li.type) li."tmdbId", li.type
           FROM "LibraryItem" li
           LEFT JOIN "MediaItem" mi ON mi."tmdbId" = li."tmdbId" AND mi.type = li.type
           WHERE mi.id IS NULL
-          ORDER BY li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
+          ORDER BY li."tmdbId", li.type, li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
           LIMIT ${limit}
         `;
 
@@ -324,12 +324,12 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
     staleDate.setDate(staleDate.getDate() - daysStale);
 
     const staleItems = await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-      SELECT DISTINCT mi."tmdbId", mi.type
+      SELECT DISTINCT ON (mi."tmdbId", mi.type) mi."tmdbId", mi.type
       FROM "MediaItem" mi
       INNER JOIN "LibraryItem" li ON li."tmdbId" = mi."tmdbId" AND li.type = mi.type
       WHERE mi."traktUpdatedAt" < ${staleDate}
          OR mi."traktUpdatedAt" IS NULL
-      ORDER BY mi."traktUpdatedAt" ASC NULLS FIRST
+      ORDER BY mi."tmdbId", mi.type, mi."traktUpdatedAt" ASC NULLS FIRST
       LIMIT ${limit}
     `;
 
