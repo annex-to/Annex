@@ -19,7 +19,7 @@ import { getNamingService } from "./naming.js";
 // Constants
 // =============================================================================
 
-const MAX_CONCURRENT_DELIVERIES = 3;
+const MAX_CONCURRENT_DELIVERIES_PER_SERVER = 3;
 
 // =============================================================================
 // Types
@@ -46,6 +46,18 @@ interface DeliveryResult {
   error?: string;
 }
 
+interface ServerDeliveryJob {
+  episodeId: string;
+  requestId: string;
+  season: number;
+  episode: number;
+  title: string;
+  year: number;
+  sourceFilePath: string;
+  serverId: string;
+  encodingProfileId: string;
+}
+
 // =============================================================================
 // Delivery Queue Service
 // =============================================================================
@@ -53,7 +65,7 @@ interface DeliveryResult {
 class DeliveryQueueService {
   private queue: DeliveryJob[] = [];
   private processing = false;
-  private activeDeliveries = new Set<string>();
+  private activeDeliveriesByServer = new Map<string, Set<string>>(); // serverId -> Set<episodeId>
 
   /**
    * Add an episode to the delivery queue
@@ -65,15 +77,22 @@ class DeliveryQueueService {
       return;
     }
 
-    // Check if currently processing this episode
-    if (this.activeDeliveries.has(job.episodeId)) {
+    // Check if currently processing this episode to any server
+    const isActive = Array.from(this.activeDeliveriesByServer.values()).some((episodes) =>
+      episodes.has(job.episodeId)
+    );
+    if (isActive) {
       console.log(`[DeliveryQueue] Episode ${job.episodeId} currently processing, skipping`);
       return;
     }
 
     this.queue.push(job);
+    const totalActive = Array.from(this.activeDeliveriesByServer.values()).reduce(
+      (sum, set) => sum + set.size,
+      0
+    );
     console.log(
-      `[DeliveryQueue] Enqueued S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")} for ${job.title} (queue: ${this.queue.length}, active: ${this.activeDeliveries.size})`
+      `[DeliveryQueue] Enqueued S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")} for ${job.title} to ${job.targetServers.length} server(s) (queue: ${this.queue.length}, active: ${totalActive})`
     );
 
     // Update episode status to DELIVERING
@@ -89,7 +108,7 @@ class DeliveryQueueService {
   }
 
   /**
-   * Process the delivery queue with concurrent deliveries
+   * Process the delivery queue with per-server concurrency
    */
   private async processQueue(): Promise<void> {
     if (this.processing) {
@@ -98,26 +117,67 @@ class DeliveryQueueService {
 
     this.processing = true;
 
-    while (this.queue.length > 0 || this.activeDeliveries.size > 0) {
-      // Start new deliveries up to the concurrency limit
-      while (
-        this.queue.length > 0 &&
-        this.activeDeliveries.size < MAX_CONCURRENT_DELIVERIES
-      ) {
-        const job = this.queue.shift();
-        if (!job) {
-          break;
+    const hasActiveDeliveries = () => {
+      return Array.from(this.activeDeliveriesByServer.values()).some((set) => set.size > 0);
+    };
+
+    while (this.queue.length > 0 || hasActiveDeliveries()) {
+      // Process next job if any in queue
+      if (this.queue.length > 0) {
+        const job = this.queue[0];
+
+        // Try to start deliveries for this job's servers
+        let startedAny = false;
+        for (const target of job.targetServers) {
+          const serverActive = this.activeDeliveriesByServer.get(target.serverId) || new Set();
+
+          // Check if this server has capacity
+          if (serverActive.size < MAX_CONCURRENT_DELIVERIES_PER_SERVER) {
+            // Remove job from queue if this is the first server we're starting
+            if (!startedAny) {
+              this.queue.shift();
+              startedAny = true;
+            }
+
+            // Mark as active for this server
+            if (!this.activeDeliveriesByServer.has(target.serverId)) {
+              this.activeDeliveriesByServer.set(target.serverId, new Set());
+            }
+            this.activeDeliveriesByServer.get(target.serverId)!.add(job.episodeId);
+
+            // Start delivery to this server
+            const serverJob: ServerDeliveryJob = {
+              episodeId: job.episodeId,
+              requestId: job.requestId,
+              season: job.season,
+              episode: job.episode,
+              title: job.title,
+              year: job.year,
+              sourceFilePath: job.sourceFilePath,
+              serverId: target.serverId,
+              encodingProfileId: target.encodingProfileId,
+            };
+
+            this.deliverToServer(serverJob, job.targetServers.length).finally(() => {
+              const serverSet = this.activeDeliveriesByServer.get(target.serverId);
+              if (serverSet) {
+                serverSet.delete(job.episodeId);
+                if (serverSet.size === 0) {
+                  this.activeDeliveriesByServer.delete(target.serverId);
+                }
+              }
+            });
+          }
         }
 
-        // Process delivery async (don't await)
-        this.activeDeliveries.add(job.episodeId);
-        this.processDelivery(job).finally(() => {
-          this.activeDeliveries.delete(job.episodeId);
-        });
+        // If we couldn't start any deliveries, wait before trying again
+        if (!startedAny) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      } else {
+        // No jobs in queue, just wait for active deliveries
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
-
-      // Wait a bit before checking again
-      await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
     this.processing = false;
@@ -125,24 +185,116 @@ class DeliveryQueueService {
   }
 
   /**
-   * Process a single delivery
+   * Deliver a single episode to a single server
    */
-  private async processDelivery(job: DeliveryJob): Promise<void> {
+  private async deliverToServer(
+    job: ServerDeliveryJob,
+    totalServers: number
+  ): Promise<void> {
     const epNum = `S${String(job.season).padStart(2, "0")}E${String(job.episode).padStart(2, "0")}`;
-    console.log(
-      `[DeliveryQueue] Processing ${epNum} for ${job.title} (queue: ${this.queue.length}, active: ${this.activeDeliveries.size})`
-    );
 
     try {
-      const result = await this.deliverEpisode(job);
+      // Get server info
+      const server = await prisma.storageServer.findUnique({
+        where: { id: job.serverId },
+      });
+
+      if (!server || !server.enabled) {
+        console.error(`[DeliveryQueue] ✗ ${epNum} server ${job.serverId} not found or disabled`);
+        await this.checkEpisodeCompletion(job.episodeId, job.requestId, totalServers);
+        return;
+      }
+
+      console.log(
+        `[DeliveryQueue] Delivering ${epNum} for ${job.title} to ${server.name}`
+      );
+
+      const delivery = getDeliveryService();
+      const naming = getNamingService();
+
+      // Generate remote path
+      const remotePath = naming.getTvDestinationPath(server.pathTv, {
+        series: job.title,
+        year: job.year,
+        season: job.season,
+        episode: job.episode,
+        quality: "2160p",
+        codec: "AV1",
+        container: "mkv",
+      });
+
+      const result = await delivery.deliver(server.id, job.sourceFilePath, remotePath);
 
       if (result.success) {
-        console.log(
-          `[DeliveryQueue] ✓ ${epNum} delivered to ${result.deliveredServers.length} server(s)`
+        console.log(`[DeliveryQueue] ✓ ${epNum} delivered to ${server.name}`);
+      } else {
+        console.error(
+          `[DeliveryQueue] ✗ ${epNum} failed to deliver to ${server.name}: ${result.error}`
         );
+      }
+    } catch (error) {
+      console.error(
+        `[DeliveryQueue] ✗ ${epNum} error delivering to server:`,
+        error instanceof Error ? error.message : error
+      );
+    }
 
+    // Check if episode is complete (delivered to all servers)
+    await this.checkEpisodeCompletion(job.episodeId, job.requestId, totalServers);
+  }
+
+  /**
+   * Check if episode has been delivered to all target servers
+   */
+  private async checkEpisodeCompletion(
+    episodeId: string,
+    requestId: string,
+    totalServers: number
+  ): Promise<void> {
+    // Check if episode is still active on any server
+    const isStillActive = Array.from(this.activeDeliveriesByServer.values()).some((episodes) =>
+      episodes.has(episodeId)
+    );
+
+    if (!isStillActive) {
+      // Episode delivery is complete - check library to see if it succeeded
+      const episode = await prisma.processingItem.findUnique({
+        where: { id: episodeId },
+        select: { season: true, episode: true },
+      });
+
+      if (!episode || episode.season === null || episode.episode === null) {
+        return;
+      }
+
+      // Get request to find target servers
+      const request = await prisma.mediaRequest.findUnique({
+        where: { id: requestId },
+        select: { tmdbId: true, targets: true },
+      });
+
+      if (!request) {
+        return;
+      }
+
+      const targets = request.targets as unknown as Array<{ serverId: string }>;
+      const serverIds = targets.map((t) => t.serverId);
+
+      // Check if episode is in library on all target servers
+      const libraryItems = await prisma.episodeLibraryItem.findMany({
+        where: {
+          tmdbId: request.tmdbId,
+          season: episode.season,
+          episode: episode.episode,
+          serverId: { in: serverIds },
+        },
+      });
+
+      const deliveredToAll = libraryItems.length === serverIds.length;
+
+      if (deliveredToAll) {
         await prisma.processingItem.update({
-          where: { id: job.episodeId },
+          where: { id: episodeId },
           data: {
             status: ProcessingStatus.COMPLETED,
             deliveredAt: new Date(),
@@ -150,33 +302,18 @@ class DeliveryQueueService {
           },
         });
       } else {
-        console.error(`[DeliveryQueue] ✗ ${epNum} failed: ${result.error}`);
-
         await prisma.processingItem.update({
-          where: { id: job.episodeId },
+          where: { id: episodeId },
           data: {
             status: ProcessingStatus.FAILED,
-            lastError: result.error,
+            lastError: `Only delivered to ${libraryItems.length}/${serverIds.length} servers`,
           },
         });
       }
-    } catch (error) {
-      console.error(
-        `[DeliveryQueue] ✗ ${epNum} error:`,
-        error instanceof Error ? error.message : error
-      );
 
-      await prisma.processingItem.update({
-        where: { id: job.episodeId },
-        data: {
-          status: ProcessingStatus.FAILED,
-          lastError: error instanceof Error ? error.message : String(error),
-        },
-      });
+      // Update request status
+      await this.updateRequestStatus(requestId);
     }
-
-    // Check if all episodes for this request are complete
-    await this.updateRequestStatus(job.requestId);
   }
 
   /**
@@ -252,87 +389,29 @@ class DeliveryQueueService {
   }
 
   /**
-   * Deliver an episode to target servers
-   */
-  private async deliverEpisode(job: DeliveryJob): Promise<DeliveryResult> {
-    const deliveredServers: string[] = [];
-    const failedServers: string[] = [];
-
-    // Get target servers
-    const servers = await prisma.storageServer.findMany({
-      where: {
-        id: { in: job.targetServers.map((t) => t.serverId) },
-        enabled: true,
-      },
-    });
-
-    if (servers.length === 0) {
-      return {
-        success: false,
-        deliveredServers: [],
-        failedServers: job.targetServers.map((t) => t.serverId),
-        error: "No enabled target servers found",
-      };
-    }
-
-    const delivery = getDeliveryService();
-    const naming = getNamingService();
-
-    // Deliver to each server
-    for (const server of servers) {
-      try {
-        // Generate remote path for this server
-        const remotePath = naming.getTvDestinationPath(server.pathTv, {
-          series: job.title,
-          year: job.year,
-          season: job.season,
-          episode: job.episode,
-          quality: "2160p", // Hardcoded for now, should come from encoding profile
-          codec: "AV1",
-          container: "mkv",
-        });
-
-        const result = await delivery.deliver(server.id, job.sourceFilePath, remotePath);
-
-        if (result.success) {
-          deliveredServers.push(server.id);
-        } else {
-          failedServers.push(server.id);
-          console.error(`[DeliveryQueue] Failed to deliver to ${server.name}: ${result.error}`);
-        }
-      } catch (error) {
-        failedServers.push(server.id);
-        console.error(`[DeliveryQueue] Error delivering to ${server.name}:`, error);
-      }
-    }
-
-    const success = deliveredServers.length > 0;
-    const error = !success
-      ? `Failed to deliver to all ${servers.length} server(s)`
-      : failedServers.length > 0
-        ? `Failed to deliver to ${failedServers.length} server(s)`
-        : undefined;
-
-    return {
-      success,
-      deliveredServers,
-      failedServers,
-      error,
-    };
-  }
-
-  /**
    * Get queue status
    */
   getStatus(): {
     queueSize: number;
     processing: boolean;
     activeDeliveries: number;
+    activeDeliveriesByServer: Record<string, number>;
   } {
+    const activeDeliveriesByServer: Record<string, number> = {};
+    for (const [serverId, episodes] of this.activeDeliveriesByServer.entries()) {
+      activeDeliveriesByServer[serverId] = episodes.size;
+    }
+
+    const totalActive = Array.from(this.activeDeliveriesByServer.values()).reduce(
+      (sum, set) => sum + set.size,
+      0
+    );
+
     return {
       queueSize: this.queue.length,
       processing: this.processing,
-      activeDeliveries: this.activeDeliveries.size,
+      activeDeliveries: totalActive,
+      activeDeliveriesByServer,
     };
   }
 
