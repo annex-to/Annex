@@ -1376,4 +1376,109 @@ export const requestsRouter = router({
       const stats = await pipelineOrchestrator.getRequestStats(input.requestId);
       return stats;
     }),
+
+  /**
+   * Cancel a single episode (user override)
+   */
+  cancelEpisode: publicProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input }) => {
+      await prisma.processingItem.update({
+        where: { id: input.itemId },
+        data: {
+          status: ProcessingStatus.CANCELLED,
+          lastError: "User cancelled",
+        },
+      });
+      return { success: true };
+    }),
+
+  /**
+   * Re-encode a single episode (reset to encoding stage)
+   */
+  reEncodeEpisode: publicProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input }) => {
+      const item = await prisma.processingItem.findUnique({
+        where: { id: input.itemId },
+      });
+
+      if (!item) {
+        throw new Error("Episode not found");
+      }
+
+      // Reset to downloaded status so encoding can restart
+      await prisma.processingItem.update({
+        where: { id: input.itemId },
+        data: {
+          status: ProcessingStatus.DOWNLOADED,
+          progress: null,
+          lastError: null,
+          encodingJobId: null,
+        },
+      });
+
+      return { success: true };
+    }),
+
+  /**
+   * Re-deliver a single episode (reset to delivery stage)
+   */
+  reDeliverEpisode: publicProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input }) => {
+      const item = await prisma.processingItem.findUnique({
+        where: { id: input.itemId },
+        include: {
+          request: {
+            select: {
+              tmdbId: true,
+              title: true,
+              year: true,
+              targets: true,
+            },
+          },
+        },
+      });
+
+      if (!item || !item.request) {
+        throw new Error("Episode not found");
+      }
+
+      if (item.type !== "EPISODE" || item.season === null || item.episode === null) {
+        throw new Error("Only episodes can be re-delivered");
+      }
+
+      // Reset to encoded status
+      await prisma.processingItem.update({
+        where: { id: input.itemId },
+        data: {
+          status: ProcessingStatus.ENCODED,
+          progress: null,
+          lastError: null,
+          deliveredAt: null,
+        },
+      });
+
+      // Re-queue for delivery
+      const deliveryQueue = (await import("../services/deliveryQueue.js")).getDeliveryQueue();
+
+      const targets = item.request.targets as unknown as Array<{
+        serverId: string;
+        encodingProfileId: string;
+      }>;
+
+      await deliveryQueue.enqueue({
+        episodeId: item.id,
+        requestId: item.requestId,
+        season: item.season,
+        episode: item.episode,
+        title: item.request.title,
+        year: item.request.year ?? new Date().getFullYear(),
+        sourceFilePath: item.outputPath ?? "",
+        targetServers: targets,
+      });
+
+      return { success: true };
+    }),
 });

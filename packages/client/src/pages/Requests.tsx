@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlternativesModal, Button, Input, Select, Skeleton } from "../components/ui";
+import { AlternativesModal, Button, ContextMenu, Input, Select, Skeleton } from "../components/ui";
 import { trpc } from "../trpc";
 
 type RequestStatus =
@@ -262,10 +262,32 @@ function EpisodeStatusIcon({ status }: { status: EpisodeStatus }) {
 }
 
 function EpisodeGrid({ requestId }: { requestId: string }) {
+  const utils = trpc.useContext();
   const episodeStatuses = trpc.requests.getEpisodeStatuses.useQuery(
     { requestId },
     { refetchInterval: 5000 }
   );
+
+  const cancelEpisodeMutation = trpc.requests.cancelEpisode.useMutation({
+    onSuccess: () => {
+      utils.requests.getEpisodeStatuses.invalidate({ requestId });
+      utils.requests.list.invalidate();
+    },
+  });
+
+  const reEncodeMutation = trpc.requests.reEncodeEpisode.useMutation({
+    onSuccess: () => {
+      utils.requests.getEpisodeStatuses.invalidate({ requestId });
+      utils.requests.list.invalidate();
+    },
+  });
+
+  const reDeliverMutation = trpc.requests.reDeliverEpisode.useMutation({
+    onSuccess: () => {
+      utils.requests.getEpisodeStatuses.invalidate({ requestId });
+      utils.requests.list.invalidate();
+    },
+  });
 
   if (episodeStatuses.isLoading) {
     return (
@@ -324,37 +346,57 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                   tooltipText += `\nError: ${episode.error}`;
                 }
 
+                // Context menu items
+                const contextMenuItems = [
+                  {
+                    label: "Re-encode",
+                    onClick: () => reEncodeMutation.mutate({ itemId: episode.id }),
+                    disabled: episode.status === "downloading" || episode.status === "pending",
+                  },
+                  {
+                    label: "Re-deliver",
+                    onClick: () => reDeliverMutation.mutate({ itemId: episode.id }),
+                    disabled: episode.status === "downloading" || episode.status === "encoding",
+                  },
+                  {
+                    label: "Cancel",
+                    onClick: () => cancelEpisodeMutation.mutate({ itemId: episode.id }),
+                    destructive: true,
+                  },
+                ];
+
                 return (
-                  <div
-                    key={episode.episodeNumber}
-                    className={`
-                      relative flex items-center gap-1 px-2 py-1 rounded text-xs
-                      ${episodeStatusColors[episode.status as EpisodeStatus] || "bg-white/5 text-white/40"}
-                      ${canReprocess ? "cursor-pointer hover:ring-1 hover:ring-white/30" : "cursor-default"}
-                      transition-all overflow-hidden
-                    `}
-                    title={tooltipText}
-                  >
-                    {hasProgress && !isPendingEncode && (
-                      <div
-                        className="absolute inset-0 bg-white/10 transition-all"
-                        style={{ width: `${episode.progress}%` }}
-                      />
-                    )}
-                    <span className="relative flex items-center gap-1">
-                      <EpisodeStatusIcon status={episode.status as EpisodeStatus} />
-                      <span>{episode.episodeNumber}</span>
-                      {isPendingEncode ? (
-                        <span className="text-[10px] opacity-70">Pending</span>
-                      ) : (
-                        hasProgress && (
-                          <span className="text-[10px] opacity-70">
-                            {Math.round(episode.progress || 0)}%
-                          </span>
-                        )
+                  <ContextMenu key={episode.episodeNumber} items={contextMenuItems}>
+                    <div
+                      className={`
+                        relative flex items-center gap-1 px-2 py-1 rounded text-xs
+                        ${episodeStatusColors[episode.status as EpisodeStatus] || "bg-white/5 text-white/40"}
+                        ${canReprocess ? "cursor-pointer hover:ring-1 hover:ring-white/30" : "cursor-default"}
+                        transition-all overflow-hidden
+                      `}
+                      title={tooltipText}
+                    >
+                      {hasProgress && !isPendingEncode && (
+                        <div
+                          className="absolute inset-0 bg-white/10 transition-all"
+                          style={{ width: `${episode.progress}%` }}
+                        />
                       )}
-                    </span>
-                  </div>
+                      <span className="relative flex items-center gap-1">
+                        <EpisodeStatusIcon status={episode.status as EpisodeStatus} />
+                        <span>{episode.episodeNumber}</span>
+                        {isPendingEncode ? (
+                          <span className="text-[10px] opacity-70">Pending</span>
+                        ) : (
+                          hasProgress && (
+                            <span className="text-[10px] opacity-70">
+                              {Math.round(episode.progress || 0)}%
+                            </span>
+                          )
+                        )}
+                      </span>
+                    </div>
+                  </ContextMenu>
                 );
               })}
             </div>

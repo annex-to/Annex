@@ -3,6 +3,7 @@ export { Badge } from "./Badge";
 export { Button } from "./Button";
 export { Callout } from "./Callout";
 export { Card } from "./Card";
+export { ContextMenu } from "./ContextMenu";
 export { DiscoveryModeTabs } from "./DiscoveryModeTabs";
 export { EmptyState } from "./EmptyState";
 export { FilterPanel } from "./FilterPanel";
