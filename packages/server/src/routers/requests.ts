@@ -1089,6 +1089,8 @@ export const requestsRouter = router({
             releaseName: string | null;
             isPendingEncode: boolean;
             currentStep: string | null;
+            isAvailableInLibrary: boolean;
+            availableOnServerCount: number;
           }[];
         }
       > = {};
@@ -1106,8 +1108,8 @@ export const requestsRouter = router({
         const availableOnServers = availableMap.get(key);
         const isAvailableOnAllTargets = availableOnServers?.size === serverIds.length;
 
-        // Use "available" status if episode is in library on all target servers
-        const status = isAvailableOnAllTargets ? "available" : ep.status.toLowerCase();
+        // Always use actual processing status (not "available")
+        const status = ep.status.toLowerCase();
 
         // Get download progress if available
         const downloadProgress = progressMap.get(key);
@@ -1141,6 +1143,9 @@ export const requestsRouter = router({
           releaseName: download?.torrentName ?? null,
           isPendingEncode,
           currentStep: ep.currentStep,
+          // Library availability as separate field
+          isAvailableInLibrary: isAvailableOnAllTargets,
+          availableOnServerCount: availableOnServers?.size ?? 0,
         });
       }
 
