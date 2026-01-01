@@ -131,8 +131,10 @@ export class DeliverWorker extends BaseWorker {
     });
 
     // Execute delivery
+    // Timeout: 15 minutes should be enough for most files
+    // Large 2160p files (10-20GB) at 10MB/s = ~20 minutes max
     const output = await this.deliverStep.execute(context, {
-      timeout: 60 * 60 * 1000, // 1 hour
+      timeout: 15 * 60 * 1000, // 15 minutes
     });
 
     if (!output.success) {

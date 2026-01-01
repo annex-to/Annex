@@ -220,7 +220,7 @@ export class DeliverStep extends BaseStep {
     });
 
     const deliveredServers: string[] = [];
-    const failedServers: string[] = [];
+    const failedServers: Array<{ serverId: string; serverName: string; error: string }> = [];
 
     // Process each encoded file
     for (const encodedFile of encodedFiles) {
@@ -376,7 +376,11 @@ export class DeliverStep extends BaseStep {
             },
           });
         } else {
-          failedServers.push(server.id);
+          failedServers.push({
+            serverId: server.id,
+            serverName: server.name,
+            error: result.error || "Unknown error",
+          });
 
           // Don't update episode status here - will be handled at the end based on retry decision
 
@@ -562,10 +566,15 @@ export class DeliverStep extends BaseStep {
         },
       };
     } else {
+      // Build detailed error message with actual failure reasons
+      const errorDetails = failedServers
+        .map((f) => `${f.serverName}: ${f.error}`)
+        .join("; ");
+
       const error =
         deliveredServers.length === 0
-          ? "Failed to deliver to all servers"
-          : `Delivered to ${deliveredServers.length} servers, failed ${failedServers.length}`;
+          ? `Failed to deliver to all servers - ${errorDetails}`
+          : `Delivered to ${deliveredServers.length} servers, failed ${failedServers.length} - ${errorDetails}`;
 
       if (deliveredServers.length > 0) {
         // Partial success - log as warning since some servers failed
@@ -631,7 +640,7 @@ export class DeliverStep extends BaseStep {
         data: {
           deliver: {
             deliveredServers,
-            failedServers,
+            failedServers: failedServers.map((f) => f.serverId),
             completedAt: new Date().toISOString(),
           },
         },
