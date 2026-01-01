@@ -1116,12 +1116,12 @@ export const requestsRouter = router({
 
         // Determine progress based on status:
         // - For DOWNLOADING status, use download progress
-        // - For ENCODING status, use episode's progress field
+        // - For ENCODING and DELIVERING status, use episode's progress field
         // - For other statuses, no progress
         let progress: number | null = null;
         if (ep.status === ProcessingStatus.DOWNLOADING) {
           progress = downloadProgress?.progress ?? null;
-        } else if (ep.status === ProcessingStatus.ENCODING) {
+        } else if (ep.status === ProcessingStatus.ENCODING || ep.status === ProcessingStatus.DELIVERING) {
           progress = ep.progress;
         }
 
