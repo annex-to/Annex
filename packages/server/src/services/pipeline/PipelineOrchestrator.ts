@@ -202,11 +202,15 @@ export class PipelineOrchestrator {
         nextRetryAt || undefined
       );
 
-      // Reset to PENDING status so workers can pick it up for retry
-      // Store error message and clear current step
-      await processingItemRepository.updateStatus(itemId, "PENDING", {
+      // Keep item in current processing status (DOWNLOADING/ENCODING/DELIVERING) for retry
+      // Workers will pick it up based on their status filters
+      // Only reset to PENDING if item is in a non-processing state
+      const processingStatuses: ProcessingStatus[] = ["DOWNLOADING", "ENCODING", "DELIVERING"];
+      const targetStatus = processingStatuses.includes(item.status) ? item.status : "PENDING";
+
+      // Store error message but keep currentStep for context
+      await processingItemRepository.updateStatus(itemId, targetStatus, {
         lastError: retryStrategy.formatError(error),
-        currentStep: null,
       });
 
       return updatedItem;
