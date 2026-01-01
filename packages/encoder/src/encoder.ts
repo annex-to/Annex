@@ -207,22 +207,25 @@ export async function hasDolbyVision(filePath: string): Promise<boolean> {
 
 /**
  * Strip Dolby Vision metadata from a file using codec copy
- * Returns the path to the intermediate file (temp file that needs cleanup)
+ * Sends progress updates to prevent stall detection
  */
 async function stripDolbyVision(
   inputPath: string,
   outputPath: string,
-  onProgress?: (message: string) => void
+  jobId: string,
+  duration: number,
+  onProgress: (progress: JobProgressMessage) => void
 ): Promise<void> {
   validateFilePath(inputPath);
   validateFilePath(outputPath);
 
-  onProgress?.("Stripping Dolby Vision metadata...");
   console.log("[Encoder] Stripping Dolby Vision with codec copy");
 
   const args = [
     "-hide_banner",
     "-y",
+    "-progress",
+    "pipe:1",
     "-i",
     inputPath,
     "-map",
@@ -249,15 +252,102 @@ async function stripDolbyVision(
     stderr: "pipe",
   });
 
-  const stderr = await new Response(proc.stderr).text();
+  const progressState = {
+    outTimeUs: 0,
+    speed: 0,
+  };
+
+  // Process stdout for progress in background
+  const stdoutReader = (async () => {
+    const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let lastLogTime = 0;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const parsed = parseProgress(line.trim());
+          Object.assign(progressState, parsed);
+
+          // Calculate progress percentage (DV strip uses 0-10% of total progress)
+          const elapsedTime = progressState.outTimeUs / 1_000_000;
+          const stripProgress = duration > 0 ? Math.min(100, (elapsedTime / duration) * 100) : 0;
+          const scaledProgress = stripProgress * 0.1; // Scale to 0-10%
+
+          // Send progress update
+          onProgress({
+            type: "job:progress",
+            jobId,
+            progress: scaledProgress,
+            frame: 0,
+            fps: 0,
+            bitrate: 0,
+            totalSize: 0,
+            elapsedTime,
+            speed: progressState.speed,
+            eta: 0,
+          });
+
+          // Log progress (throttled to every 30s)
+          const now = Date.now();
+          if (now - lastLogTime >= 30000 || stripProgress >= 99) {
+            console.log(
+              `[Encoder] DV Strip Progress: ${stripProgress.toFixed(1)}% (scaled: ${scaledProgress.toFixed(1)}%) | ${progressState.speed.toFixed(2)}x speed`
+            );
+            lastLogTime = now;
+          }
+        }
+      }
+    } catch {
+      // Stream closed, ignore
+    }
+  })();
+
+  // Collect stderr for error reporting
+  const stderrLines: string[] = [];
+  const stderrReader = (async () => {
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          stderrLines.push(line);
+          if (stderrLines.length > 100) {
+            stderrLines.shift();
+          }
+        }
+      }
+    } catch {
+      // Stream closed, ignore
+    }
+  })();
+
   const exitCode = await proc.exited;
+  await Promise.all([stdoutReader, stderrReader]);
 
   if (exitCode !== 0) {
+    const stderr = stderrLines.join("\n");
     throw new Error(`Dolby Vision removal failed: ${stderr.slice(-500)}`);
   }
 
   console.log("[Encoder] Dolby Vision metadata stripped successfully");
-  onProgress?.("Dolby Vision metadata stripped");
 }
 
 /**
@@ -746,6 +836,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   // Dolby Vision removal - two-pass approach if enabled
   let actualInputPath = job.inputPath;
   let intermediateFilePath: string | null = null;
+  let dvStripped = false; // Track if DV was stripped to adjust main encode progress
 
   if (job.encodingConfig.removeDolbyVision) {
     console.log("[Encoder] Dolby Vision removal enabled, checking for DV metadata...");
@@ -753,18 +844,6 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
 
     if (hasDV) {
       console.log("[Encoder] Dolby Vision detected, will strip before encoding");
-      job.onProgress({
-        type: "job:progress",
-        jobId: job.jobId,
-        progress: 0,
-        frame: 0,
-        fps: 0,
-        bitrate: 0,
-        totalSize: 0,
-        elapsedTime: 0,
-        speed: 0,
-        eta: 0,
-      });
 
       // Create intermediate file path
       intermediateFilePath = path.join(
@@ -772,13 +851,18 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
         `${path.basename(job.outputPath, path.extname(job.outputPath))}.no-dv${path.extname(job.inputPath)}`
       );
 
-      // Strip Dolby Vision to intermediate file
-      await stripDolbyVision(job.inputPath, intermediateFilePath, (message) => {
-        console.log(`[Encoder] DV Strip: ${message}`);
-      });
+      // Strip Dolby Vision to intermediate file with progress updates
+      await stripDolbyVision(
+        job.inputPath,
+        intermediateFilePath,
+        job.jobId,
+        mediaInfo.duration,
+        job.onProgress
+      );
 
       // Use intermediate file as input for main encode
       actualInputPath = intermediateFilePath;
+      dvStripped = true;
       console.log("[Encoder] Will encode from DV-stripped intermediate file");
     } else {
       console.log("[Encoder] No Dolby Vision detected, encoding normally");
@@ -841,8 +925,11 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
 
           // Calculate progress percentage
           const elapsedTime = progressState.outTimeUs / 1_000_000;
-          const progress =
+          const rawProgress =
             mediaInfo.duration > 0 ? Math.min(100, (elapsedTime / mediaInfo.duration) * 100) : 0;
+
+          // Scale progress: if DV was stripped, use 10-100%, otherwise use 0-100%
+          const progress = dvStripped ? 10 + rawProgress * 0.9 : rawProgress;
 
           // Calculate ETA
           const eta =
