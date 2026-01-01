@@ -8,6 +8,7 @@
 export interface MovieNamingParams {
   title: string;
   year: number;
+  tmdbId: number;
   quality: string; // e.g., "2160p", "1080p", "720p"
   codec?: string; // e.g., "AV1", "HEVC", "H264"
   container: string; // e.g., "mkv", "mp4"
@@ -68,22 +69,22 @@ class NamingService {
   /**
    * Generate movie filename and folder path
    *
-   * Format: {title} ({year})/{title} ({year}) [{quality}].{ext}
+   * Format: {title} ({year}) [tmdb-{tmdbId}]/{title} ({year}) [tmdb-{tmdbId}] [{quality}].{ext}
    *
-   * Example: "Inception (2010)/Inception (2010) [2160p AV1].mkv"
+   * Example: "Inception (2010) [tmdb-27205]/Inception (2010) [tmdb-27205] [2160p AV1].mkv"
    */
   generateMoviePath(params: MovieNamingParams): {
     folder: string;
     filename: string;
     fullPath: string;
   } {
-    const { title, year, quality, codec, container } = params;
+    const { title, year, tmdbId, quality, codec, container } = params;
 
     const sanitizedTitle = sanitizeFilename(title);
     const qualityTag = formatQualityTag(quality, codec);
 
-    const folder = `${sanitizedTitle} (${year})`;
-    const filename = `${sanitizedTitle} (${year}) [${qualityTag}].${container}`;
+    const folder = `${sanitizedTitle} (${year}) [tmdb-${tmdbId}]`;
+    const filename = `${sanitizedTitle} (${year}) [tmdb-${tmdbId}] [${qualityTag}].${container}`;
     const fullPath = `${folder}/${filename}`;
 
     return { folder, filename, fullPath };

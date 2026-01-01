@@ -98,6 +98,7 @@ export class DeliverStep extends BaseStep {
           remotePath = naming.getMovieDestinationPath(server.pathMovies, {
             title,
             year,
+            tmdbId,
             quality: resolution,
             codec,
             container,
@@ -256,6 +257,7 @@ export class DeliverStep extends BaseStep {
           remotePath = naming.getMovieDestinationPath(server.pathMovies, {
             title,
             year,
+            tmdbId,
             quality: resolution,
             codec,
             container,
