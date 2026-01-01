@@ -310,20 +310,31 @@ export class DeliverStep extends BaseStep {
 
         const result = await delivery.deliver(server.id, encodedFilePath, remotePath, {
           onProgress: async (progress) => {
-            const stageProgress =
-              75 + ((serverIndex + progress.progress / 100) / servers.length) * 20;
             const speed = `${this.formatBytes(progress.speed)}/s`;
             const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
+            const progressMessage = `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`;
 
-            // Don't update currentStepStartedAt on progress updates - timestamp was set when
-            // we started transferring to this server (line 262)
-            await prisma.mediaRequest.update({
-              where: { id: requestId },
-              data: {
-                progress: stageProgress,
-                currentStep: `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
-              },
-            });
+            // For TV episodes: Update individual ProcessingItem to avoid conflicts when multiple episodes deliver simultaneously
+            // For movies: Update MediaRequest since there's only one item
+            if (episodeId) {
+              await prisma.processingItem.update({
+                where: { id: episodeId },
+                data: {
+                  progress: progress.progress,
+                  currentStep: progressMessage,
+                },
+              });
+            } else {
+              const stageProgress =
+                75 + ((serverIndex + progress.progress / 100) / servers.length) * 20;
+              await prisma.mediaRequest.update({
+                where: { id: requestId },
+                data: {
+                  progress: stageProgress,
+                  currentStep: progressMessage,
+                },
+              });
+            }
           },
         });
 
