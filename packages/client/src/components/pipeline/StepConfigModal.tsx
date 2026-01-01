@@ -249,6 +249,20 @@ export default function StepConfigModal({ nodeData, onClose, onUpdate }: StepCon
                 <option value="WEBM">WebM</option>
               </Select>
             </div>
+
+            <div>
+              <Label>Remove Dolby Vision</Label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(config.removeDolbyVision as boolean) ?? false}
+                  onChange={(e) => setConfig({ ...config, removeDolbyVision: e.target.checked })}
+                />
+                <span className="text-sm text-white/70">
+                  Strip Dolby Vision metadata (preserves HDR10 base layer)
+                </span>
+              </label>
+            </div>
           </div>
         );
 
