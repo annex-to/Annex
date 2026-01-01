@@ -1088,6 +1088,7 @@ export const requestsRouter = router({
             speed: number | null;
             releaseName: string | null;
             isPendingEncode: boolean;
+            currentStep: string | null;
           }[];
         }
       > = {};
@@ -1139,6 +1140,7 @@ export const requestsRouter = router({
           speed: downloadProgress?.speed ?? null,
           releaseName: download?.torrentName ?? null,
           isPendingEncode,
+          currentStep: ep.currentStep,
         });
       }
 

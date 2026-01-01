@@ -313,6 +313,17 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                 const hasProgress = episode.progress != null && isProcessing;
                 const isPendingEncode = episode.isPendingEncode && episode.status === "encoding";
 
+                // Build detailed tooltip
+                let tooltipText = `Episode ${episode.episodeNumber}: ${episode.status}`;
+                if (episode.currentStep) {
+                  tooltipText += `\n${episode.currentStep}`;
+                } else if (hasProgress) {
+                  tooltipText += ` - ${Math.round(episode.progress || 0)}%`;
+                }
+                if (episode.error) {
+                  tooltipText += `\nError: ${episode.error}`;
+                }
+
                 return (
                   <div
                     key={episode.episodeNumber}
@@ -322,7 +333,7 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                       ${canReprocess ? "cursor-pointer hover:ring-1 hover:ring-white/30" : "cursor-default"}
                       transition-all overflow-hidden
                     `}
-                    title={`Episode ${episode.episodeNumber}: ${episode.status}${episode.error ? ` - ${episode.error}` : ""}`}
+                    title={tooltipText}
                   >
                     {hasProgress && !isPendingEncode && (
                       <div
