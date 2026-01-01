@@ -130,11 +130,27 @@ export class DeliverWorker extends BaseWorker {
       this.updateProgress(item.id, progress, message);
     });
 
+    // Calculate dynamic timeout based on file size
+    // Get file size from first encoded file
+    const firstEncodedFile = encodeData.encodedFiles[0] as { path: string };
+    const fileSize = await Bun.file(firstEncodedFile.path).size; // bytes
+
+    // Conservative estimate: 5 MB/s minimum transfer speed
+    // Add 50% buffer for overhead, handshake, retries
+    const minSpeedMBps = 5;
+    const estimatedSeconds = (fileSize / (minSpeedMBps * 1024 * 1024)) * 1.5;
+
+    // Clamp between 5 minutes (small files) and 30 minutes (huge files)
+    const timeoutMinutes = Math.max(5, Math.min(30, Math.ceil(estimatedSeconds / 60)));
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+
+    console.log(
+      `[${this.name}] ${item.title}: File size ${(fileSize / 1024 / 1024 / 1024).toFixed(2)}GB, timeout ${timeoutMinutes} minutes`
+    );
+
     // Execute delivery
-    // Timeout: 15 minutes should be enough for most files
-    // Large 2160p files (10-20GB) at 10MB/s = ~20 minutes max
     const output = await this.deliverStep.execute(context, {
-      timeout: 15 * 60 * 1000, // 15 minutes
+      timeout: timeoutMs,
     });
 
     if (!output.success) {
