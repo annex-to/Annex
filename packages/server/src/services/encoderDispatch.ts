@@ -841,13 +841,20 @@ class EncoderDispatchService {
 
     if (shouldWriteToDb) {
       this.progressLastWritten.set(msg.jobId, now);
+
+      // Validate and sanitize progress data to prevent null errors
+      const progress = Number.isFinite(msg.progress) ? msg.progress : 0;
+      const fps = Number.isFinite(msg.fps) ? msg.fps : 0;
+      const speed = Number.isFinite(msg.speed) && msg.speed !== null ? msg.speed : 0;
+      const eta = Number.isFinite(msg.eta) ? Math.round(msg.eta) : 0;
+
       await prisma.encoderAssignment.update({
         where: { jobId: msg.jobId },
         data: {
-          progress: msg.progress,
-          fps: msg.fps,
-          speed: msg.speed,
-          eta: Math.round(msg.eta),
+          progress,
+          fps,
+          speed,
+          eta,
           lastProgressAt: new Date(),
         },
       });

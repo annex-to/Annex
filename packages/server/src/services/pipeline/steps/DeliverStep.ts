@@ -483,31 +483,37 @@ export class DeliverStep extends BaseStep {
         }
       }
 
-      // Clean up encoded files (keep source files for seeding)
-      for (const encodedFile of encodedFiles) {
-        const encodedPath = (encodedFile as { path: string }).path;
-        try {
-          await Bun.file(encodedPath)
-            .exists()
-            .then((exists) => {
-              if (exists) {
-                return Bun.file(encodedPath).delete();
-              }
-            });
-          await this.logActivity(
-            requestId,
-            ActivityType.INFO,
-            `Cleaned up encoded file: ${encodedPath}`
-          );
-        } catch (err) {
-          // Log but don't fail delivery on cleanup errors
-          await this.logActivity(
-            requestId,
-            ActivityType.WARNING,
-            `Failed to clean up encoded file: ${err instanceof Error ? err.message : "Unknown error"}`
-          );
-        }
-      }
+      // NOTE: We intentionally DO NOT delete encoded files here because:
+      // 1. Retries may reuse the encoded file if source changes (e.g., Dolby Atmos upgrade)
+      // 2. Partial delivery failures need the file for retry
+      // 3. Manual cleanup scripts can remove orphaned files older than 1 hour
+      // This allows the EncoderDispatch reuse logic to work correctly on retries.
+      //
+      // Clean up encoded files (keep source files for seeding) - DISABLED
+      // for (const encodedFile of encodedFiles) {
+      //   const encodedPath = (encodedFile as { path: string }).path;
+      //   try {
+      //     await Bun.file(encodedPath)
+      //       .exists()
+      //       .then((exists) => {
+      //         if (exists) {
+      //           return Bun.file(encodedPath).delete();
+      //         }
+      //       });
+      //     await this.logActivity(
+      //       requestId,
+      //       ActivityType.INFO,
+      //       `Cleaned up encoded file: ${encodedPath}`
+      //     );
+      //   } catch (err) {
+      //     // Log but don't fail delivery on cleanup errors
+      //     await this.logActivity(
+      //       requestId,
+      //       ActivityType.WARNING,
+      //       `Failed to clean up encoded file: ${err instanceof Error ? err.message : "Unknown error"}`
+      //     );
+      //   }
+      // }
 
       return {
         success: true,
