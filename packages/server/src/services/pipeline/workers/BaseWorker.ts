@@ -8,7 +8,7 @@ import { pipelineOrchestrator } from "../PipelineOrchestrator";
  */
 export abstract class BaseWorker {
   readonly pollInterval = 5000; // 5 seconds - used by scheduler
-  readonly concurrency = 3; // Process up to 3 items in parallel
+  concurrency = 3; // Process up to 3 items in parallel (can be overridden by subclasses)
 
   /**
    * The status this worker processes

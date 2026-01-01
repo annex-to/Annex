@@ -14,6 +14,7 @@ import { getDownloadService } from "../../download.js";
 import { downloadManager } from "../../downloadManager.js";
 import type { Release } from "../../indexer.js";
 import type { PipelineContext } from "../PipelineContext.js";
+import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 
 interface DownloadStepConfig {
@@ -925,13 +926,34 @@ export class DownloadStep extends BaseStep {
         continue;
       }
 
-      // Update ProcessingItem with download info
+      // Get existing stepContext
+      const existingContext = (processingItem.stepContext as Record<string, unknown>) || {};
+
+      // Build download context for this episode
+      const downloadContext: PipelineContext["download"] = {
+        torrentHash,
+        sourceFilePath: fullPath,
+        size: file.size,
+      };
+
+      // Merge with existing context
+      const newStepContext = {
+        ...existingContext,
+        download: downloadContext,
+      };
+
+      // Update ProcessingItem with download info using orchestrator
+      await pipelineOrchestrator.transitionStatus(processingItem.id, ProcessingStatus.DOWNLOADED, {
+        currentStep: "download",
+        stepContext: newStepContext,
+        downloadId: download.id,
+      });
+
+      // Update additional fields not handled by orchestrator
       await prisma.processingItem.update({
         where: { id: processingItem.id },
         data: {
-          downloadId: download.id,
           sourceFilePath: fullPath,
-          status: ProcessingStatus.DOWNLOADED,
           downloadedAt: new Date(),
         },
       });
