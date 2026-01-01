@@ -17,6 +17,12 @@ export class SearchWorker extends BaseWorker {
   protected async processItem(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] Processing ${item.type} ${item.title}`);
 
+    // Skip if not in PENDING status (race condition or stale data)
+    if (item.status !== "PENDING") {
+      console.log(`[${this.name}] Skipping ${item.title}: already in ${item.status} status`);
+      return;
+    }
+
     // Transition to SEARCHING first
     const { pipelineOrchestrator } = await import("../PipelineOrchestrator");
     await pipelineOrchestrator.transitionStatus(item.id, "SEARCHING", { currentStep: "search" });
