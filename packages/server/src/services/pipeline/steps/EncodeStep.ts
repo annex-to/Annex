@@ -245,9 +245,198 @@ export class EncodeStep extends BaseStep {
     await this.logActivity(
       requestId,
       ActivityType.INFO,
-      `Checking for existing encoded files (found ${recentJobs.length} recent encode jobs)`
+      `Checking for existing encode jobs (found ${recentJobs.length} recent jobs)`
     );
 
+    // Check for in-progress encoding first (recovery scenario after server restart)
+    const inProgressJob = await prisma.encoderAssignment.findFirst({
+      where: {
+        jobId: {
+          in: recentJobs.map((j: { id: string }) => j.id),
+        },
+        status: {
+          in: [AssignmentStatus.ENCODING, AssignmentStatus.ASSIGNED],
+        },
+      },
+      orderBy: { assignedAt: "desc" },
+    });
+
+    if (inProgressJob) {
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        `Found in-progress encoding job (${inProgressJob.progress}%) - resuming polling`
+      );
+
+      // Get the job record to extract payload
+      const job = await prisma.job.findUnique({
+        where: { id: inProgressJob.jobId },
+      });
+
+      if (!job) {
+        await this.logActivity(
+          requestId,
+          ActivityType.ERROR,
+          "Job record not found for assignment"
+        );
+        return {
+          success: false,
+          error: "Job record not found for assignment",
+        };
+      }
+
+      const jobPayload = job.payload as {
+        finalOutputPath?: string;
+        encodingConfig?: {
+          videoEncoder?: string;
+          maxResolution?: string;
+        };
+      };
+
+      const finalOutputPath = jobPayload.finalOutputPath || inProgressJob.outputPath;
+      const encodingConfig = jobPayload.encodingConfig || {};
+
+      // Resume polling the existing job
+      const pollInterval = cfg.pollInterval || 5000;
+      const timeout = cfg.timeout || 12 * 60 * 60 * 1000;
+      const startTime = Date.now();
+      const endTime = startTime + timeout;
+
+      await this.logActivity(
+        requestId,
+        ActivityType.INFO,
+        `Resuming encoding from ${inProgressJob.progress}%`
+      );
+
+      // Start polling loop
+      while (Date.now() < endTime) {
+        await Bun.sleep(pollInterval);
+
+        const assignmentStatus = await prisma.encoderAssignment.findUnique({
+          where: { id: inProgressJob.id },
+        });
+
+        if (!assignmentStatus) {
+          await this.logActivity(
+            requestId,
+            ActivityType.ERROR,
+            "Assignment disappeared during polling"
+          );
+          return {
+            success: false,
+            error: "Assignment disappeared during polling",
+          };
+        }
+
+        // Update request progress
+        let overallProgress = 50;
+        let currentStep = "Encoding...";
+
+        if (assignmentStatus.status === AssignmentStatus.PENDING) {
+          currentStep = "Waiting for encoder...";
+          overallProgress = 50;
+        } else if (assignmentStatus.status === AssignmentStatus.ASSIGNED) {
+          currentStep = "Encoder assigned, starting...";
+          overallProgress = 50;
+        } else if (assignmentStatus.progress !== null) {
+          overallProgress = 50 + assignmentStatus.progress * 0.4;
+          const speed = assignmentStatus.speed ? ` - ${assignmentStatus.speed}x` : "";
+          const eta = assignmentStatus.eta
+            ? ` - ETA: ${this.formatDuration(assignmentStatus.eta)}`
+            : "";
+          currentStep = `Encoding: ${assignmentStatus.progress.toFixed(1)}%${speed}${eta}`;
+        }
+
+        const previousRequest = await prisma.mediaRequest.findUnique({
+          where: { id: requestId },
+          select: { currentStep: true },
+        });
+
+        await prisma.mediaRequest.update({
+          where: { id: requestId },
+          data: {
+            progress: overallProgress,
+            currentStep,
+            ...(previousRequest?.currentStep !== currentStep && {
+              currentStepStartedAt: new Date(),
+            }),
+          },
+        });
+
+        this.reportProgress(assignmentStatus.progress || 0, currentStep);
+
+        // Check if complete
+        if (assignmentStatus.status === AssignmentStatus.COMPLETED) {
+          await this.logActivity(
+            requestId,
+            ActivityType.SUCCESS,
+            `Encoding complete (resumed after server restart)`
+          );
+
+          await prisma.mediaRequest.update({
+            where: { id: requestId },
+            data: {
+              progress: 90,
+              currentStep: "Encoding complete",
+              currentStepStartedAt: new Date(),
+            },
+          });
+
+          const targetServerIds = context.targets.map((t) => t.serverId);
+          const videoEncoder = encodingConfig.videoEncoder || "libsvtav1";
+          const codec =
+            videoEncoder.includes("av1") || videoEncoder.includes("AV1")
+              ? "AV1"
+              : videoEncoder.includes("hevc") || videoEncoder.includes("265")
+                ? "HEVC"
+                : "H264";
+
+          return {
+            success: true,
+            data: {
+              encode: {
+                jobId: job.id,
+                encodedFiles: [
+                  {
+                    profileId: context.targets[0]?.encodingProfileId || "default",
+                    path: assignmentStatus.outputPath || finalOutputPath,
+                    targetServerIds,
+                    resolution: encodingConfig.maxResolution || "1080p",
+                    codec,
+                    size: assignmentStatus.outputSize
+                      ? Number(assignmentStatus.outputSize)
+                      : undefined,
+                    compressionRatio: assignmentStatus.compressionRatio || undefined,
+                  },
+                ],
+              },
+            },
+          };
+        }
+
+        // Check if failed
+        if (assignmentStatus.status === AssignmentStatus.FAILED) {
+          await this.logActivity(
+            requestId,
+            ActivityType.ERROR,
+            `Encoding failed: ${assignmentStatus.error || "Unknown error"}`
+          );
+          return {
+            success: false,
+            error: assignmentStatus.error || "Encoding failed",
+          };
+        }
+      }
+
+      // Timeout
+      await this.logActivity(requestId, ActivityType.ERROR, "Encoding timeout");
+      return {
+        success: false,
+        error: "Encoding timeout",
+      };
+    }
+
+    // Check for completed job to reuse
     const recentCompletedJob = await prisma.encoderAssignment.findFirst({
       where: {
         jobId: {
