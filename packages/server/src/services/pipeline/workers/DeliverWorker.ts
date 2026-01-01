@@ -13,7 +13,7 @@ export class DeliverWorker extends BaseWorker {
   readonly processingStatus = "ENCODED" as const;
   readonly nextStatus = "COMPLETED" as const;
   readonly name = "DeliverWorker";
-  readonly concurrency = 1; // Deliver one file at a time to avoid bandwidth saturation
+  readonly concurrency = 3; // Deliver up to 3 files in parallel
 
   private deliverStep = new DeliverStep();
 
