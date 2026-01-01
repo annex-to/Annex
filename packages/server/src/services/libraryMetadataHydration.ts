@@ -47,18 +47,18 @@ export async function hydrateLibraryMetadata(
     // Prioritize recently added items
     const missingItems = priorityServerId
       ? await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-          SELECT DISTINCT li.tmdbId, li.type
+          SELECT DISTINCT li."tmdbId", li.type
           FROM "LibraryItem" li
-          LEFT JOIN "MediaItem" mi ON mi.tmdbId = li.tmdbId AND mi.type = li.type
+          LEFT JOIN "MediaItem" mi ON mi."tmdbId" = li."tmdbId" AND mi.type = li.type
           WHERE mi.id IS NULL
             AND li."serverId" = ${priorityServerId}
           ORDER BY li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
           LIMIT ${limit}
         `
       : await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-          SELECT DISTINCT li.tmdbId, li.type
+          SELECT DISTINCT li."tmdbId", li.type
           FROM "LibraryItem" li
-          LEFT JOIN "MediaItem" mi ON mi.tmdbId = li.tmdbId AND mi.type = li.type
+          LEFT JOIN "MediaItem" mi ON mi."tmdbId" = li."tmdbId" AND mi.type = li.type
           WHERE mi.id IS NULL
           ORDER BY li."addedAt" DESC NULLS LAST, li."syncedAt" DESC
           LIMIT ${limit}
@@ -277,16 +277,16 @@ export async function getHydrationStats(): Promise<{
 }> {
   // Count total distinct library items
   const totalResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
-    SELECT COUNT(DISTINCT (tmdbId, type)) as count
+    SELECT COUNT(DISTINCT ("tmdbId", type)) as count
     FROM "LibraryItem"
   `;
   const totalLibraryItems = Number(totalResult[0]?.count || 0);
 
   // Count items with MediaItem records
   const hydratedResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
-    SELECT COUNT(DISTINCT (li.tmdbId, li.type)) as count
+    SELECT COUNT(DISTINCT (li."tmdbId", li.type)) as count
     FROM "LibraryItem" li
-    INNER JOIN "MediaItem" mi ON mi.tmdbId = li.tmdbId AND mi.type = li.type
+    INNER JOIN "MediaItem" mi ON mi."tmdbId" = li."tmdbId" AND mi.type = li.type
   `;
   const hydratedItems = Number(hydratedResult[0]?.count || 0);
 
@@ -324,9 +324,9 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
     staleDate.setDate(staleDate.getDate() - daysStale);
 
     const staleItems = await prisma.$queryRaw<Array<{ tmdbId: number; type: MediaType }>>`
-      SELECT DISTINCT mi.tmdbId, mi.type
+      SELECT DISTINCT mi."tmdbId", mi.type
       FROM "MediaItem" mi
-      INNER JOIN "LibraryItem" li ON li.tmdbId = mi.tmdbId AND li.type = mi.type
+      INNER JOIN "LibraryItem" li ON li."tmdbId" = mi."tmdbId" AND li.type = mi.type
       WHERE mi."traktUpdatedAt" < ${staleDate}
          OR mi."traktUpdatedAt" IS NULL
       ORDER BY mi."traktUpdatedAt" ASC NULLS FIRST
