@@ -135,6 +135,132 @@ export async function probeMedia(filePath: string): Promise<MediaInfo> {
 }
 
 /**
+ * Detect if a media file has Dolby Vision metadata
+ */
+export async function hasDolbyVision(filePath: string): Promise<boolean> {
+  validateFilePath(filePath);
+
+  const proc = Bun.spawn(
+    [
+      "ffprobe",
+      "-v",
+      "quiet",
+      "-select_streams",
+      "v:0",
+      "-print_format",
+      "json",
+      "-show_streams",
+      "-show_frames",
+      "-read_intervals",
+      "%+#1",
+      filePath,
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+
+  const stdout = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    console.warn(`[Encoder] ffprobe DV detection failed for ${filePath}, assuming no DV`);
+    return false;
+  }
+
+  try {
+    const data = JSON.parse(stdout);
+
+    // Check video stream for Dolby Vision side data
+    const videoStream = data.streams?.[0];
+    if (videoStream?.side_data_list) {
+      for (const sideData of videoStream.side_data_list) {
+        if (
+          sideData.side_data_type === "DOVI configuration record" ||
+          sideData.side_data_type === "Dolby Vision RPU"
+        ) {
+          return true;
+        }
+      }
+    }
+
+    // Check first frame for Dolby Vision side data
+    const firstFrame = data.frames?.[0];
+    if (firstFrame?.side_data_list) {
+      for (const sideData of firstFrame.side_data_list) {
+        if (
+          sideData.side_data_type === "DOVI configuration record" ||
+          sideData.side_data_type === "Dolby Vision RPU"
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (e) {
+    console.warn(`[Encoder] Failed to parse DV detection output: ${e}`);
+    return false;
+  }
+}
+
+/**
+ * Strip Dolby Vision metadata from a file using codec copy
+ * Returns the path to the intermediate file (temp file that needs cleanup)
+ */
+async function stripDolbyVision(
+  inputPath: string,
+  outputPath: string,
+  onProgress?: (message: string) => void
+): Promise<void> {
+  validateFilePath(inputPath);
+  validateFilePath(outputPath);
+
+  onProgress?.("Stripping Dolby Vision metadata...");
+  console.log("[Encoder] Stripping Dolby Vision with codec copy");
+
+  const args = [
+    "-hide_banner",
+    "-y",
+    "-i",
+    inputPath,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a?",
+    "-map",
+    "0:s?",
+    "-c:v",
+    "copy",
+    "-bsf:v",
+    "hevc_metadata=remove_dovi=1",
+    "-c:a",
+    "copy",
+    "-c:s",
+    "copy",
+    outputPath,
+  ];
+
+  console.log(`[Encoder] Running: ffmpeg ${args.join(" ")}`);
+
+  const proc = Bun.spawn(["ffmpeg", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const stderr = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new Error(`Dolby Vision removal failed: ${stderr.slice(-500)}`);
+  }
+
+  console.log("[Encoder] Dolby Vision metadata stripped successfully");
+  onProgress?.("Dolby Vision metadata stripped");
+}
+
+/**
  * Build FFmpeg arguments for encoding
  */
 function buildFfmpegArgs(
@@ -199,12 +325,6 @@ function buildFfmpegArgs(
   // Subtitle codec settings
   if (hasCompatibleSubs) {
     args.push("-c:s", "copy");
-  }
-
-  // Dolby Vision removal (bitstream filter)
-  if (encodingConfig.removeDolbyVision) {
-    console.log("[Encoder] Stripping Dolby Vision metadata");
-    args.push("-bsf:v", "dovi_rpu=remove");
   }
 
   // Limit internal muxing queue to prevent memory buildup
@@ -623,9 +743,51 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
     console.log(`[Encoder] WARNING: Could not check disk space: ${e}`);
   }
 
+  // Dolby Vision removal - two-pass approach if enabled
+  let actualInputPath = job.inputPath;
+  let intermediateFilePath: string | null = null;
+
+  if (job.encodingConfig.removeDolbyVision) {
+    console.log("[Encoder] Dolby Vision removal enabled, checking for DV metadata...");
+    const hasDV = await hasDolbyVision(job.inputPath);
+
+    if (hasDV) {
+      console.log("[Encoder] Dolby Vision detected, will strip before encoding");
+      job.onProgress({
+        type: "job:progress",
+        jobId: job.jobId,
+        progress: 0,
+        frame: 0,
+        fps: 0,
+        bitrate: 0,
+        totalSize: 0,
+        elapsedTime: 0,
+        speed: 0,
+        eta: 0,
+      });
+
+      // Create intermediate file path
+      intermediateFilePath = path.join(
+        outputDir,
+        `${path.basename(job.outputPath, path.extname(job.outputPath))}.no-dv${path.extname(job.inputPath)}`
+      );
+
+      // Strip Dolby Vision to intermediate file
+      await stripDolbyVision(job.inputPath, intermediateFilePath, (message) => {
+        console.log(`[Encoder] DV Strip: ${message}`);
+      });
+
+      // Use intermediate file as input for main encode
+      actualInputPath = intermediateFilePath;
+      console.log("[Encoder] Will encode from DV-stripped intermediate file");
+    } else {
+      console.log("[Encoder] No Dolby Vision detected, encoding normally");
+    }
+  }
+
   // Build FFmpeg arguments
   const args = buildFfmpegArgs(
-    job.inputPath,
+    actualInputPath,
     job.outputPath,
     job.encodingConfig,
     mediaInfo,
@@ -767,6 +929,18 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
       /* ignore */
     }
 
+    // Clean up intermediate DV-stripped file if it exists
+    if (intermediateFilePath) {
+      try {
+        if (fs.existsSync(intermediateFilePath)) {
+          fs.unlinkSync(intermediateFilePath);
+          console.log("[Encoder] Cleaned up intermediate DV-stripped file");
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const stderr = stderrLines.join("\n");
     throw new Error(`FFmpeg exited with code ${exitCode}: ${stderr.slice(-500)}`);
   }
@@ -800,6 +974,18 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
   console.log(
     `[Encoder] Complete: ${(outputSize / 1024 / 1024 / 1024).toFixed(2)}GB (${compressionRatio.toFixed(1)}x compression) in ${duration.toFixed(0)}s`
   );
+
+  // Clean up intermediate DV-stripped file if it exists
+  if (intermediateFilePath) {
+    try {
+      if (fs.existsSync(intermediateFilePath)) {
+        fs.unlinkSync(intermediateFilePath);
+        console.log("[Encoder] Cleaned up intermediate DV-stripped file");
+      }
+    } catch (e) {
+      console.warn(`[Encoder] WARNING: Could not clean up intermediate file: ${e}`);
+    }
+  }
 
   return {
     outputPath: finalPath,
