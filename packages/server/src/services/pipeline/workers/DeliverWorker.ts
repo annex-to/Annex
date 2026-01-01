@@ -135,13 +135,13 @@ export class DeliverWorker extends BaseWorker {
     const firstEncodedFile = encodeData.encodedFiles[0] as { path: string };
     const fileSize = await Bun.file(firstEncodedFile.path).size; // bytes
 
-    // Conservative estimate: 5 MB/s minimum transfer speed
+    // Conservative estimate: 2 MB/s minimum transfer speed (accounts for SFTP overhead)
     // Add 50% buffer for overhead, handshake, retries
-    const minSpeedMBps = 5;
+    const minSpeedMBps = 2;
     const estimatedSeconds = (fileSize / (minSpeedMBps * 1024 * 1024)) * 1.5;
 
-    // Clamp between 5 minutes (small files) and 30 minutes (huge files)
-    const timeoutMinutes = Math.max(5, Math.min(30, Math.ceil(estimatedSeconds / 60)));
+    // Clamp between 5 minutes (small files) and 60 minutes (huge files)
+    const timeoutMinutes = Math.max(5, Math.min(60, Math.ceil(estimatedSeconds / 60)));
     const timeoutMs = timeoutMinutes * 60 * 1000;
 
     console.log(
