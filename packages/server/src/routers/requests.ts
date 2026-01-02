@@ -2,6 +2,7 @@ import { MediaType, Prisma, ProcessingStatus, RequestStatus } from "@prisma/clie
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getDownloadService } from "../services/download.js";
+import { getEncoderDispatchService } from "../services/encoderDispatch.js";
 import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
 import { pipelineOrchestrator } from "../services/pipeline/PipelineOrchestrator.js";
 import { requestStatusComputer } from "../services/requestStatusComputer.js";
@@ -742,6 +743,25 @@ export const requestsRouter = router({
     for (const execution of executions) {
       if (execution.status === "RUNNING") {
         await executor.cancelExecution(execution.id);
+      }
+    }
+
+    // Cancel any encoding jobs for this request
+    const itemsWithJobs = await prisma.processingItem.findMany({
+      where: {
+        requestId: input.id,
+        encodingJobId: { not: null },
+      },
+      select: { encodingJobId: true },
+    });
+
+    if (itemsWithJobs.length > 0) {
+      const encoderDispatch = getEncoderDispatchService();
+
+      for (const item of itemsWithJobs) {
+        if (item.encodingJobId) {
+          await encoderDispatch.cancelJob(item.encodingJobId, "Request cancelled by user");
+        }
       }
     }
 

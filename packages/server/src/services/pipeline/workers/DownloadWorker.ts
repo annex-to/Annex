@@ -214,6 +214,15 @@ export class DownloadWorker extends BaseWorker {
             `Could not find S${item.season}E${item.episode} in season pack ${torrent.contentPath}`
           );
         }
+      } else if (item.type === "MOVIE") {
+        // For movies, find the main video file if path is a directory
+        const mainVideoFile = await findMainVideoFile(torrent.contentPath);
+        if (mainVideoFile) {
+          sourceFilePath = mainVideoFile;
+          console.log(`[${this.name}] Found main video file: ${mainVideoFile}`);
+        } else {
+          throw new Error(`Could not find video file in ${torrent.contentPath}`);
+        }
       }
 
       const downloadContext: PipelineContext["download"] = {
