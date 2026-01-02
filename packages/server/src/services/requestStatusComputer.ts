@@ -89,9 +89,9 @@ export class RequestStatusComputer {
 
     // Compute status from ProcessingItems
     const totalItems = items.length;
-    const completedItems = items.filter((i) => i.status === "COMPLETED").length;
-    const failedItems = items.filter((i) => i.status === "FAILED").length;
-    const cancelledItems = items.filter((i) => i.status === "CANCELLED").length;
+    const completedItems = items.filter((i: (typeof items)[0]) => i.status === "COMPLETED").length;
+    const failedItems = items.filter((i: (typeof items)[0]) => i.status === "FAILED").length;
+    const cancelledItems = items.filter((i: (typeof items)[0]) => i.status === "CANCELLED").length;
 
     // Derive overall status
     let status: RequestStatus;
@@ -103,26 +103,27 @@ export class RequestStatusComputer {
       status = "CANCELLED";
     } else if (failedItems > 0 && completedItems > 0) {
       status = "PARTIAL";
-    } else if (items.some((i) => i.status === "DOWNLOADING")) {
+    } else if (items.some((i: (typeof items)[0]) => i.status === "DOWNLOADING")) {
       status = "DOWNLOADING";
-    } else if (items.some((i) => i.status === "ENCODING")) {
+    } else if (items.some((i: (typeof items)[0]) => i.status === "ENCODING")) {
       status = "ENCODING";
-    } else if (items.some((i) => i.status === "DELIVERING")) {
+    } else if (items.some((i: (typeof items)[0]) => i.status === "DELIVERING")) {
       status = "DELIVERING";
-    } else if (items.some((i) => i.status === "SEARCHING")) {
+    } else if (items.some((i: (typeof items)[0]) => i.status === "SEARCHING")) {
       status = "SEARCHING";
-    } else if (items.some((i) => i.status === "PENDING")) {
+    } else if (items.some((i: (typeof items)[0]) => i.status === "PENDING")) {
       status = "PENDING";
     } else {
       status = "PROCESSING";
     }
 
     // Compute average progress
-    const avgProgress = items.reduce((sum, item) => sum + item.progress, 0) / totalItems;
+    const avgProgress =
+      items.reduce((sum: number, item: (typeof items)[0]) => sum + item.progress, 0) / totalItems;
 
     // Find most common current step among active items
     const activeItems = items.filter(
-      (i) => !["COMPLETED", "FAILED", "CANCELLED"].includes(i.status)
+      (i: (typeof items)[0]) => !["COMPLETED", "FAILED", "CANCELLED"].includes(i.status)
     );
     const currentStep = activeItems.length > 0 ? activeItems[0].currentStep : null;
 
@@ -130,13 +131,15 @@ export class RequestStatusComputer {
     const currentStepStartedAt =
       activeItems.length > 0
         ? activeItems.reduce(
-            (latest, item) => (item.updatedAt > latest ? item.updatedAt : latest),
+            (latest: Date, item: (typeof items)[0]) =>
+              item.updatedAt > latest ? item.updatedAt : latest,
             activeItems[0].updatedAt
           )
         : null;
 
     // Get first error from failed items
-    const error = items.find((i) => i.status === "FAILED" && i.lastError)?.lastError || null;
+    const error =
+      items.find((i: (typeof items)[0]) => i.status === "FAILED" && i.lastError)?.lastError || null;
 
     return {
       status,
@@ -215,9 +218,13 @@ export class RequestStatusComputer {
 
       // Same computation logic as single request
       const totalItems = items.length;
-      const completedItems = items.filter((i) => i.status === "COMPLETED").length;
-      const failedItems = items.filter((i) => i.status === "FAILED").length;
-      const cancelledItems = items.filter((i) => i.status === "CANCELLED").length;
+      const completedItems = items.filter(
+        (i: (typeof items)[0]) => i.status === "COMPLETED"
+      ).length;
+      const failedItems = items.filter((i: (typeof items)[0]) => i.status === "FAILED").length;
+      const cancelledItems = items.filter(
+        (i: (typeof items)[0]) => i.status === "CANCELLED"
+      ).length;
 
       let status: RequestStatus;
       if (completedItems === totalItems) {
@@ -228,35 +235,39 @@ export class RequestStatusComputer {
         status = "CANCELLED";
       } else if (failedItems > 0 && completedItems > 0) {
         status = "PARTIAL";
-      } else if (items.some((i) => i.status === "DOWNLOADING")) {
+      } else if (items.some((i: (typeof items)[0]) => i.status === "DOWNLOADING")) {
         status = "DOWNLOADING";
-      } else if (items.some((i) => i.status === "ENCODING")) {
+      } else if (items.some((i: (typeof items)[0]) => i.status === "ENCODING")) {
         status = "ENCODING";
-      } else if (items.some((i) => i.status === "DELIVERING")) {
+      } else if (items.some((i: (typeof items)[0]) => i.status === "DELIVERING")) {
         status = "DELIVERING";
-      } else if (items.some((i) => i.status === "SEARCHING")) {
+      } else if (items.some((i: (typeof items)[0]) => i.status === "SEARCHING")) {
         status = "SEARCHING";
-      } else if (items.some((i) => i.status === "PENDING")) {
+      } else if (items.some((i: (typeof items)[0]) => i.status === "PENDING")) {
         status = "PENDING";
       } else {
         status = "PROCESSING";
       }
 
-      const avgProgress = items.reduce((sum, item) => sum + item.progress, 0) / totalItems;
+      const avgProgress =
+        items.reduce((sum: number, item: (typeof items)[0]) => sum + item.progress, 0) / totalItems;
 
       const activeItems = items.filter(
-        (i) => !["COMPLETED", "FAILED", "CANCELLED"].includes(i.status)
+        (i: (typeof items)[0]) => !["COMPLETED", "FAILED", "CANCELLED"].includes(i.status)
       );
       const currentStep = activeItems.length > 0 ? activeItems[0].currentStep : null;
       const currentStepStartedAt =
         activeItems.length > 0
           ? activeItems.reduce(
-              (latest, item) => (item.updatedAt > latest ? item.updatedAt : latest),
+              (latest: Date, item: (typeof items)[0]) =>
+                item.updatedAt > latest ? item.updatedAt : latest,
               activeItems[0].updatedAt
             )
           : null;
 
-      const error = items.find((i) => i.status === "FAILED" && i.lastError)?.lastError || null;
+      const error =
+        items.find((i: (typeof items)[0]) => i.status === "FAILED" && i.lastError)?.lastError ||
+        null;
 
       results.set(requestId, {
         status,

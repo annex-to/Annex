@@ -557,12 +557,12 @@ export const requestsRouter = router({
       const statusMap = await requestStatusComputer.batchComputeStatus(requestIds);
 
       // Get release metadata for all requests
-      const releaseMetadataPromises = requestIds.map((id) =>
+      const releaseMetadataPromises = requestIds.map((id: string) =>
         requestStatusComputer.getReleaseMetadata(id)
       );
       const releaseMetadataList = await Promise.all(releaseMetadataPromises);
       const releaseMetadataMap = new Map(
-        requestIds.map((id, index) => [id, releaseMetadataList[index]])
+        requestIds.map((id: string, index: number) => [id, releaseMetadataList[index]])
       );
 
       return results.map((r: MediaRequestWithEpisodes) => {
@@ -574,7 +574,9 @@ export const requestsRouter = router({
 
         // Get computed status and release metadata
         const computed = statusMap.get(r.id);
-        const releaseMetadata = releaseMetadataMap.get(r.id);
+        const releaseMetadata = (releaseMetadataMap.get(r.id) ?? null) as Awaited<
+          ReturnType<typeof requestStatusComputer.getReleaseMetadata>
+        >;
 
         return {
           id: r.id,
