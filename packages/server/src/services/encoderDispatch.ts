@@ -1171,9 +1171,9 @@ class EncoderDispatchService {
     }
 
     // Find encoder with available capacity, or use least-loaded encoder
-    type EncoderData = { encoderId: string; currentJobs: number; maxConcurrentJobs: number };
+    type EncoderData = { encoderId: string; currentJobs: number; maxConcurrent: number };
     const encoderWithCapacity = allEncoders.find(
-      (enc: EncoderData) => enc.currentJobs < enc.maxConcurrentJobs
+      (enc: EncoderData) => enc.currentJobs < enc.maxConcurrent
     );
     const encoder = encoderWithCapacity || allEncoders[0];
 
@@ -1190,11 +1190,11 @@ class EncoderDispatchService {
 
     if (encoderWithCapacity) {
       console.log(
-        `[EncoderDispatch] Queued job ${jobId} for encoder ${encoder.encoderId} (${encoder.currentJobs}/${encoder.maxConcurrentJobs})`
+        `[EncoderDispatch] Queued job ${jobId} for encoder ${encoder.encoderId} (${encoder.currentJobs}/${encoder.maxConcurrent})`
       );
     } else {
       console.log(
-        `[EncoderDispatch] Queued job ${jobId} - all encoders at capacity, will assign when available. Current: ${allEncoders.map((e: EncoderData) => `${e.encoderId}(${e.currentJobs}/${e.maxConcurrentJobs})`).join(", ")}`
+        `[EncoderDispatch] Queued job ${jobId} - all encoders at capacity, will assign when available. Current: ${allEncoders.map((e: EncoderData) => `${e.encoderId}(${e.currentJobs}/${e.maxConcurrent})`).join(", ")}`
       );
     }
 

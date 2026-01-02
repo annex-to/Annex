@@ -605,9 +605,20 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
     bgColor: "bg-gray-500/20",
     variant: "default" as const,
   };
-  const isActive = ["pending", "searching", "downloading", "encoding", "delivering", "PENDING", "SEARCHING", "DOWNLOADING", "ENCODING", "DELIVERING", "PROCESSING", "processing"].includes(
-    status
-  );
+  const isActive = [
+    "pending",
+    "searching",
+    "downloading",
+    "encoding",
+    "delivering",
+    "PENDING",
+    "SEARCHING",
+    "DOWNLOADING",
+    "ENCODING",
+    "DELIVERING",
+    "PROCESSING",
+    "processing",
+  ].includes(status);
   const isAwaiting = status === "awaiting";
   const isQualityUnavailable = status === "quality_unavailable";
   const isFailed = status === "failed";
