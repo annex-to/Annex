@@ -148,6 +148,25 @@ export class DownloadWorker extends BaseWorker {
 
     if (!download) {
       console.log(`[${this.name}] Creating Download record for existing torrent ${torrentHash}`);
+
+      // Extract release metadata from selectedRelease
+      const selectedRelease = searchData?.selectedRelease;
+      const releaseMetadata = selectedRelease
+        ? {
+            indexerName: selectedRelease.indexerName || selectedRelease.indexer || null,
+            resolution: selectedRelease.resolution || null,
+            source: selectedRelease.source || null,
+            codec: selectedRelease.codec || null,
+            qualityScore:
+              (selectedRelease as { score?: number }).score ||
+              (selectedRelease as { quality?: number }).quality ||
+              null,
+            publishDate: selectedRelease.publishDate ? new Date(selectedRelease.publishDate) : null,
+            seedCount: selectedRelease.seeders || null,
+            peerCount: selectedRelease.leechers || null,
+          }
+        : {};
+
       download = await prisma.download.create({
         data: {
           id: torrentHash,
@@ -160,6 +179,7 @@ export class DownloadWorker extends BaseWorker {
           savePath: torrent.savePath,
           contentPath: torrent.contentPath,
           completedAt: torrent.isComplete ? new Date() : null,
+          ...releaseMetadata,
         },
       });
     }
