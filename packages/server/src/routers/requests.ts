@@ -1419,6 +1419,7 @@ export const requestsRouter = router({
           status: ProcessingStatus.DOWNLOADED,
           lastError: null,
           encodingJobId: null,
+          currentStep: null,
         },
       });
 
@@ -1461,6 +1462,7 @@ export const requestsRouter = router({
           progress: 0,
           lastError: null,
           deliveredAt: null,
+          currentStep: null,
         },
       });
 
