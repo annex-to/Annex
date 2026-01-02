@@ -339,51 +339,20 @@ class DeliveryQueueService {
     const completed = statusCounts.COMPLETED || 0;
     const failed = statusCounts.FAILED || 0;
     const cancelled = statusCounts.CANCELLED || 0;
-    const delivering = statusCounts.DELIVERING || 0;
     const total = episodes.length;
 
     // All episodes done (completed, failed, or cancelled)
+    // MediaRequest status computed from ProcessingItems - no update needed
     if (completed + failed + cancelled === total) {
       if (completed > 0) {
-        // At least some episodes succeeded
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            status: "COMPLETED",
-            progress: 100,
-            currentStep: `Delivered ${completed} episode(s)`,
-            completedAt: new Date(),
-          },
-        });
         console.log(
           `[DeliveryQueue] Request ${requestId} completed: ${completed} delivered, ${failed} failed, ${cancelled} cancelled`
         );
       } else {
-        // All episodes failed or skipped
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            status: "FAILED",
-            progress: 0,
-            currentStep: "All episodes failed delivery",
-            error: "All episodes failed or were cancelled",
-          },
-        });
         console.log(
           `[DeliveryQueue] Request ${requestId} failed: ${failed} failed, ${cancelled} cancelled`
         );
       }
-    } else {
-      // Still delivering - update progress
-      const progress = Math.floor(((completed + failed + cancelled) / total) * 100);
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          status: "DELIVERING",
-          progress,
-          currentStep: `Delivered ${completed}/${total} episodes (${delivering} in queue)`,
-        },
-      });
     }
   }
 
