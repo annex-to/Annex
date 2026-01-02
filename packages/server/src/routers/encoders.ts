@@ -220,7 +220,7 @@ export const encodersRouter = router({
         where: {
           status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
         },
-        orderBy: { completedAt: "desc" },
+        orderBy: { assignedAt: "desc" },
         take: input.limit,
       });
 
