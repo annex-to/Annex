@@ -1454,6 +1454,11 @@ export const requestsRouter = router({
         throw new Error("Only episodes can be re-delivered");
       }
 
+      // Verify episode has output file path before re-delivering
+      if (!item.outputPath) {
+        throw new Error("Episode missing encoded output file - cannot re-deliver");
+      }
+
       // Reset to encoded status
       await prisma.processingItem.update({
         where: { id: input.itemId },
