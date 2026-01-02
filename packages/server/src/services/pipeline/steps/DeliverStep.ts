@@ -311,13 +311,25 @@ export class DeliverStep extends BaseStep {
             // Update ProcessingItem progress (works for both movies and TV episodes)
             const itemId = episodeId || processingItemId;
             if (itemId) {
-              await prisma.processingItem.update({
-                where: { id: itemId },
-                data: {
-                  progress: progress.progress,
-                  currentStep: progressMessage,
-                },
-              });
+              try {
+                await prisma.processingItem.update({
+                  where: { id: itemId },
+                  data: {
+                    progress: progress.progress,
+                    currentStep: progressMessage,
+                  },
+                });
+              } catch (error) {
+                // Silently ignore P2025 (record not found) - acceptable during delivery
+                if (
+                  error instanceof Prisma.PrismaClientKnownRequestError &&
+                  error.code === "P2025"
+                ) {
+                  return;
+                }
+                // Re-throw other errors
+                throw error;
+              }
             }
           },
         });
