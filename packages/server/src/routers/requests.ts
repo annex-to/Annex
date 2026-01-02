@@ -745,10 +745,13 @@ export const requestsRouter = router({
       }
     }
 
-    // Update request status
-    await prisma.mediaRequest.update({
-      where: { id: input.id },
-      data: { status: RequestStatus.FAILED, error: "Cancelled by user" },
+    // Update all ProcessingItems to CANCELLED (MediaRequest status computed from items)
+    await prisma.processingItem.updateMany({
+      where: { requestId: input.id },
+      data: {
+        status: ProcessingStatus.CANCELLED,
+        lastError: "Cancelled by user",
+      },
     });
 
     return { success: true };
@@ -840,46 +843,6 @@ export const requestsRouter = router({
       );
     }
 
-    // Analyze current state to determine where to resume from
-    let status: RequestStatus = RequestStatus.PENDING;
-    let progress = 0;
-    let currentStep = "Starting pipeline...";
-
-    if (request.type === "TV") {
-      // Check episode statuses to determine resume point
-      const episodes = await prisma.processingItem.findMany({
-        where: { requestId: input.id, type: "EPISODE" },
-        select: { status: true },
-      });
-
-      if (episodes.length > 0) {
-        const statusCounts = episodes.reduce(
-          (acc: Record<string, number>, ep: { status: ProcessingStatus }) => {
-            acc[ep.status] = (acc[ep.status] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>
-        );
-
-        const downloadedOrLater =
-          (statusCounts.DOWNLOADED || 0) +
-          (statusCounts.ENCODING || 0) +
-          (statusCounts.ENCODED || 0) +
-          (statusCounts.DELIVERING || 0) +
-          (statusCounts.COMPLETED || 0);
-
-        // If most episodes are downloaded or beyond, skip search/download
-        if (downloadedOrLater > episodes.length / 2) {
-          status = RequestStatus.DOWNLOADING;
-          progress = 50;
-          currentStep = `${downloadedOrLater} episodes ready - resuming from encoding`;
-          console.log(
-            `[Retry] Skipping search/download for ${request.title} - ${downloadedOrLater}/${episodes.length} episodes already downloaded`
-          );
-        }
-      }
-    }
-
     // Check for active encoding jobs to avoid duplicates
     const activeEncodingJobs = await prisma.job.findMany({
       where: {
@@ -916,14 +879,15 @@ export const requestsRouter = router({
       }
     }
 
-    // Reset request status to resume point
-    await prisma.mediaRequest.update({
-      where: { id: input.id },
+    // Reset failed ProcessingItems to allow retry (pipeline will manage state from here)
+    await prisma.processingItem.updateMany({
+      where: {
+        requestId: input.id,
+        status: ProcessingStatus.FAILED,
+      },
       data: {
-        status,
-        progress,
-        currentStep,
-        error: null,
+        status: ProcessingStatus.PENDING,
+        lastError: null,
       },
     });
 
@@ -931,9 +895,13 @@ export const requestsRouter = router({
     const executor = getPipelineExecutor();
     executor.startExecution(request.id, templateId).catch(async (error) => {
       console.error(`Pipeline retry failed for request ${request.id}:`, error);
-      await prisma.mediaRequest.update({
-        where: { id: request.id },
-        data: { status: RequestStatus.FAILED, error: error.message },
+      // Mark all ProcessingItems as failed (MediaRequest status computed from items)
+      await prisma.processingItem.updateMany({
+        where: { requestId: request.id },
+        data: {
+          status: ProcessingStatus.FAILED,
+          lastError: `Pipeline failed to start: ${error.message}`,
+        },
       });
     });
 
@@ -1268,29 +1236,20 @@ export const requestsRouter = router({
 
       const selectedRelease = releases[input.releaseIndex] as Record<string, unknown>;
 
-      // Update request with selected release and proceed
+      // Update request with selected release (configuration)
       await prisma.mediaRequest.update({
         where: { id: input.id },
         data: {
-          status: RequestStatus.PENDING,
           selectedRelease: selectedRelease as Prisma.JsonObject,
-          // Capture initial torrent metadata
-          releaseFileSize: selectedRelease.size ? BigInt(selectedRelease.size as number) : null,
-          releaseIndexerName: (selectedRelease.indexerName as string | undefined) || null,
-          releaseSeeders: (selectedRelease.seeders as number | undefined) || null,
-          releaseLeechers: (selectedRelease.leechers as number | undefined) || null,
-          releaseResolution: (selectedRelease.resolution as string | undefined) || null,
-          releaseSource: (selectedRelease.source as string | undefined) || null,
-          releaseCodec: (selectedRelease.codec as string | undefined) || null,
-          releaseScore: (selectedRelease.score as number | undefined) || null,
-          releasePublishDate: selectedRelease.publishDate
-            ? new Date(selectedRelease.publishDate as string | number | Date)
-            : null,
-          releaseName: (selectedRelease.title as string | undefined) || null,
-          progress: 0,
-          currentStep: `Accepted lower quality: ${String(selectedRelease.resolution || "unknown")}`,
-          currentStepStartedAt: new Date(),
-          error: null,
+        },
+      });
+
+      // Reset ProcessingItems to PENDING to restart pipeline
+      await prisma.processingItem.updateMany({
+        where: { requestId: input.id },
+        data: {
+          status: ProcessingStatus.PENDING,
+          lastError: null,
         },
       });
 
@@ -1305,9 +1264,13 @@ export const requestsRouter = router({
         const executor = getPipelineExecutor();
         executor.startExecution(request.id, execution.templateId).catch(async (error) => {
           console.error(`Pipeline restart failed for request ${request.id}:`, error);
-          await prisma.mediaRequest.update({
-            where: { id: request.id },
-            data: { status: RequestStatus.FAILED, error: error.message },
+          // Mark all ProcessingItems as failed (MediaRequest status computed from items)
+          await prisma.processingItem.updateMany({
+            where: { requestId: request.id },
+            data: {
+              status: ProcessingStatus.FAILED,
+              lastError: `Pipeline failed to start: ${error.message}`,
+            },
           });
         });
       }
@@ -1337,15 +1300,20 @@ export const requestsRouter = router({
         throw new Error("Request cannot be refreshed from current status");
       }
 
+      // Clear user's selected release (configuration)
       await prisma.mediaRequest.update({
         where: { id: input.id },
         data: {
-          status: RequestStatus.PENDING,
           selectedRelease: Prisma.JsonNull,
-          availableReleases: Prisma.JsonNull,
-          currentStep: "Re-searching for quality releases...",
-          currentStepStartedAt: new Date(),
-          error: null,
+        },
+      });
+
+      // Reset ProcessingItems to PENDING to restart search
+      await prisma.processingItem.updateMany({
+        where: { requestId: input.id },
+        data: {
+          status: ProcessingStatus.PENDING,
+          lastError: null,
         },
       });
 
@@ -1359,9 +1327,13 @@ export const requestsRouter = router({
         const executor = getPipelineExecutor();
         executor.startExecution(request.id, execution.templateId).catch(async (error) => {
           console.error(`Pipeline restart failed for request ${request.id}:`, error);
-          await prisma.mediaRequest.update({
-            where: { id: request.id },
-            data: { status: RequestStatus.FAILED, error: error.message },
+          // Mark all ProcessingItems as failed (MediaRequest status computed from items)
+          await prisma.processingItem.updateMany({
+            where: { requestId: request.id },
+            data: {
+              status: ProcessingStatus.FAILED,
+              lastError: `Pipeline failed to start: ${error.message}`,
+            },
           });
         });
       }
