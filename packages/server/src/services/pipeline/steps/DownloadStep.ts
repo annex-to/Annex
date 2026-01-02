@@ -465,7 +465,7 @@ export class DownloadStep extends BaseStep {
           const season = parsed.season || 1;
 
           for (const episode of episodes) {
-            await prisma.processingItem.updateMany({
+            const items = await prisma.processingItem.findMany({
               where: {
                 requestId,
                 type: "EPISODE",
@@ -473,42 +473,67 @@ export class DownloadStep extends BaseStep {
                 episode,
                 status: { in: [ProcessingStatus.PENDING, ProcessingStatus.SEARCHING] },
               },
-              data: {
-                status: ProcessingStatus.DOWNLOADING,
-                downloadId: download.id,
-              },
+              select: { id: true },
             });
+
+            for (const item of items) {
+              await pipelineOrchestrator.transitionStatus(item.id, ProcessingStatus.DOWNLOADING, {
+                currentStep: "downloading",
+              });
+
+              await prisma.processingItem.update({
+                where: { id: item.id },
+                data: { downloadId: download.id },
+              });
+            }
           }
         } else if (parsed.season !== undefined) {
           // Season pack - mark all episodes in this season as DOWNLOADING
-          await prisma.processingItem.updateMany({
+          const items = await prisma.processingItem.findMany({
             where: {
               requestId,
               type: "EPISODE",
               season: parsed.season,
               status: { in: [ProcessingStatus.PENDING, ProcessingStatus.SEARCHING] },
             },
-            data: {
-              status: ProcessingStatus.DOWNLOADING,
-              downloadId: download.id,
-            },
+            select: { id: true },
           });
+
+          for (const item of items) {
+            await pipelineOrchestrator.transitionStatus(item.id, ProcessingStatus.DOWNLOADING, {
+              currentStep: "downloading",
+            });
+
+            await prisma.processingItem.update({
+              where: { id: item.id },
+              data: { downloadId: download.id },
+            });
+          }
         } else {
           // No season/episode info found - mark all PENDING/SEARCHING episodes (fallback)
           console.warn(
             `[DownloadStep] No season/episode info found in torrent name: ${download.torrentName}`
           );
-          await prisma.processingItem.updateMany({
+
+          const items = await prisma.processingItem.findMany({
             where: {
               requestId,
               type: "EPISODE",
               status: { in: [ProcessingStatus.PENDING, ProcessingStatus.SEARCHING] },
             },
-            data: {
-              status: ProcessingStatus.DOWNLOADING,
-              downloadId: download.id,
-            },
+            select: { id: true },
           });
+
+          for (const item of items) {
+            await pipelineOrchestrator.transitionStatus(item.id, ProcessingStatus.DOWNLOADING, {
+              currentStep: "downloading",
+            });
+
+            await prisma.processingItem.update({
+              where: { id: item.id },
+              data: { downloadId: download.id },
+            });
+          }
         }
       }
     } else {

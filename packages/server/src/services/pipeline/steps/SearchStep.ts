@@ -23,6 +23,7 @@ import {
 import { getTraktService } from "../../trakt.js";
 import type { PipelineContext } from "../PipelineContext.js";
 import { getPipelineExecutor } from "../PipelineExecutor.js";
+import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 
 interface SearchStepConfig {
@@ -466,9 +467,8 @@ export class SearchStep extends BaseStep {
           ep.status === ProcessingStatus.PENDING
         ) {
           // Episode is already on all target servers - mark as CANCELLED
-          await prisma.processingItem.update({
-            where: { id: ep.id },
-            data: { status: ProcessingStatus.CANCELLED },
+          await pipelineOrchestrator.transitionStatus(ep.id, ProcessingStatus.CANCELLED, {
+            currentStep: "already_in_library",
           });
           await this.logActivity(
             requestId,
@@ -494,13 +494,13 @@ export class SearchStep extends BaseStep {
       );
 
       // Mark needed episodes as SEARCHING
-      await prisma.processingItem.updateMany({
-        where: {
-          id: { in: neededEpisodes.map((ep: { id: string }) => ep.id) },
-          status: ProcessingStatus.PENDING,
-        },
-        data: { status: ProcessingStatus.SEARCHING },
-      });
+      for (const ep of neededEpisodes) {
+        if (ep.status === ProcessingStatus.PENDING) {
+          await pipelineOrchestrator.transitionStatus(ep.id, ProcessingStatus.SEARCHING, {
+            currentStep: "searching",
+          });
+        }
+      }
 
       const neededSet = new Set(
         neededEpisodes.map(
@@ -822,11 +822,8 @@ export class SearchStep extends BaseStep {
                 spawnedBranches++;
 
                 // Mark episode as DOWNLOADING (branch will handle it)
-                await prisma.processingItem.update({
-                  where: { id: ep.id },
-                  data: {
-                    status: ProcessingStatus.DOWNLOADING,
-                  },
+                await pipelineOrchestrator.transitionStatus(ep.id, ProcessingStatus.DOWNLOADING, {
+                  currentStep: "downloading",
                 });
 
                 await this.logActivity(

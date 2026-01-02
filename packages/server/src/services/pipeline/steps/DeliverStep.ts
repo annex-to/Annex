@@ -10,6 +10,7 @@ import { prisma } from "../../../db/client.js";
 import { getDeliveryService } from "../../delivery.js";
 import { getNamingService } from "../../naming.js";
 import type { PipelineContext } from "../PipelineContext.js";
+import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 
 interface DeliverStepConfig {
@@ -610,12 +611,9 @@ export class DeliverStep extends BaseStep {
         for (const encodedFile of encodedFiles) {
           const { episodeId } = encodedFile as { episodeId?: string };
           if (episodeId) {
-            await prisma.processingItem.update({
-              where: { id: episodeId },
-              data: {
-                status: ProcessingStatus.FAILED,
-                lastError: error,
-              },
+            await pipelineOrchestrator.transitionStatus(episodeId, ProcessingStatus.FAILED, {
+              currentStep: "delivery_failed",
+              error,
             });
           }
         }
