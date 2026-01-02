@@ -193,13 +193,15 @@ class EncoderDispatchService {
         });
 
         if (job?.requestId) {
-          // Update MediaRequest to FAILED
-          await prisma.mediaRequest.update({
-            where: { id: job.requestId },
+          // Update ProcessingItems to FAILED (MediaRequest status computed from items)
+          await prisma.processingItem.updateMany({
+            where: {
+              requestId: job.requestId,
+              status: { in: ["ENCODING", "DOWNLOADED"] },
+            },
             data: {
               status: "FAILED",
-              error: `Encoding failed: ${error}`,
-              currentStep: null,
+              lastError: `Encoding failed: ${error}`,
             },
           });
 

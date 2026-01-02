@@ -174,15 +174,7 @@ export async function recoverStuckEncodings(): Promise<void> {
         },
       });
 
-      // Update request status
-      await prisma.mediaRequest.update({
-        where: { id: request.id },
-        data: {
-          status: RequestStatus.ENCODING,
-          progress: 90,
-          currentStep: "Encoding complete (recovered)",
-        },
-      });
+      // MediaRequest status computed from ProcessingItems - pipeline will manage state
 
       console.log(
         `[EncodingRecovery] ${request.title}: Updated context with encoded file, resuming pipeline ${pipelineExecution.id}`

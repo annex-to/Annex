@@ -126,14 +126,7 @@ export async function recoverStuckDownloadExtractions(): Promise<void> {
         continue;
       }
 
-      // Update request status
-      await prisma.mediaRequest.update({
-        where: { id: data.requestId },
-        data: {
-          progress: 50,
-          currentStep: `Download complete (${episodeFiles.length} episodes)`,
-        },
-      });
+      // MediaRequest status computed from ProcessingItems - pipeline will manage state
 
       // Continue pipeline to encoding
       const execution = await prisma.pipelineExecution.findFirst({
