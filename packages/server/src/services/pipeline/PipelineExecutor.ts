@@ -74,15 +74,11 @@ export class PipelineExecutor {
         where: { requestId },
       });
 
-      // 2. Clear old errors and reset request state
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
+      // 2. Clear old errors from ProcessingItems (MediaRequest state computed from items)
+      await prisma.processingItem.updateMany({
+        where: { requestId },
         data: {
-          error: null,
-          status: "PENDING",
-          progress: 0,
-          currentStep: null,
-          currentStepStartedAt: null,
+          lastError: null,
         },
       });
 
@@ -762,35 +758,19 @@ export class PipelineExecutor {
         },
       });
 
-      // Update MediaRequest to match (only if it exists, e.g. not in tests)
-      const mediaRequest = await prisma.mediaRequest.findUnique({
-        where: { id: execution.requestId },
+      // Update all ProcessingItems for this request to FAILED (MediaRequest status computed from items)
+      await prisma.processingItem.updateMany({
+        where: {
+          requestId: execution.requestId,
+          status: {
+            notIn: ["COMPLETED", "CANCELLED", "FAILED"], // Don't override terminal states
+          },
+        },
+        data: {
+          status: "FAILED" as import("@prisma/client").ProcessingStatus,
+          lastError: error,
+        },
       });
-
-      if (mediaRequest) {
-        await prisma.mediaRequest.update({
-          where: { id: execution.requestId },
-          data: {
-            status: "FAILED" as import("@prisma/client").RequestStatus,
-            error,
-            completedAt: new Date(),
-          },
-        });
-
-        // Update all ProcessingItems for this request to FAILED
-        await prisma.processingItem.updateMany({
-          where: {
-            requestId: execution.requestId,
-            status: {
-              notIn: ["COMPLETED", "CANCELLED", "FAILED"], // Don't override terminal states
-            },
-          },
-          data: {
-            status: "FAILED" as import("@prisma/client").ProcessingStatus,
-            lastError: error,
-          },
-        });
-      }
 
       logger.error(`Failed pipeline execution ${executionId}: ${error}`);
     } catch (err) {
@@ -839,31 +819,8 @@ export class PipelineExecutor {
 
       // Only update MediaRequest to COMPLETED if all items are done (and if it exists)
       if (allCompleted) {
-        const mediaRequest = await prisma.mediaRequest.findUnique({
-          where: { id: execution.requestId },
-          select: { status: true },
-        });
-
-        if (mediaRequest) {
-          // Only update to COMPLETED if status is "active" (not QUALITY_UNAVAILABLE, AWAITING, etc.)
-          // This preserves more specific statuses set by steps
-          const activeStatuses = ["PENDING", "SEARCHING", "DOWNLOADING", "ENCODING", "DELIVERING"];
-          if (activeStatuses.includes(mediaRequest.status)) {
-            await prisma.mediaRequest.update({
-              where: { id: execution.requestId },
-              data: {
-                status: "COMPLETED" as import("@prisma/client").RequestStatus,
-                progress: 100,
-                completedAt: new Date(),
-              },
-            });
-            logger.info(`Completed request ${execution.requestId} - all items finished`);
-          } else {
-            logger.info(
-              `Pipeline execution completed but MediaRequest status is ${mediaRequest.status} - not overwriting`
-            );
-          }
-        }
+        // MediaRequest status computed from ProcessingItems - no update needed
+        logger.info(`Completed request ${execution.requestId} - all items finished`);
       }
 
       logger.info(`Completed pipeline execution ${executionId}`);
@@ -911,20 +868,8 @@ export class PipelineExecutor {
       );
 
       if (allCancelled) {
-        const mediaRequest = await prisma.mediaRequest.findUnique({
-          where: { id: execution.requestId },
-        });
-
-        if (mediaRequest) {
-          await prisma.mediaRequest.update({
-            where: { id: execution.requestId },
-            data: {
-              status: "FAILED" as import("@prisma/client").RequestStatus,
-              error: "Cancelled by user",
-              completedAt: new Date(),
-            },
-          });
-        }
+        // MediaRequest status computed from ProcessingItems (will be CANCELLED)
+        logger.info(`All items cancelled for request ${execution.requestId}`);
       }
 
       logger.info(`Cancelled pipeline execution ${executionId}`);
