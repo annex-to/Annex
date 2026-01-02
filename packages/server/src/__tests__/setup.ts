@@ -808,7 +808,17 @@ export function createMockPrisma() {
         return jobStore.get(where.id) || null;
       }),
       findFirst: mock(
-        async ({ where, orderBy, select, include }: { where?: any; orderBy?: any; select?: any; include?: any } = {}) => {
+        async ({
+          where,
+          orderBy,
+          select,
+          include,
+        }: {
+          where?: any;
+          orderBy?: any;
+          select?: any;
+          include?: any;
+        } = {}) => {
           let values = Array.from(jobStore.values());
 
           // Apply where filter
@@ -862,28 +872,26 @@ export function createMockPrisma() {
           return result;
         }
       ),
-      findMany: mock(
-        async ({ where, include }: { where?: any; include?: any } = {}) => {
-          let results = Array.from(jobStore.values());
+      findMany: mock(async ({ where, include }: { where?: any; include?: any } = {}) => {
+        let results = Array.from(jobStore.values());
 
-          if (where) {
-            results = results.filter((r) => {
-              if (where.requestId) return r.requestId === where.requestId;
-              if (where.type) return r.type === where.type;
-              return Object.keys(where).every((k) => r[k] === where[k]);
-            });
-          }
-
-          if (include?.encoderAssignment) {
-            results = results.map((r) => {
-              const assignment = encoderAssignmentStore.get(r.id);
-              return { ...r, encoderAssignment: assignment || null };
-            });
-          }
-
-          return results;
+        if (where) {
+          results = results.filter((r) => {
+            if (where.requestId) return r.requestId === where.requestId;
+            if (where.type) return r.type === where.type;
+            return Object.keys(where).every((k) => r[k] === where[k]);
+          });
         }
-      ),
+
+        if (include?.encoderAssignment) {
+          results = results.map((r) => {
+            const assignment = encoderAssignmentStore.get(r.id);
+            return { ...r, encoderAssignment: assignment || null };
+          });
+        }
+
+        return results;
+      }),
       update: mock(async ({ where, data }: { where: { id: string }; data: any }) => {
         const record = jobStore.get(where.id);
         if (!record) return null;
