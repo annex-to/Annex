@@ -308,6 +308,14 @@ export class RequestStatusComputer {
     });
 
     if (download?.indexerName) {
+      // Calculate episode count from ProcessingItems for season packs
+      let episodeCount: number | null = null;
+      if (download.isSeasonPack) {
+        episodeCount = await prisma.processingItem.count({
+          where: { requestId, type: "EPISODE" },
+        });
+      }
+
       return {
         fileSize: Number(download.size || 0),
         indexerName: download.indexerName,
@@ -319,7 +327,7 @@ export class RequestStatusComputer {
         score: download.qualityScore,
         publishDate: download.publishDate,
         name: download.torrentName,
-        episodeCount: download.isSeasonPack ? null : null, // TODO: Calculate from ProcessingItems
+        episodeCount,
       };
     }
 
