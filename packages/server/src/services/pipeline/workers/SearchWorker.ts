@@ -12,8 +12,6 @@ export class SearchWorker extends BaseWorker {
   readonly nextStatus = "FOUND" as const;
   readonly name = "SearchWorker";
 
-  private searchStep = new SearchStep();
-
   protected async processItem(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] Processing ${item.type} ${item.title}`);
 
@@ -51,13 +49,16 @@ export class SearchWorker extends BaseWorker {
       context.requestedEpisodes = [{ season: item.season, episode: item.episode }];
     }
 
+    // Create fresh SearchStep instance per item to avoid race conditions with parallel processing
+    const searchStep = new SearchStep();
+
     // Set progress callback
-    this.searchStep.setProgressCallback((progress, message) => {
+    searchStep.setProgressCallback((progress, message) => {
       this.updateProgress(item.id, progress, message);
     });
 
     // Execute search
-    const output = await this.searchStep.execute(context, {
+    const output = await searchStep.execute(context, {
       checkExistingDownloads: true,
       maxResults: 50,
     });

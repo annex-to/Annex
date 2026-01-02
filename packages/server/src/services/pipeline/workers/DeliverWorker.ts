@@ -15,7 +15,6 @@ export class DeliverWorker extends BaseWorker {
   readonly name = "DeliverWorker";
   readonly concurrency = 2; // Deliver up to 2 files in parallel (reduced to prevent connection overload)
 
-  private deliverStep = new DeliverStep();
   private isProcessing = false; // Prevent overlapping batches
 
   /**
@@ -141,8 +140,11 @@ export class DeliverWorker extends BaseWorker {
       context.requestedEpisodes = [{ season: item.season, episode: item.episode }];
     }
 
+    // Create fresh DeliverStep instance per item to avoid race conditions with parallel processing
+    const deliverStep = new DeliverStep();
+
     // Set progress callback
-    this.deliverStep.setProgressCallback((progress, message) => {
+    deliverStep.setProgressCallback((progress, message) => {
       this.updateProgress(item.id, progress, message);
     });
 
@@ -165,7 +167,7 @@ export class DeliverWorker extends BaseWorker {
     );
 
     // Execute delivery
-    const output = await this.deliverStep.execute(context, {
+    const output = await deliverStep.execute(context, {
       timeout: timeoutMs,
     });
 

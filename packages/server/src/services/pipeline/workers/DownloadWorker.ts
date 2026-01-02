@@ -19,8 +19,6 @@ export class DownloadWorker extends BaseWorker {
   readonly name = "DownloadWorker";
   readonly concurrency = 20; // Process up to 20 downloads in parallel
 
-  private downloadStep = new DownloadStep();
-
   protected async processItem(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] Processing ${item.type} ${item.title}`);
 
@@ -69,13 +67,16 @@ export class DownloadWorker extends BaseWorker {
       context.requestedEpisodes = [{ season: item.season, episode: item.episode }];
     }
 
+    // Create fresh DownloadStep instance per item to avoid race conditions with parallel processing
+    const downloadStep = new DownloadStep();
+
     // Set progress callback
-    this.downloadStep.setProgressCallback((progress, message) => {
+    downloadStep.setProgressCallback((progress, message) => {
       this.updateProgress(item.id, progress, message);
     });
 
     // Set callback to update downloadId immediately when Download record is created
-    this.downloadStep.setDownloadCreatedCallback(async (downloadId, _torrentHash) => {
+    downloadStep.setDownloadCreatedCallback(async (downloadId, _torrentHash) => {
       console.log(
         `[${this.name}] Download created for ${item.title}, setting downloadId=${downloadId}`
       );
@@ -88,7 +89,7 @@ export class DownloadWorker extends BaseWorker {
     });
 
     // Execute download
-    const output = await this.downloadStep.execute(context, {
+    const output = await downloadStep.execute(context, {
       pollInterval: 5000,
       timeout: 24 * 60 * 60 * 1000, // 24 hours
     });
