@@ -17,7 +17,7 @@ export class DownloadWorker extends BaseWorker {
   readonly processingStatus = "FOUND" as const;
   readonly nextStatus = "DOWNLOADED" as const;
   readonly name = "DownloadWorker";
-  readonly concurrency = 10; // Process up to 10 downloads in parallel
+  readonly concurrency = 20; // Process up to 20 downloads in parallel
 
   private downloadStep = new DownloadStep();
 
