@@ -19,10 +19,10 @@ export class EncoderMonitorWorker extends BaseWorker {
       return;
     }
 
-    // Check if request still exists and is active
+    // Check if request still exists
     const request = await prisma.mediaRequest.findUnique({
       where: { id: item.requestId },
-      select: { status: true },
+      select: { id: true },
     });
 
     if (!request) {
@@ -33,23 +33,21 @@ export class EncoderMonitorWorker extends BaseWorker {
       await processingItemRepository.updateStatus(item.id, "FAILED", {
         lastError: "Request no longer exists",
       });
-      // Update request aggregates
-      await processingItemRepository.updateRequestAggregates(item.requestId).catch(() => {
-        // Request might be deleted, ignore error
-      });
       return;
     }
 
-    if (request.status === "COMPLETED" || request.status === "CANCELLED") {
+    // Check computed request status to detect orphaned items
+    const { requestStatusComputer } = await import("../../requestStatusComputer.js");
+    const computedStatus = await requestStatusComputer.computeStatus(item.requestId);
+
+    if (computedStatus.status === "COMPLETED" || computedStatus.status === "CANCELLED") {
       console.warn(
-        `[${this.name}] Request ${item.requestId} is ${request.status}, marking ${item.title} as FAILED (orphaned)`
+        `[${this.name}] Request ${item.requestId} is ${computedStatus.status}, marking ${item.title} as FAILED (orphaned)`
       );
       // Directly update status to bypass validation for orphaned items
       await processingItemRepository.updateStatus(item.id, "FAILED", {
-        lastError: `Request was ${request.status}`,
+        lastError: `Request was ${computedStatus.status}`,
       });
-      // Update request aggregates
-      await processingItemRepository.updateRequestAggregates(item.requestId);
       return;
     }
 
