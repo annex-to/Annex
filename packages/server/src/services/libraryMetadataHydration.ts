@@ -206,18 +206,6 @@ async function hydrateMediaItemFromTrakt(
         networks:
           type === "tv" && "network" in data && data.network ? [{ name: data.network }] : null,
         traktUpdatedAt: new Date(),
-        ratings: {
-          upsert: {
-            create: {
-              traktScore,
-              traktVotes: data.votes || null,
-            },
-            update: {
-              traktScore,
-              traktVotes: data.votes || null,
-            },
-          },
-        },
       },
       update: {
         imdbId: data.ids.imdb || undefined,
@@ -244,20 +232,24 @@ async function hydrateMediaItemFromTrakt(
         networks:
           type === "tv" && "network" in data && data.network ? [{ name: data.network }] : undefined,
         traktUpdatedAt: new Date(),
-        ratings: {
-          upsert: {
-            create: {
-              traktScore,
-              traktVotes: data.votes || null,
-            },
-            update: {
-              traktScore,
-              traktVotes: data.votes || undefined,
-            },
-          },
-        },
       },
     });
+
+    // Save ratings separately (Prisma doesn't support nested upsert)
+    if (traktScore !== null || data.votes) {
+      await prisma.mediaRatings.upsert({
+        where: { mediaId: id },
+        create: {
+          mediaId: id,
+          traktScore,
+          traktVotes: data.votes || null,
+        },
+        update: {
+          traktScore,
+          traktVotes: data.votes || undefined,
+        },
+      });
+    }
 
     return true;
   } catch (error) {
