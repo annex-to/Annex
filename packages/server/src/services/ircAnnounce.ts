@@ -636,17 +636,11 @@ class IrcAnnounceMonitor {
       return;
     }
 
-    // Update request with selected release and trigger download
-    // Clear availableReleases if this was a quality upgrade
+    // Update request with selected release (configuration)
     await prisma.mediaRequest.update({
       where: { id: requestId },
       data: {
-        status: RequestStatus.DOWNLOADING,
         selectedRelease: release as unknown as object,
-        currentStep: wasQualityUnavailable
-          ? `IRC: Quality upgrade found - ${release.title}`
-          : `IRC: Found ${release.title}`,
-        ...(wasQualityUnavailable ? { availableReleases: Prisma.JsonNull } : {}),
       },
     });
 
@@ -684,16 +678,7 @@ class IrcAnnounceMonitor {
       include: { request: true },
     });
 
-    // Update parent request status
-    await prisma.mediaRequest.update({
-      where: { id: episode.requestId },
-      data: {
-        status: RequestStatus.DOWNLOADING,
-        currentStep: wasQualityUnavailable
-          ? `IRC: Quality upgrade found - S${episode.season}E${episode.episode}`
-          : `IRC: Found S${episode.season}E${episode.episode}`,
-      },
-    });
+    // MediaRequest status computed from ProcessingItems - no update needed
 
     // Queue episode download job
     const jobQueue = getJobQueueService();
@@ -760,16 +745,7 @@ class IrcAnnounceMonitor {
       },
     });
 
-    // Update parent request
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.DOWNLOADING,
-        currentStep: wasQualityUnavailable
-          ? `IRC: Quality upgrade found - season ${season} pack`
-          : `IRC: Found season ${season} pack`,
-      },
-    });
+    // MediaRequest status computed from ProcessingItems - no update needed
 
     // Queue season download job
     const jobQueue = getJobQueueService();
