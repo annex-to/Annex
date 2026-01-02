@@ -1407,12 +1407,16 @@ export const requestsRouter = router({
         throw new Error("Episode not found");
       }
 
+      // Verify episode has download file path before resetting to DOWNLOADED
+      if (!item.downloadFilePath) {
+        throw new Error("Episode missing download file path - cannot re-encode");
+      }
+
       // Reset to downloaded status so encoding can restart
       await prisma.processingItem.update({
         where: { id: input.itemId },
         data: {
           status: ProcessingStatus.DOWNLOADED,
-          progress: null,
           lastError: null,
           encodingJobId: null,
         },
@@ -1454,7 +1458,6 @@ export const requestsRouter = router({
         where: { id: input.itemId },
         data: {
           status: ProcessingStatus.ENCODED,
-          progress: null,
           lastError: null,
           deliveredAt: null,
         },
