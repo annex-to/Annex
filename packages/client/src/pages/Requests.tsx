@@ -888,6 +888,34 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
             </div>
           )}
 
+          {/* Download Progress for Movies */}
+          {request.type === "movie" &&
+            isDownloading &&
+            request.progress > 0 &&
+            request.progress < 100 && (
+              <div>
+                <div className="text-xs text-white/40 mb-2 font-medium">Download Progress</div>
+                <div className="bg-white/5 rounded border border-white/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white/70">Downloading from torrent</span>
+                        <span className="text-sm font-medium text-white">
+                          {Math.round(request.progress)}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-purple-500 transition-all duration-300"
+                          style={{ width: `${request.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
           {/* Torrent Metadata */}
           {request.releaseMetadata && (
             <div>
