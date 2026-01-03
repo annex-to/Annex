@@ -70,22 +70,31 @@ export class SearchWorker extends BaseWorker {
     // Extract search results
     const searchContext = output.data?.search as PipelineContext["search"];
 
-    // Either a new release or existing download must be found
-    if (!searchContext?.selectedRelease && !searchContext?.existingDownload) {
+    // Either a new release, season packs, or existing download must be found
+    if (
+      !searchContext?.selectedRelease &&
+      !searchContext?.selectedPacks &&
+      !searchContext?.existingDownload
+    ) {
       throw new Error("No release found for this item");
     }
 
     // Store search results in stepContext
     const stepContext = {
       selectedRelease: searchContext.selectedRelease,
+      selectedPacks: searchContext.selectedPacks,
       alternativeReleases: searchContext.alternativeReleases || [],
       qualityMet: searchContext.qualityMet,
       existingDownload: searchContext.existingDownload,
+      bulkDownloadsForSeasonPacks: searchContext.bulkDownloadsForSeasonPacks,
     };
 
-    console.log(
-      `[${this.name}] Found ${searchContext.existingDownload ? "existing download" : "new release"} for ${request.title}`
-    );
+    const foundType = searchContext.existingDownload
+      ? "existing download"
+      : searchContext.selectedPacks
+        ? `${searchContext.selectedPacks.length} season pack(s)`
+        : "new release";
+    console.log(`[${this.name}] Found ${foundType} for ${request.title}`);
 
     // Transition to FOUND with search results
     await this.transitionToNext(item.id, {
