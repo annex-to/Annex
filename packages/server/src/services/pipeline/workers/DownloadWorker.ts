@@ -39,8 +39,9 @@ export class DownloadWorker extends BaseWorker {
       return;
     }
 
-    if (!searchData?.selectedRelease) {
-      throw new Error("No release found in item context");
+    // Require either a selected release or season packs
+    if (!searchData?.selectedRelease && !searchData?.selectedPacks) {
+      throw new Error("No release or season packs found in item context");
     }
 
     // Transition to DOWNLOADING
