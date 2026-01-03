@@ -55,6 +55,12 @@ export class DownloadProgressWorker extends BaseWorker {
         return;
       }
 
+      // Skip if already at 100% - StuckItemRecoveryWorker will handle transition
+      // But allow updates TO 100% (so items can reach 100%)
+      if (item.progress >= 100 && torrentProgress.progress >= 100) {
+        return;
+      }
+
       // Debouncing: only update if progress changed by >1%
       if (!this.shouldUpdateProgress(item.id, torrentProgress.progress)) {
         return;
