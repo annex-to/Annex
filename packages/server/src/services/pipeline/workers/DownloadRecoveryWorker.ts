@@ -1,6 +1,7 @@
 import type { ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { getDownloadService } from "../../download.js";
+import { parseTorrentName } from "../../downloadManager.js";
 import type { PipelineContext } from "../PipelineContext";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseWorker } from "./BaseWorker";
@@ -46,30 +47,40 @@ export class DownloadRecoveryWorker extends BaseWorker {
       return;
     }
 
-    // Search qBittorrent for a matching torrent
+    // Search qBittorrent for a matching torrent using proper parsing
     const qb = getDownloadService();
     const torrents = await qb.getAllTorrents();
 
-    // Try to find a matching torrent by name (fuzzy match)
-    const matchingTorrent = torrents.find((t) => {
-      // Normalize both names for comparison
-      const torrentName = t.name.toLowerCase().replace(/[.\s_-]+/g, " ");
-      const searchName = releaseName.toLowerCase().replace(/[.\s_-]+/g, " ");
+    // Parse the selected release to extract structured data
+    const parsedRelease = parseTorrentName(releaseName);
 
-      // For movies, require exact year match to avoid matching sequels (Toy Story vs Toy Story 2)
-      if (item.type === "MOVIE" && item.year) {
-        const yearStr = String(item.year);
-        if (!torrentName.includes(yearStr)) {
+    // Find matching torrent by comparing parsed metadata
+    const matchingTorrent = torrents.find((t) => {
+      const parsedTorrent = parseTorrentName(t.name);
+
+      // Title must match (normalized)
+      const releaseTitle = (parsedRelease.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const torrentTitle = (parsedTorrent.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (releaseTitle !== torrentTitle) {
+        return false;
+      }
+
+      // For movies, year must match to avoid matching sequels
+      if (item.type === "MOVIE") {
+        // Use item.year as source of truth (from TMDB), compare with parsed year
+        if (item.year && parsedTorrent.year && item.year !== parsedTorrent.year) {
           return false;
         }
       }
 
-      // Check if torrent name contains the main parts of the release name
-      const releaseWords = searchName.split(" ").filter((w: string) => w.length > 2);
-      const matchCount = releaseWords.filter((word: string) => torrentName.includes(word)).length;
+      // For TV, season must match
+      if (item.type === "EPISODE" && item.season !== null) {
+        if (parsedTorrent.season && parsedTorrent.season !== item.season) {
+          return false;
+        }
+      }
 
-      // Require at least 80% of words to match
-      return matchCount / releaseWords.length >= 0.8;
+      return true;
     });
 
     if (!matchingTorrent) {
