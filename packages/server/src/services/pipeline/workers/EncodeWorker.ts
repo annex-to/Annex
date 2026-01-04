@@ -212,22 +212,51 @@ export class EncodeWorker extends BaseWorker {
       },
     });
 
-    // Determine output path using processingItemId
+    // Determine output paths using processingItemId
     const inputDir = (downloadData.sourceFilePath as string).substring(
       0,
       (downloadData.sourceFilePath as string).lastIndexOf("/")
     );
-    const outputPath = `${inputDir}/encoded_${item.id}.mkv`;
+    const finalOutputPath = `${inputDir}/encoded_${item.id}.mkv`;
+    const tempOutputPath = `${inputDir}/encoded_${item.id}_temp_${Date.now()}.mkv`;
+
+    // Early exit: Check if final encoded file already exists
+    const finalFile = Bun.file(finalOutputPath);
+    if (await finalFile.exists()) {
+      console.log(
+        `[${this.name}] Early exit: ${item.title} final encoded file exists, promoting to ENCODED`
+      );
+      // Create a mock assignment object for handleCompletedEncoding
+      const mockAssignment = {
+        outputPath: finalOutputPath,
+        outputSize: BigInt(await finalFile.size),
+        compressionRatio: null,
+      };
+      await this.handleCompletedEncoding(item, mockAssignment, encodingConfig);
+      return;
+    }
+
+    // Cleanup: Delete any stale temp files for this item
+    const tempPattern = `encoded_${item.id}_temp_*.mkv`;
+    console.log(`[${this.name}] Cleaning up stale temp files: ${inputDir}/${tempPattern}`);
+    try {
+      await Bun.$`rm -f ${inputDir}/encoded_${item.id}_temp_*.mkv`.quiet();
+    } catch (err) {
+      console.warn(
+        `[${this.name}] Failed to cleanup temp files: ${err instanceof Error ? err.message : "Unknown"}`
+      );
+    }
 
     // Queue encoding job
     console.log(`[${this.name}] Queueing encoding job ${job.id} for ${item.title}`);
     console.log(`[${this.name}]   inputPath: ${downloadData.sourceFilePath as string}`);
-    console.log(`[${this.name}]   outputPath: ${outputPath}`);
+    console.log(`[${this.name}]   tempOutputPath: ${tempOutputPath}`);
+    console.log(`[${this.name}]   finalOutputPath: ${finalOutputPath}`);
 
     const assignment = await encoderService.queueEncodingJob(
       job.id,
       downloadData.sourceFilePath as string,
-      outputPath,
+      tempOutputPath,
       encodingConfig
     );
 
@@ -341,9 +370,28 @@ export class EncodeWorker extends BaseWorker {
   ): Promise<void> {
     console.log(`[${this.name}] Encoding complete for ${item.title}`);
 
-    const outputPath = assignment.outputPath;
+    let outputPath = assignment.outputPath;
     if (!outputPath) {
       throw new Error(`No output path for completed encoding job ${item.encodingJobId}`);
+    }
+
+    // Rename temp file to final path if this is a temp file
+    if (outputPath.includes("_temp_")) {
+      const inputDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
+      const finalPath = `${inputDir}/encoded_${item.id}.mkv`;
+
+      console.log(`[${this.name}] Renaming temp file to final path`);
+      console.log(`[${this.name}]   From: ${outputPath}`);
+      console.log(`[${this.name}]   To: ${finalPath}`);
+
+      try {
+        await Bun.$`mv ${outputPath} ${finalPath}`;
+        outputPath = finalPath; // Use final path from now on
+      } catch (err) {
+        throw new Error(
+          `Failed to rename temp file: ${err instanceof Error ? err.message : "Unknown error"}`
+        );
+      }
     }
 
     // Get request to extract targets
