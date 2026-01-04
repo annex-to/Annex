@@ -1,8 +1,16 @@
-import { MediaType, Prisma, ProcessingStatus, RequestStatus } from "@prisma/client";
+import {
+  type ExecutionStatus,
+  MediaType,
+  Prisma,
+  ProcessingStatus,
+  RequestStatus,
+} from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getDownloadService } from "../services/download.js";
 import { getEncoderDispatchService } from "../services/encoderDispatch.js";
+import type { PipelineContext } from "../services/pipeline/PipelineContext.js";
+import type { StepTree } from "../services/pipeline/PipelineExecutor.js";
 import { getPipelineExecutor } from "../services/pipeline/PipelineExecutor.js";
 import { pipelineOrchestrator } from "../services/pipeline/PipelineOrchestrator.js";
 import { requestStatusComputer } from "../services/requestStatusComputer.js";
@@ -108,6 +116,78 @@ async function getDefaultTemplate(mediaType: "MOVIE" | "TV"): Promise<string> {
   return template.id;
 }
 
+/**
+ * Create PipelineExecution record to store template configuration.
+ * Workers read this to get encoding settings and other pipeline config.
+ * Does NOT execute the old pipeline - workers handle all processing.
+ */
+async function storePipelineTemplate(
+  requestId: string,
+  mediaType: "MOVIE" | "TV",
+  pipelineTemplateId?: string
+): Promise<void> {
+  // Get template ID (provided or default)
+  const templateId = pipelineTemplateId || (await getDefaultTemplate(mediaType));
+
+  // Fetch the template
+  const template = await prisma.pipelineTemplate.findUnique({
+    where: { id: templateId },
+  });
+
+  if (!template) {
+    throw new Error(`Pipeline template ${templateId} not found`);
+  }
+
+  // Fetch the request for context
+  const request = await prisma.mediaRequest.findUnique({
+    where: { id: requestId },
+  });
+
+  if (!request) {
+    throw new Error(`Request ${requestId} not found`);
+  }
+
+  // Parse steps tree from template
+  const stepsTree = template.steps as unknown as StepTree[];
+
+  // Initialize context from request
+  const initialContext: PipelineContext = {
+    requestId: request.id,
+    mediaType: request.type,
+    tmdbId: request.tmdbId,
+    title: request.title,
+    year: request.year,
+    requestedSeasons: request.requestedSeasons,
+    requestedEpisodes: request.requestedEpisodes as
+      | Array<{ season: number; episode: number }>
+      | undefined,
+    targets: request.targets as Array<{ serverId: string; encodingProfileId?: string }>,
+    processingItemId: request.id,
+  };
+
+  // Delete any existing pipeline executions for this request
+  await prisma.pipelineExecution.deleteMany({
+    where: { requestId },
+  });
+
+  // Create pipeline execution record (for workers to read config)
+  await prisma.pipelineExecution.create({
+    data: {
+      requestId,
+      templateId,
+      status: "RUNNING" as ExecutionStatus,
+      currentStep: 0,
+      steps: stepsTree as unknown as Prisma.JsonArray,
+      context: initialContext as unknown as Prisma.JsonObject,
+      startedAt: new Date(),
+    },
+  });
+
+  console.log(
+    `[StorePipelineTemplate] Stored template ${templateId} config for request ${requestId}`
+  );
+}
+
 // =============================================================================
 // Router
 // =============================================================================
@@ -149,6 +229,9 @@ export const requestsRouter = router({
             : undefined,
         },
       });
+
+      // Store pipeline template configuration for workers
+      await storePipelineTemplate(requestId, "MOVIE", input.pipelineTemplateId);
 
       console.log(
         `[Requests] Created movie request ${requestId} with ${items.length} ProcessingItem(s)`
@@ -384,6 +467,9 @@ export const requestsRouter = router({
         console.log(
           `[Requests] Created TV request ${newRequestId} with ${items.length} ProcessingItem(s)`
         );
+
+        // Store pipeline template configuration for workers
+        await storePipelineTemplate(newRequestId, "TV", input.pipelineTemplateId);
 
         // Delete the old request we created earlier, use the new one from orchestrator
         await prisma.mediaRequest.delete({ where: { id: request.id } });
@@ -910,6 +996,10 @@ export const requestsRouter = router({
         lastError: null,
       },
     });
+
+    // Store pipeline template configuration for workers
+    const mediaType = request.type === MediaType.MOVIE ? "MOVIE" : "TV";
+    await storePipelineTemplate(input.id, mediaType, templateId);
 
     // NOTE: Old pipeline executor disabled - workers now handle all processing
     // Items in PENDING status will be picked up automatically by SearchWorker

@@ -9,7 +9,7 @@ import { registerPipelineSteps } from "./registerSteps";
 import { StepRegistry } from "./StepRegistry";
 
 // Tree-based step structure
-interface StepTree {
+export interface StepTree {
   type: StepType;
   name: string;
   config: unknown;
