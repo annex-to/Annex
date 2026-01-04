@@ -250,7 +250,19 @@ export class EncodeWorker extends BaseWorker {
     // Check if assignment is already completed (reused from previous encoding)
     if (assignment.status === "COMPLETED") {
       console.log(`[${this.name}] Assignment already completed - reusing existing encoded file`);
-      await this.handleCompletedEncoding(item, assignment, encodingConfig);
+      // Transition to ENCODING first (state machine requirement)
+      await pipelineOrchestrator.transitionStatus(item.id, "ENCODING", {
+        currentStep: "encode",
+        encodingJobId: job.id,
+      });
+      // Refetch item with updated status
+      const updatedItem = await prisma.processingItem.findUnique({
+        where: { id: item.id },
+      });
+      if (!updatedItem) {
+        throw new Error(`Item ${item.id} not found after status update`);
+      }
+      await this.handleCompletedEncoding(updatedItem, assignment, encodingConfig);
       return;
     }
 
