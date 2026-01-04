@@ -277,13 +277,19 @@ export class ValidationFramework {
       ...(newContext?.encodingJobId && { encodingJobId: newContext.encodingJobId }),
     };
 
-    // First validate exit from current status (using new context)
-    const exitValidation = await this.validateExit(itemForValidation, fromStatus);
-    if (!exitValidation.valid) {
-      return {
-        valid: false,
-        errors: exitValidation.errors.map((e) => `Exit validation failed: ${e}`),
-      };
+    // Skip exit validation when transitioning to terminal states (FAILED, CANCELLED)
+    // These transitions should always be allowed regardless of current state
+    const isTerminalTransition = toStatus === "FAILED" || toStatus === "CANCELLED";
+
+    if (!isTerminalTransition) {
+      // First validate exit from current status (using new context)
+      const exitValidation = await this.validateExit(itemForValidation, fromStatus);
+      if (!exitValidation.valid) {
+        return {
+          valid: false,
+          errors: exitValidation.errors.map((e) => `Exit validation failed: ${e}`),
+        };
+      }
     }
 
     // Then validate entry to new status (using new context)
