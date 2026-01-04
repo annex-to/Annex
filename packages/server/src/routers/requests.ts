@@ -1402,6 +1402,7 @@ export const requestsRouter = router({
 
   /**
    * Accept a lower-quality release for a quality-unavailable request
+   * NEW: Works with ProcessingItem.stepContext instead of MediaRequest.availableReleases
    */
   acceptLowerQuality: publicProcedure
     .input(
@@ -1413,62 +1414,67 @@ export const requestsRouter = router({
     .mutation(async ({ input }) => {
       const request = await prisma.mediaRequest.findUnique({
         where: { id: input.id },
+        include: {
+          processingItems: {
+            where: {
+              status: ProcessingStatus.FOUND,
+            },
+          },
+        },
       });
 
       if (!request) {
         throw new Error("Request not found");
       }
 
-      if (request.status !== RequestStatus.QUALITY_UNAVAILABLE) {
-        throw new Error("Request not in QUALITY_UNAVAILABLE status");
+      // Find processing items in FOUND status with alternativeReleases
+      const itemsWithAlternatives = request.processingItems.filter(
+        (item: { stepContext: unknown }) => {
+          const stepContext = item.stepContext as Record<string, unknown>;
+          return (
+            stepContext?.qualityMet === false &&
+            Array.isArray(stepContext?.alternativeReleases) &&
+            stepContext.alternativeReleases.length > 0
+          );
+        }
+      );
+
+      if (itemsWithAlternatives.length === 0) {
+        throw new Error("No items waiting for quality acceptance");
       }
 
-      const releases = request.availableReleases as unknown[] | null;
+      // Get alternativeReleases from the first item (they should all be the same for a request)
+      const firstItem = itemsWithAlternatives[0];
+      const stepContext = firstItem.stepContext as Record<string, unknown>;
+      const releases = stepContext?.alternativeReleases as unknown[] | null;
+
       if (!releases || !releases[input.releaseIndex]) {
         throw new Error("Invalid release index");
       }
 
       const selectedRelease = releases[input.releaseIndex] as Record<string, unknown>;
 
-      // Update request with selected release (configuration)
-      await prisma.mediaRequest.update({
-        where: { id: input.id },
-        data: {
-          selectedRelease: selectedRelease as Prisma.JsonObject,
-        },
-      });
-
-      // Reset ProcessingItems to PENDING to restart pipeline
+      // Update all items with the selected release and transition back to PENDING
       await prisma.processingItem.updateMany({
-        where: { requestId: input.id },
+        where: {
+          id: { in: itemsWithAlternatives.map((i: { id: string }) => i.id) },
+        },
         data: {
           status: ProcessingStatus.PENDING,
           lastError: null,
+          stepContext: {
+            selectedRelease,
+            qualityMet: true,
+          } as unknown as Prisma.JsonObject,
         },
       });
 
-      // NOTE: Old pipeline executor disabled - workers now handle all processing
-      // Restart pipeline with the selected release
-      // const execution = await prisma.pipelineExecution.findFirst({
-      //   where: { requestId: input.id, parentExecutionId: null },
-      //   orderBy: { startedAt: "desc" },
-      //   select: { templateId: true },
-      // });
+      console.log(
+        `[acceptLowerQuality] Accepted lower quality for ${itemsWithAlternatives.length} item(s): ${selectedRelease.title}`
+      );
+
       // Items in PENDING status will be picked up automatically by SearchWorker
-      // if (execution) {
-      //   const executor = getPipelineExecutor();
-      //   executor.startExecution(request.id, execution.templateId).catch(async (error) => {
-      //     console.error(`Pipeline restart failed for request ${request.id}:`, error);
-      //     // Mark all ProcessingItems as failed (MediaRequest status computed from items)
-      //     await prisma.processingItem.updateMany({
-      //       where: { requestId: request.id },
-      //       data: {
-      //         status: ProcessingStatus.FAILED,
-      //         lastError: `Pipeline failed to start: ${error.message}`,
-      //       },
-      //     });
-      //   });
-      // }
+      // SearchWorker will see selectedRelease in stepContext and skip search
 
       return { success: true };
     }),

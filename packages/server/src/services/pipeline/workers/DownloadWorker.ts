@@ -115,6 +115,18 @@ export class DownloadWorker extends BaseWorker {
     const stepContext = item.stepContext as Record<string, unknown>;
     const searchData = stepContext as PipelineContext["search"];
 
+    // Skip items waiting for user to accept lower quality
+    if (
+      searchData?.qualityMet === false &&
+      searchData?.alternativeReleases &&
+      searchData.alternativeReleases.length > 0
+    ) {
+      console.log(
+        `[${this.name}] Skipping ${item.title} - waiting for user to accept lower quality (${searchData.alternativeReleases.length} alternatives available)`
+      );
+      return;
+    }
+
     // Check if this is an existing download
     if (searchData?.existingDownload) {
       console.log(`[${this.name}] Found existing download for ${item.title}`);

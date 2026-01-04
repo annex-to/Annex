@@ -82,13 +82,19 @@ export class SearchWorker extends BaseWorker {
     // Extract search results
     const searchContext = output.data?.search as PipelineContext["search"];
 
-    // Either a new release, season packs, or existing download must be found
+    // Check if we found alternatives but they don't meet quality requirements
+    const hasAlternatives =
+      searchContext?.alternativeReleases && searchContext.alternativeReleases.length > 0;
+    const qualityNotMet = searchContext?.qualityMet === false;
+
+    // Either a new release, season packs, existing download, OR alternatives must be found
     if (
       !searchContext?.selectedRelease &&
       !searchContext?.selectedPacks &&
-      !searchContext?.existingDownload
+      !searchContext?.existingDownload &&
+      !hasAlternatives
     ) {
-      throw new Error("No release found for this item");
+      throw new Error("No releases found for this item");
     }
 
     // Store search results in stepContext
@@ -99,18 +105,45 @@ export class SearchWorker extends BaseWorker {
       qualityMet: searchContext.qualityMet,
       existingDownload: searchContext.existingDownload,
       bulkDownloadsForSeasonPacks: searchContext.bulkDownloadsForSeasonPacks,
+      bestAvailableQuality: (output.data as { bestAvailableQuality?: string })
+        ?.bestAvailableQuality,
     };
 
-    const foundType = searchContext.existingDownload
-      ? "existing download"
-      : searchContext.selectedPacks
-        ? `${searchContext.selectedPacks.length} season pack(s)`
-        : "new release";
+    // Determine what was found and log appropriately
+    let foundType: string;
+    let shouldProceed = true;
+
+    if (searchContext.existingDownload) {
+      foundType = "existing download";
+    } else if (searchContext.selectedPacks) {
+      foundType = `${searchContext.selectedPacks.length} season pack(s)`;
+    } else if (searchContext.selectedRelease) {
+      foundType = "new release";
+    } else if (
+      hasAlternatives &&
+      qualityNotMet &&
+      searchContext.alternativeReleases &&
+      searchContext.alternativeReleases.length > 0
+    ) {
+      foundType = `${searchContext.alternativeReleases.length} alternative(s) below quality threshold`;
+      shouldProceed = false;
+    } else {
+      foundType = "unknown";
+    }
+
     console.log(`[${this.name}] Found ${foundType} for ${request.title}`);
 
+    if (!shouldProceed && qualityNotMet) {
+      console.log(
+        `[${this.name}] Quality not met for ${request.title}, best available: ${stepContext.bestAvailableQuality}`
+      );
+    }
+
     // Transition to FOUND with search results
+    // Even if qualityMet=false, we transition to FOUND so UI can show "Accept Lower Quality"
+    // The stepContext contains all info the UI needs: alternativeReleases, qualityMet, bestAvailableQuality
     await this.transitionToNext(item.id, {
-      currentStep: "search_complete",
+      currentStep: qualityNotMet ? "search_quality_unavailable" : "search_complete",
       stepContext,
     });
   }
