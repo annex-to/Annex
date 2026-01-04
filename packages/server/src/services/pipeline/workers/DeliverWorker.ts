@@ -126,10 +126,12 @@ export class DeliverWorker extends BaseWorker {
       return;
     }
 
-    // Transition to DELIVERING
-    await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
-      currentStep: "deliver",
-    });
+    // Transition to DELIVERING (only if not already there)
+    if (item.status !== "DELIVERING") {
+      await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
+        currentStep: "deliver",
+      });
+    }
 
     // Initialize progress tracking
     await pipelineOrchestrator.updateProgress(item.id, 0, {
