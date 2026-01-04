@@ -356,7 +356,28 @@ export class PipelineOrchestrator {
   /**
    * Update progress for a ProcessingItem
    */
-  async updateProgress(itemId: string, progress: number): Promise<ProcessingItem> {
+  async updateProgress(
+    itemId: string,
+    progress: number,
+    options?: {
+      lastProgressUpdate?: Date;
+      lastProgressValue?: number;
+    }
+  ): Promise<ProcessingItem> {
+    if (options?.lastProgressUpdate !== undefined || options?.lastProgressValue !== undefined) {
+      // Update progress with tracking fields
+      return await prisma.processingItem.update({
+        where: { id: itemId },
+        data: {
+          progress,
+          lastProgressUpdate: options.lastProgressUpdate,
+          lastProgressValue: options.lastProgressValue,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    // Fallback to repository method for simple progress updates
     return await processingItemRepository.updateProgress(itemId, progress);
   }
 

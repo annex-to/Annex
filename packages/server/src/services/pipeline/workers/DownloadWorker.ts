@@ -3,24 +3,87 @@ import path from "node:path";
 import type { MediaType, ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { getDownloadService } from "../../download.js";
+import { circuitBreakerService } from "../CircuitBreakerService.js";
 import type { PipelineContext } from "../PipelineContext";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
-import { DownloadStep } from "../steps/DownloadStep";
 import { BaseWorker } from "./BaseWorker";
 import { findMainVideoFile } from "./fileUtils.js";
 
 /**
- * DownloadWorker - Downloads media for items in FOUND status
- * Transitions items from FOUND → DOWNLOADING → DOWNLOADED
+ * DownloadWorker - Unified worker for starting and monitoring downloads
+ * Processes FOUND → DOWNLOADING → DOWNLOADED
+ *
+ * No while loops - uses scheduled polling
+ * Progress-based stall detection
+ * Circuit breaker integration for qBittorrent health
  */
 export class DownloadWorker extends BaseWorker {
   readonly processingStatus = "FOUND" as const;
   readonly nextStatus = "DOWNLOADED" as const;
   readonly name = "DownloadWorker";
-  readonly concurrency = 20; // Process up to 20 downloads in parallel
+  readonly concurrency = 20;
 
-  protected async processItem(item: ProcessingItem): Promise<void> {
-    console.log(`[${this.name}] Processing ${item.type} ${item.title}`);
+  /**
+   * Process batch - handle both new downloads and active monitoring
+   */
+  async processBatch(): Promise<void> {
+    await this.startNewDownloads();
+    await this.monitorActiveDownloads();
+  }
+
+  /**
+   * Override processItem - not used in new design
+   */
+  protected async processItem(_item: ProcessingItem): Promise<void> {
+    // Not used - processBatch handles everything
+  }
+
+  /**
+   * Start new downloads for FOUND items
+   */
+  private async startNewDownloads(): Promise<void> {
+    const foundItems = await pipelineOrchestrator.getItemsForProcessing("FOUND");
+
+    for (const item of foundItems.slice(0, this.concurrency)) {
+      try {
+        await this.createDownload(item);
+      } catch (error) {
+        await this.handleError(item, error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+
+  /**
+   * Monitor active downloads for DOWNLOADING items
+   */
+  private async monitorActiveDownloads(): Promise<void> {
+    const downloadingItems = await pipelineOrchestrator.getItemsForProcessing("DOWNLOADING");
+
+    for (const item of downloadingItems) {
+      try {
+        await this.checkDownloadProgress(item);
+      } catch (error) {
+        await this.handleError(item, error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+
+  /**
+   * Create a new download from FOUND item
+   */
+  private async createDownload(item: ProcessingItem): Promise<void> {
+    console.log(`[${this.name}] Creating download for ${item.title}`);
+
+    // Check circuit breaker for qBittorrent
+    const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
+    if (!qbHealthy) {
+      console.warn(`[${this.name}] qBittorrent circuit open, skipping ${item.title}`);
+      await prisma.processingItem.update({
+        where: { id: item.id },
+        data: { skipUntil: new Date(Date.now() + 5 * 60 * 1000) }, // Skip for 5 minutes
+      });
+      return;
+    }
 
     // Get request details
     const request = await this.getRequest(item.requestId);
@@ -34,7 +97,7 @@ export class DownloadWorker extends BaseWorker {
 
     // Check if this is an existing download
     if (searchData?.existingDownload) {
-      console.log(`[${this.name}] Found existing download, skipping new download`);
+      console.log(`[${this.name}] Found existing download for ${item.title}`);
       await this.handleExistingDownload(item, request, searchData);
       return;
     }
@@ -44,117 +107,242 @@ export class DownloadWorker extends BaseWorker {
       throw new Error("No release or season packs found in item context");
     }
 
-    // Transition to DOWNLOADING
-    await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
-      currentStep: "download",
-    });
+    // Create download via qBittorrent
+    const qb = getDownloadService();
+    const release = searchData.selectedRelease;
 
-    // Build pipeline context
-    const context: PipelineContext = {
-      requestId: item.requestId,
-      mediaType: request.type as MediaType,
-      tmdbId: item.tmdbId,
-      // Use request.title (show title) for TV, item.title (movie title) for movies
-      title: item.type === "EPISODE" ? request.title : item.title,
-      year: item.year || new Date().getFullYear(),
-      targets: request.targets
-        ? (request.targets as Array<{ serverId: string; encodingProfileId?: string }>)
-        : [],
-      search: searchData,
-    };
-
-    // For TV episodes, add episode context
-    if (item.type === "EPISODE" && item.season !== null && item.episode !== null) {
-      context.requestedEpisodes = [{ season: item.season, episode: item.episode }];
+    if (!release || !release.magnetUri) {
+      throw new Error("No magnet URI in selected release");
     }
 
-    // Create fresh DownloadStep instance per item to avoid race conditions with parallel processing
-    const downloadStep = new DownloadStep();
+    try {
+      // Add torrent to qBittorrent
+      const result = await qb.addTorrentUrl(release.magnetUri);
 
-    // Set progress callback
-    downloadStep.setProgressCallback((progress, message) => {
-      this.updateProgress(item.id, progress, message);
-    });
-
-    // Set callback to update downloadId immediately when Download record is created
-    downloadStep.setDownloadCreatedCallback(async (downloadId, _torrentHash) => {
-      console.log(
-        `[${this.name}] Download created for ${item.title}, setting downloadId=${downloadId}`
-      );
-
-      // For season packs, atomically link ALL episodes in this season to the download
-      // This prevents race conditions where some episodes create separate downloads
-      if (item.type === "EPISODE" && item.season !== null && searchData?.selectedPacks) {
-        const linkedCount = await this.linkAllSeasonEpisodesToDownload(
-          item.requestId,
-          item.season,
-          downloadId
-        );
-        console.log(
-          `[${this.name}] Season pack: linked ${linkedCount} episodes to download ${downloadId}`
-        );
-      } else {
-        // For individual releases, just update this item
-        await prisma.processingItem.update({
-          where: { id: item.id },
-          data: { downloadId },
-        });
+      if (!result.success || !result.hash) {
+        throw new Error(result.error || "Failed to add torrent to qBittorrent");
       }
-    });
 
-    // Execute download
-    const output = await downloadStep.execute(context, {
-      pollInterval: 5000,
-      timeout: 24 * 60 * 60 * 1000, // 24 hours
-    });
+      const torrentHash = result.hash;
 
-    if (!output.success) {
-      throw new Error(output.error || "Download failed");
-    }
-
-    // Check if bulk downloads were created for season packs
-    const resultData = output.data?.search as Record<string, unknown> | undefined;
-    if (resultData?.bulkDownloadsCreated) {
-      // For season packs, the download monitor will handle extraction and create branches
-      // Transition to COMPLETED since this processing item's job is done
-      await pipelineOrchestrator.transitionStatus(item.id, "COMPLETED", {
-        currentStep: "bulk_download_created",
-        stepContext: {
-          ...stepContext,
-          bulkDownloadInfo: {
-            downloadCount: resultData.downloadCount,
-            createdAt: new Date(),
-          },
+      // Create Download record
+      const download = await prisma.download.create({
+        data: {
+          id: torrentHash,
+          requestId: item.requestId,
+          mediaType: request.type as MediaType,
+          torrentHash,
+          torrentName: release.title,
+          status: "DOWNLOADING",
+          progress: 0,
+          indexerName: release.indexerName || release.indexer || null,
+          resolution: release.resolution || null,
+          source: release.source || null,
+          codec: release.codec || null,
+          qualityScore: (release as { score?: number }).score || null,
+          publishDate: release.publishDate ? new Date(release.publishDate) : null,
+          seedCount: release.seeders || null,
+          peerCount: release.leechers || null,
         },
       });
-      console.log(
-        `[${this.name}] Created ${resultData.downloadCount} bulk download(s) for ${item.title}`
+
+      // For season packs, link all episodes in this season
+      if (item.type === "EPISODE" && item.season !== null && searchData?.selectedPacks) {
+        await this.linkAllSeasonEpisodesToDownload(item.requestId, item.season, download.id);
+      }
+
+      // Transition to DOWNLOADING with progress tracking
+      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
+        currentStep: "download",
+        downloadId: download.id,
+      });
+
+      // Initialize progress tracking
+      await pipelineOrchestrator.updateProgress(item.id, 0, {
+        lastProgressUpdate: new Date(),
+        lastProgressValue: 0,
+      });
+
+      // Record success in circuit breaker
+      await circuitBreakerService.recordSuccess("qbittorrent");
+
+      console.log(`[${this.name}] Started download for ${item.title}`);
+    } catch (error) {
+      // Record failure in circuit breaker
+      await circuitBreakerService.recordFailure(
+        "qbittorrent",
+        error instanceof Error ? error : new Error(String(error))
       );
+      throw error;
+    }
+  }
+
+  /**
+   * Check progress of active download
+   */
+  private async checkDownloadProgress(item: ProcessingItem): Promise<void> {
+    if (!item.downloadId) {
+      console.warn(`[${this.name}] No downloadId for ${item.title}, resetting to FOUND`);
+      await pipelineOrchestrator.transitionStatus(item.id, "FOUND", {
+        currentStep: undefined,
+      });
       return;
     }
 
-    // Extract download results for individual files
-    const downloadContext = output.data?.download as PipelineContext["download"];
-    if (!downloadContext?.sourceFilePath && !downloadContext?.episodeFiles) {
-      throw new Error("No download results found");
+    // Get download record
+    const download = await prisma.download.findUnique({
+      where: { id: item.downloadId },
+    });
+
+    if (!download) {
+      throw new Error(`Download ${item.downloadId} not found`);
     }
 
-    // Merge contexts
+    // Check circuit breaker
+    const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
+    if (!qbHealthy) {
+      console.warn(
+        `[${this.name}] qBittorrent circuit open, skipping progress check for ${item.title}`
+      );
+      return; // Will retry next poll cycle
+    }
+
+    try {
+      // Get torrent status from qBittorrent
+      const qb = getDownloadService();
+      const torrent = await qb.getProgress(download.torrentHash);
+
+      if (!torrent) {
+        throw new Error(`Torrent ${download.torrentHash} not found in qBittorrent`);
+      }
+
+      // Stall detection: Compare progress to last known value
+      const progressChanged = torrent.progress !== item.lastProgressValue;
+
+      if (!progressChanged && item.lastProgressUpdate) {
+        const stallTime = Date.now() - item.lastProgressUpdate.getTime();
+
+        if (stallTime > 30 * 60 * 1000) {
+          // Stalled for >30 minutes
+          console.warn(
+            `[${this.name}] Download stalled for ${item.title} (no progress for 30 min)`
+          );
+
+          // Check qBittorrent state
+          if (torrent.state === "stalled" || torrent.state === "error") {
+            throw new Error(`Download stalled: ${torrent.state}`);
+          }
+        }
+      }
+
+      // Update progress if changed
+      if (progressChanged) {
+        await pipelineOrchestrator.updateProgress(item.id, torrent.progress, {
+          lastProgressUpdate: new Date(),
+          lastProgressValue: torrent.progress,
+        });
+
+        // Update download record
+        await prisma.download.update({
+          where: { id: download.id },
+          data: {
+            progress: torrent.progress,
+            savePath: torrent.savePath,
+            contentPath: torrent.contentPath,
+          },
+        });
+      }
+
+      // Check if complete
+      if (torrent.isComplete || torrent.progress >= 100) {
+        await this.handleCompletedDownload(item, download, torrent);
+      }
+
+      // Record success in circuit breaker
+      await circuitBreakerService.recordSuccess("qbittorrent");
+    } catch (error) {
+      // Record failure in circuit breaker
+      await circuitBreakerService.recordFailure(
+        "qbittorrent",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Handle completed download - find video file and transition to DOWNLOADED
+   */
+  private async handleCompletedDownload(
+    item: ProcessingItem,
+    download: { id: string; torrentHash: string },
+    torrent: { contentPath: string; name: string }
+  ): Promise<void> {
+    console.log(`[${this.name}] Download complete: ${item.title}`);
+
+    // Find the actual video file
+    let sourceFilePath = torrent.contentPath;
+
+    if (item.type === "EPISODE" && item.season !== null && item.episode !== null) {
+      // For TV episodes, find the specific episode file in season pack
+      const episodeFile = await this.findEpisodeFile(
+        torrent.contentPath,
+        item.season,
+        item.episode
+      );
+
+      if (episodeFile) {
+        sourceFilePath = episodeFile;
+        console.log(`[${this.name}] Found episode file: ${episodeFile}`);
+      } else {
+        throw new Error(`Could not find S${item.season}E${item.episode} in ${torrent.contentPath}`);
+      }
+    } else if (item.type === "MOVIE") {
+      // For movies, find the main video file if path is a directory
+      const mainVideoFile = await findMainVideoFile(torrent.contentPath);
+      if (mainVideoFile) {
+        sourceFilePath = mainVideoFile;
+        console.log(`[${this.name}] Found main video file: ${mainVideoFile}`);
+      } else {
+        throw new Error(`Could not find video file in ${torrent.contentPath}`);
+      }
+    }
+
+    // Build download context
+    const downloadContext: PipelineContext["download"] = {
+      torrentHash: download.torrentHash,
+      sourceFilePath,
+    };
+
+    const stepContext = (item.stepContext as Record<string, unknown>) || {};
     const newStepContext = {
       ...stepContext,
       download: downloadContext,
     };
 
-    // Transition to DOWNLOADED with results
-    // Note: downloadId already set on ProcessingItem via callback, don't override
-    await this.transitionToNext(item.id, {
+    // Update download record
+    await prisma.download.update({
+      where: { id: download.id },
+      data: {
+        status: "COMPLETED",
+        progress: 100,
+        contentPath: torrent.contentPath,
+        completedAt: new Date(),
+      },
+    });
+
+    // Transition to DOWNLOADED
+    await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADED", {
       currentStep: "download_complete",
       stepContext: newStepContext,
     });
 
-    console.log(`[${this.name}] Downloaded ${item.title}`);
+    console.log(`[${this.name}] Transitioned ${item.title} to DOWNLOADED`);
   }
 
+  /**
+   * Handle existing download found in search phase
+   */
   private async handleExistingDownload(
     item: ProcessingItem,
     request: { type: string },
@@ -164,239 +352,105 @@ export class DownloadWorker extends BaseWorker {
     if (!existingDownload) {
       throw new Error("No existing download in search context");
     }
+
     const torrentHash = existingDownload.torrentHash;
 
-    // Get torrent details from qBittorrent
-    const qb = getDownloadService();
-    const torrent = await qb.getProgress(torrentHash);
-
-    if (!torrent) {
-      throw new Error(`Torrent ${torrentHash} no longer exists in qBittorrent`);
-    }
-
-    console.log(`[${this.name}] Existing torrent: ${torrent.name}, progress: ${torrent.progress}%`);
-
-    // Find or create Download record for this torrent
-    let download = await prisma.download.findUnique({
-      where: { torrentHash },
-    });
-
-    // For season pack episodes, atomically link ALL episodes in this season
-    // This prevents race conditions where some episodes get linked and others don't
-    if (item.type === "EPISODE" && item.season !== null) {
-      const linkedCount = await this.linkAllSeasonEpisodesToDownload(
-        item.requestId,
-        item.season,
-        download?.id || torrentHash // Use download.id if exists, else torrentHash as temp ID
-      );
-      console.log(`[${this.name}] Linked ${linkedCount} episodes to download ${torrentHash}`);
-    }
-
-    if (!download) {
-      console.log(`[${this.name}] Creating Download record for existing torrent ${torrentHash}`);
-
-      // Extract release metadata from selectedRelease
-      const selectedRelease = searchData?.selectedRelease;
-      const releaseMetadata = selectedRelease
-        ? {
-            indexerName: selectedRelease.indexerName || selectedRelease.indexer || null,
-            resolution: selectedRelease.resolution || null,
-            source: selectedRelease.source || null,
-            codec: selectedRelease.codec || null,
-            qualityScore:
-              (selectedRelease as { score?: number }).score ||
-              (selectedRelease as { quality?: number }).quality ||
-              null,
-            publishDate: selectedRelease.publishDate ? new Date(selectedRelease.publishDate) : null,
-            seedCount: selectedRelease.seeders || null,
-            peerCount: selectedRelease.leechers || null,
-          }
-        : {};
-
-      download = await prisma.download.create({
-        data: {
-          id: torrentHash,
-          requestId: item.requestId,
-          mediaType: request.type as "MOVIE" | "TV",
-          torrentHash,
-          torrentName: torrent.name,
-          status: torrent.isComplete ? "COMPLETED" : "DOWNLOADING",
-          progress: torrent.progress,
-          savePath: torrent.savePath,
-          contentPath: torrent.contentPath,
-          completedAt: torrent.isComplete ? new Date() : null,
-          ...releaseMetadata,
-        },
-      });
-    }
-
-    // If torrent is already complete, transition quickly to DOWNLOADED
-    if (torrent.progress >= 100 || torrent.isComplete) {
-      console.log(`[${this.name}] Torrent already complete, moving to DOWNLOADED`);
-
-      // Transition to DOWNLOADING with downloadId set immediately
-      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
-        currentStep: "download",
-        downloadId: download.id,
-      });
-
-      // Get file paths from torrent
-      // For season packs, find the specific episode file
-      let sourceFilePath = torrent.contentPath;
-
-      if (item.type === "EPISODE" && item.season !== null && item.episode !== null) {
-        // This is a season pack - find the specific episode file
-        const episodeFile = await this.findEpisodeFile(
-          torrent.contentPath,
-          item.season,
-          item.episode
-        );
-
-        if (episodeFile) {
-          sourceFilePath = episodeFile;
-          console.log(`[${this.name}] Found episode file: ${episodeFile}`);
-        } else {
-          throw new Error(
-            `Could not find S${item.season}E${item.episode} in season pack ${torrent.contentPath}`
-          );
-        }
-      } else if (item.type === "MOVIE") {
-        // For movies, find the main video file if path is a directory
-        const mainVideoFile = await findMainVideoFile(torrent.contentPath);
-        if (mainVideoFile) {
-          sourceFilePath = mainVideoFile;
-          console.log(`[${this.name}] Found main video file: ${mainVideoFile}`);
-        } else {
-          throw new Error(`Could not find video file in ${torrent.contentPath}`);
-        }
-      }
-
-      const downloadContext: PipelineContext["download"] = {
-        torrentHash,
-        sourceFilePath,
-      };
-
-      // Fetch latest item to get current stepContext
-      const latestItem = await prisma.processingItem.findUnique({
+    // Check circuit breaker
+    const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
+    if (!qbHealthy) {
+      console.warn(`[${this.name}] qBittorrent circuit open, skipping ${item.title}`);
+      await prisma.processingItem.update({
         where: { id: item.id },
-        select: { stepContext: true },
+        data: { skipUntil: new Date(Date.now() + 5 * 60 * 1000) },
       });
-
-      const stepContext = (latestItem?.stepContext as Record<string, unknown>) || {};
-      const newStepContext = {
-        ...stepContext,
-        download: downloadContext,
-      };
-
-      // Immediately transition to DOWNLOADED
-      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADED", {
-        currentStep: "download_complete",
-        stepContext: newStepContext,
-      });
-    } else {
-      // Torrent is still downloading, transition to DOWNLOADING and monitor
-      console.log(`[${this.name}] Torrent still downloading (${torrent.progress}%), monitoring...`);
-
-      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
-        currentStep: "download",
-        downloadId: download.id,
-      });
-
-      await this.monitorExistingDownload(item, torrentHash, qb);
+      return;
     }
-  }
 
-  private async monitorExistingDownload(
-    item: ProcessingItem,
-    torrentHash: string,
-    qb: ReturnType<typeof getDownloadService>
-  ): Promise<void> {
-    // Poll for completion
-    const maxWaitTime = 24 * 60 * 60 * 1000; // 24 hours
-    const pollInterval = 5000; // 5 seconds
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWaitTime) {
+    try {
+      // Get torrent details from qBittorrent
+      const qb = getDownloadService();
       const torrent = await qb.getProgress(torrentHash);
 
       if (!torrent) {
-        throw new Error(`Torrent ${torrentHash} disappeared from qBittorrent`);
+        throw new Error(`Torrent ${torrentHash} no longer exists in qBittorrent`);
       }
 
-      // Update progress
-      this.updateProgress(item.id, torrent.progress, `Downloading: ${torrent.progress}%`);
+      console.log(
+        `[${this.name}] Existing torrent: ${torrent.name}, progress: ${torrent.progress}%`
+      );
 
-      // Check if complete
-      if (torrent.progress >= 100 || torrent.isComplete) {
-        console.log(`[${this.name}] Download complete: ${torrent.name}`);
+      // Find or create Download record
+      let download = await prisma.download.findUnique({
+        where: { torrentHash },
+      });
 
-        // Find the actual video file
-        let sourceFilePath = torrent.contentPath;
-
-        if (item.type === "EPISODE" && item.season !== null && item.episode !== null) {
-          // For TV episodes, find the specific episode file
-          const episodeFile = await this.findEpisodeFile(
-            torrent.contentPath,
-            item.season,
-            item.episode
-          );
-
-          if (episodeFile) {
-            sourceFilePath = episodeFile;
-            console.log(`[${this.name}] Found episode file: ${episodeFile}`);
-          } else {
-            throw new Error(
-              `Could not find S${item.season}E${item.episode} in season pack ${torrent.contentPath}`
-            );
-          }
-        } else if (item.type === "MOVIE") {
-          // For movies, find the main video file if path is a directory
-          const mainVideoFile = await findMainVideoFile(torrent.contentPath);
-          if (mainVideoFile) {
-            sourceFilePath = mainVideoFile;
-            console.log(`[${this.name}] Found main video file: ${mainVideoFile}`);
-          } else {
-            throw new Error(`Could not find video file in ${torrent.contentPath}`);
-          }
-        }
-
-        const downloadContext: PipelineContext["download"] = {
-          torrentHash,
-          sourceFilePath,
-        };
-
-        const stepContext = item.stepContext as Record<string, unknown>;
-        const newStepContext = {
-          ...stepContext,
-          download: downloadContext,
-        };
-
-        await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADED", {
-          currentStep: "download_complete",
-          stepContext: newStepContext,
-          // Note: downloadId already set on ProcessingItem earlier, don't override
+      if (!download) {
+        // Create Download record for existing torrent
+        const selectedRelease = searchData?.selectedRelease;
+        download = await prisma.download.create({
+          data: {
+            id: torrentHash,
+            requestId: item.requestId,
+            mediaType: request.type as MediaType,
+            torrentHash,
+            torrentName: torrent.name,
+            status: torrent.isComplete ? "COMPLETED" : "DOWNLOADING",
+            progress: torrent.progress,
+            savePath: torrent.savePath,
+            contentPath: torrent.contentPath,
+            indexerName: selectedRelease?.indexerName || null,
+            resolution: selectedRelease?.resolution || null,
+            source: selectedRelease?.source || null,
+            codec: selectedRelease?.codec || null,
+            completedAt: torrent.isComplete ? new Date() : null,
+          },
         });
-
-        return;
       }
 
-      // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    }
+      // For season packs, link all episodes in this season
+      if (item.type === "EPISODE" && item.season !== null) {
+        await this.linkAllSeasonEpisodesToDownload(item.requestId, item.season, download.id);
+      }
 
-    throw new Error(`Download timeout after ${maxWaitTime / 1000 / 60} minutes`);
+      // Transition to DOWNLOADING
+      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
+        currentStep: "download",
+        downloadId: download.id,
+      });
+
+      // Initialize progress tracking
+      await pipelineOrchestrator.updateProgress(item.id, torrent.progress, {
+        lastProgressUpdate: new Date(),
+        lastProgressValue: torrent.progress,
+      });
+
+      // If already complete, immediately transition to DOWNLOADED
+      if (torrent.isComplete || torrent.progress >= 100) {
+        await this.handleCompletedDownload(item, download, torrent);
+      }
+
+      // Record success in circuit breaker
+      await circuitBreakerService.recordSuccess("qbittorrent");
+
+      console.log(`[${this.name}] Linked ${item.title} to existing download`);
+    } catch (error) {
+      // Record failure in circuit breaker
+      await circuitBreakerService.recordFailure(
+        "qbittorrent",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      throw error;
+    }
   }
 
   /**
    * Atomically link all episodes in a season to a download
-   * Prevents race conditions where some episodes get linked and others don't
    */
   private async linkAllSeasonEpisodesToDownload(
     requestId: string,
     season: number,
     downloadId: string
   ): Promise<number> {
-    // Find all episodes in this season that need linking
     const episodes = await prisma.processingItem.findMany({
       where: {
         requestId,
@@ -411,10 +465,10 @@ export class DownloadWorker extends BaseWorker {
     }
 
     console.log(
-      `[${this.name}] Found ${episodes.length} episodes in season ${season} to link to download ${downloadId}`
+      `[${this.name}] Linking ${episodes.length} episodes in season ${season} to download ${downloadId}`
     );
 
-    // Atomic batch update - all episodes get linked together or none do
+    // Atomic batch update
     await prisma.$transaction(
       episodes.map((ep: ProcessingItem) =>
         prisma.processingItem.update({
@@ -440,21 +494,17 @@ export class DownloadWorker extends BaseWorker {
     episode: number
   ): Promise<string | null> {
     try {
-      // Check if path is a directory
       const stats = await fs.stat(directoryPath);
       if (!stats.isDirectory()) {
-        // If it's already a file, return it
         return directoryPath;
       }
 
-      // Read directory contents
       const files = await fs.readdir(directoryPath);
 
-      // Format season/episode for matching (S01E01, S1E1, etc.)
+      // Format season/episode for matching
       const seasonStr = String(season).padStart(2, "0");
       const episodeStr = String(episode).padStart(2, "0");
 
-      // Pattern to match: S01E01, S1E1, 1x01, etc.
       const patterns = [
         `S${seasonStr}E${episodeStr}`,
         `S${season}E${episode}`,
@@ -465,11 +515,8 @@ export class DownloadWorker extends BaseWorker {
       // Find matching file
       for (const file of files) {
         const upperFile = file.toUpperCase();
-
-        // Check if file matches any episode pattern
         for (const pattern of patterns) {
           if (upperFile.includes(pattern.toUpperCase())) {
-            // Check if it's a video file
             const ext = path.extname(file).toLowerCase();
             if ([".mkv", ".mp4", ".avi", ".m4v", ".ts"].includes(ext)) {
               return path.join(directoryPath, file);
@@ -483,6 +530,14 @@ export class DownloadWorker extends BaseWorker {
       console.error(`[${this.name}] Error finding episode file:`, error);
       return null;
     }
+  }
+
+  /**
+   * Handle error for an item
+   */
+  private async handleError(item: ProcessingItem, error: Error): Promise<void> {
+    console.error(`[${this.name}] Error processing ${item.title}:`, error);
+    await pipelineOrchestrator.handleError(item.id, error, "qbittorrent");
   }
 }
 

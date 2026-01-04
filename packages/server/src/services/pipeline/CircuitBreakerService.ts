@@ -176,13 +176,21 @@ export class CircuitBreakerService {
       orderBy: { updatedAt: "desc" },
     });
 
-    return breakers.map((b: { service: string; state: string; failures: number; lastFailure: Date | null; opensAt: Date | null }) => ({
-      service: b.service,
-      state: b.state as CircuitState,
-      failures: b.failures,
-      lastFailure: b.lastFailure,
-      opensAt: b.opensAt,
-    }));
+    return breakers.map(
+      (b: {
+        service: string;
+        state: string;
+        failures: number;
+        lastFailure: Date | null;
+        opensAt: Date | null;
+      }) => ({
+        service: b.service,
+        state: b.state as CircuitState,
+        failures: b.failures,
+        lastFailure: b.lastFailure,
+        opensAt: b.opensAt,
+      })
+    );
   }
 
   /**
