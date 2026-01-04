@@ -310,21 +310,27 @@ export class EncodeWorker extends BaseWorker {
       return;
     }
 
-    // Stall detection: Compare progress to last known value
+    // Handle terminal states first
+    if (assignment.status === "FAILED" || assignment.status === "CANCELLED") {
+      throw new Error(
+        `Encoding ${assignment.status.toLowerCase()}: ${assignment.error || "Unknown error"}`
+      );
+    }
+
+    // Skip stall detection for jobs that are just waiting for assignment
+    if (assignment.status === "PENDING" || assignment.status === "ASSIGNED") {
+      // Job is waiting for encoder or just assigned - not stalled, just queued
+      return;
+    }
+
+    // Stall detection: Only for actively encoding jobs
     const progressChanged = assignment.progress !== item.lastProgressValue;
 
     if (!progressChanged && item.lastProgressUpdate) {
       const stallTime = Date.now() - item.lastProgressUpdate.getTime();
 
       if (stallTime > 10 * 60 * 1000) {
-        // Stalled for >10 minutes - check if assignment status indicates a problem
-        if (assignment.status === "FAILED" || assignment.status === "CANCELLED") {
-          throw new Error(
-            `Encoding ${assignment.status.toLowerCase()}: ${assignment.error || "Unknown error"}`
-          );
-        }
-
-        // Assignment is still active but not making progress
+        // Assignment is ENCODING but not making progress
         console.warn(`[${this.name}] Encoding stalled for ${item.title} (no progress for 10 min)`);
         throw new Error("Encoding stalled: No progress for 10 minutes");
       }
