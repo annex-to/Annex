@@ -418,6 +418,7 @@ export class DeliverWorker extends BaseWorker {
     const newStepContext = {
       ...stepContext,
       deliver: deliverContext,
+      allDeliveriesComplete: true,
     };
 
     // Transition to COMPLETED
