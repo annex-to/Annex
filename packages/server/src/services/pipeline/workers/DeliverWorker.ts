@@ -138,7 +138,14 @@ export class DeliverWorker extends BaseWorker {
       await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
         currentStep: "deliver",
       });
-      await this.handleCompletedDelivery(item, encodeData, checkpoint.deliveredServers);
+      // Refetch item with updated status before calling handleCompletedDelivery
+      const updatedItem = await prisma.processingItem.findUnique({
+        where: { id: item.id },
+      });
+      if (!updatedItem) {
+        throw new Error(`Item ${item.id} not found after status update`);
+      }
+      await this.handleCompletedDelivery(updatedItem, encodeData, checkpoint.deliveredServers);
       return;
     }
 

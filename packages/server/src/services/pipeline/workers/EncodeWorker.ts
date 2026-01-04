@@ -102,7 +102,14 @@ export class EncodeWorker extends BaseWorker {
           currentStep: "encode_early_exit",
           encodingJobId: item.encodingJobId,
         });
-        await this.handleCompletedEncoding(item, assignment, null);
+        // Refetch item with updated status before calling handleCompletedEncoding
+        const updatedItem = await prisma.processingItem.findUnique({
+          where: { id: item.id },
+        });
+        if (!updatedItem) {
+          throw new Error(`Item ${item.id} not found after status update`);
+        }
+        await this.handleCompletedEncoding(updatedItem, assignment, null);
         return;
       }
     }
