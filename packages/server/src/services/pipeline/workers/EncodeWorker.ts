@@ -87,6 +87,21 @@ export class EncodeWorker extends BaseWorker {
   private async createEncodingJob(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] Creating encoding job for ${item.title}`);
 
+    // Early exit: if item already has a completed encoding job, skip to ENCODED
+    if (item.encodingJobId) {
+      const assignment = await prisma.encoderAssignment.findUnique({
+        where: { jobId: item.encodingJobId },
+      });
+
+      if (assignment && assignment.status === "COMPLETED") {
+        console.log(
+          `[${this.name}] Early exit: ${item.title} encoding already complete, promoting to ENCODED`
+        );
+        await this.handleCompletedEncoding(item, assignment, null);
+        return;
+      }
+    }
+
     // Check if we have available encoders
     const { getEncoderDispatchService } = await import("../../encoderDispatch.js");
     const encoderService = getEncoderDispatchService();

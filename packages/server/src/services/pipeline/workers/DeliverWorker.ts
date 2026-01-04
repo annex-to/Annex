@@ -121,6 +121,23 @@ export class DeliverWorker extends BaseWorker {
       failedServers: [],
     };
 
+    // Early exit: if all servers already delivered, skip to COMPLETED
+    const targetServerIds = encodeData.encodedFiles.flatMap((file) => {
+      const f = file as { targetServerIds: string[] };
+      return f.targetServerIds || [];
+    });
+    const uniqueTargetServers = [...new Set(targetServerIds)];
+    const deliveredServerIds = checkpoint.deliveredServers.map((s) => s.serverId);
+    const allServersDelivered = uniqueTargetServers.every((id) => deliveredServerIds.includes(id));
+
+    if (allServersDelivered && checkpoint.deliveredServers.length > 0) {
+      console.log(
+        `[${this.name}] Early exit: ${item.title} already delivered to all servers, promoting to COMPLETED`
+      );
+      await this.handleCompletedDelivery(item, encodeData, checkpoint.deliveredServers);
+      return;
+    }
+
     // Transition to DELIVERING
     await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
       currentStep: "deliver",

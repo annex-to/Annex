@@ -21,8 +21,20 @@ export class SearchWorker extends BaseWorker {
       return;
     }
 
-    // Transition to SEARCHING first
     const { pipelineOrchestrator } = await import("../PipelineOrchestrator");
+
+    // Early exit: if item already has a downloadId, skip search and fast-forward to FOUND
+    if (item.downloadId) {
+      console.log(
+        `[${this.name}] Early exit: ${item.title} already has download, promoting to FOUND`
+      );
+      await pipelineOrchestrator.transitionStatus(item.id, "FOUND", {
+        currentStep: "search_skipped",
+      });
+      return;
+    }
+
+    // Transition to SEARCHING first
     await pipelineOrchestrator.transitionStatus(item.id, "SEARCHING", { currentStep: "search" });
 
     // Get request details

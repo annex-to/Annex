@@ -74,6 +74,26 @@ export class DownloadWorker extends BaseWorker {
   private async createDownload(item: ProcessingItem): Promise<void> {
     console.log(`[${this.name}] Creating download for ${item.title}`);
 
+    // Early exit: if item already has a completed download, skip to DOWNLOADED
+    if (item.downloadId) {
+      const download = await prisma.download.findUnique({
+        where: { id: item.downloadId },
+      });
+
+      if (download && download.progress >= 100) {
+        console.log(
+          `[${this.name}] Early exit: ${item.title} download already complete, promoting to DOWNLOADED`
+        );
+        // Get torrent details for file path
+        const qb = getDownloadService();
+        const torrent = await qb.getProgress(download.torrentHash);
+        if (torrent) {
+          await this.handleCompletedDownload(item, download, torrent);
+        }
+        return;
+      }
+    }
+
     // Check circuit breaker for qBittorrent
     const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
     if (!qbHealthy) {
