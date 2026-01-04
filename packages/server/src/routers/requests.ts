@@ -916,7 +916,7 @@ export const requestsRouter = router({
   }),
 
   /**
-   * Retry a failed request by intelligently resuming from the appropriate step
+   * Reprocess a request from scratch - deletes encoded files and resets all items to PENDING
    */
   retry: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const request = await prisma.mediaRequest.findUnique({
@@ -945,11 +945,40 @@ export const requestsRouter = router({
       const mediaType = request.type === MediaType.MOVIE ? "MOVIE" : "TV";
       templateId = await getDefaultTemplate(mediaType);
       console.log(
-        `[Retry] Found branch template ${execution.templateId}, using default ${mediaType} template ${templateId} instead`
+        `[Reprocess] Found branch template ${execution.templateId}, using default ${mediaType} template ${templateId} instead`
       );
     }
 
-    // Check for active encoding jobs to avoid duplicates
+    // Get all processing items to find and delete encoded files
+    const processingItems = await prisma.processingItem.findMany({
+      where: { requestId: input.id },
+    });
+
+    // Delete encoded files from disk
+    for (const item of processingItems) {
+      const stepContext = item.stepContext as Record<string, unknown>;
+      const encodeData = stepContext?.encode as Record<string, unknown>;
+      const encodedFiles = encodeData?.encodedFiles as Array<{ path: string }>;
+
+      if (encodedFiles && encodedFiles.length > 0) {
+        for (const file of encodedFiles) {
+          try {
+            const filePath = file.path;
+            const fileObj = Bun.file(filePath);
+            if (await fileObj.exists()) {
+              await Bun.$`rm -f ${filePath}`.quiet();
+              console.log(`[Reprocess] Deleted encoded file: ${filePath}`);
+            }
+          } catch (err) {
+            console.warn(
+              `[Reprocess] Failed to delete encoded file: ${err instanceof Error ? err.message : "Unknown"}`
+            );
+          }
+        }
+      }
+    }
+
+    // Cancel any active encoding jobs
     const activeEncodingJobs = await prisma.job.findMany({
       where: {
         requestId: input.id,
@@ -963,10 +992,9 @@ export const requestsRouter = router({
 
     if (activeEncodingJobs.length > 0) {
       console.log(
-        `[Retry] Found ${activeEncodingJobs.length} active encoding jobs for ${request.title}, cancelling them first`
+        `[Reprocess] Found ${activeEncodingJobs.length} active encoding jobs for ${request.title}, cancelling them`
       );
 
-      // Cancel active encoding assignments
       for (const job of activeEncodingJobs) {
         if (job.encoderAssignment) {
           const assignment = job.encoderAssignment;
@@ -977,7 +1005,6 @@ export const requestsRouter = router({
             });
           }
         }
-        // Mark job as failed so it can be retried
         await prisma.job.update({
           where: { id: job.id },
           data: { status: "FAILED" },
@@ -985,15 +1012,24 @@ export const requestsRouter = router({
       }
     }
 
-    // Reset failed ProcessingItems to allow retry (pipeline will manage state from here)
+    // Reset ALL ProcessingItems to PENDING and clear context
     await prisma.processingItem.updateMany({
       where: {
         requestId: input.id,
-        status: ProcessingStatus.FAILED,
+        status: { not: ProcessingStatus.COMPLETED },
       },
       data: {
         status: ProcessingStatus.PENDING,
         lastError: null,
+        stepContext: {},
+        downloadId: null,
+        encodingJobId: null,
+        progress: 0,
+        lastProgressUpdate: null,
+        lastProgressValue: null,
+        checkpoint: null,
+        currentStep: null,
+        skipUntil: null,
       },
     });
 
