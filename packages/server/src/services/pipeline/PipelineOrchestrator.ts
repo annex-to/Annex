@@ -1,7 +1,7 @@
 import type { ProcessingItem, ProcessingStatus } from "@prisma/client";
 import { prisma } from "../../db/client.js";
 import { processingItemRepository } from "./ProcessingItemRepository";
-import { retryStrategy } from "./RetryStrategy";
+import { smartRetryStrategy } from "./SmartRetryStrategy";
 import { StateTransitionError, stateMachine } from "./StateMachine";
 import { ValidationError, validationFramework } from "./ValidationFramework";
 
@@ -184,27 +184,48 @@ export class PipelineOrchestrator {
   /**
    * Handle error and determine retry strategy
    */
-  async handleError(itemId: string, error: Error | string): Promise<ProcessingItem> {
+  async handleError(
+    itemId: string,
+    error: Error | string,
+    service?: string
+  ): Promise<ProcessingItem> {
     const item = await processingItemRepository.findById(itemId);
     if (!item) {
       throw new PipelineOrchestratorError(`ProcessingItem ${itemId} not found`, itemId);
     }
 
-    const shouldRetry = retryStrategy.shouldRetry(error, item.attempts, item.maxAttempts);
+    // Use smart retry strategy to decide how to handle this error
+    const decision = await smartRetryStrategy.decide(item, error, service);
 
     console.log(
-      `[PipelineOrchestrator] handleError for ${item.title}: attempts=${item.attempts}, maxAttempts=${item.maxAttempts}, shouldRetry=${shouldRetry}`
+      `[PipelineOrchestrator] handleError for ${item.title}: attempts=${item.attempts}, maxAttempts=${item.maxAttempts}, decision=${JSON.stringify(decision)}`
     );
 
-    if (shouldRetry) {
-      // Calculate next retry time
-      const nextRetryAt = retryStrategy.calculateRetryTime(error, item.attempts);
+    // Build error history
+    const errorType = smartRetryStrategy.classifyError(error);
+    const errorHistory = smartRetryStrategy.buildErrorHistory(item, error, errorType);
 
-      // Increment attempts and set retry time
-      const updatedItem = await processingItemRepository.incrementAttempts(
-        itemId,
-        nextRetryAt || undefined
-      );
+    if (decision.shouldRetry) {
+      // Update based on retry decision
+      const updateData: Record<string, unknown> = {
+        lastError: smartRetryStrategy.formatError(error),
+        errorHistory: errorHistory as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      };
+
+      if (decision.useSkipUntil) {
+        // Service outage: Use skipUntil (doesn't increment attempts)
+        updateData.skipUntil = decision.retryAt;
+        console.log(
+          `[PipelineOrchestrator] Service outage for ${item.title}, skipping until ${decision.retryAt?.toISOString()}`
+        );
+      } else {
+        // Transient error: Use nextRetryAt (increments attempts)
+        updateData.nextRetryAt = decision.retryAt;
+        updateData.attempts = item.attempts + 1;
+        console.log(
+          `[PipelineOrchestrator] Transient error for ${item.title}, retry ${updateData.attempts}/${item.maxAttempts} at ${decision.retryAt?.toISOString()}`
+        );
+      }
 
       // Keep item in current processing status (DOWNLOADING/ENCODING/DELIVERING) for retry
       // Workers will pick it up based on their status filters
@@ -212,20 +233,32 @@ export class PipelineOrchestrator {
       const processingStatuses: ProcessingStatus[] = ["DOWNLOADING", "ENCODING", "DELIVERING"];
       const targetStatus = processingStatuses.includes(item.status) ? item.status : "PENDING";
 
-      // Store error message but keep currentStep for context
-      await processingItemRepository.updateStatus(itemId, targetStatus, {
-        lastError: retryStrategy.formatError(error),
+      const updatedItem = await prisma.processingItem.update({
+        where: { id: itemId },
+        data: {
+          ...updateData,
+          status: targetStatus,
+          updatedAt: new Date(),
+        },
       });
 
       return updatedItem;
     } else {
       // Mark as failed
       console.log(
-        `[PipelineOrchestrator] Max attempts reached for ${item.title}, transitioning to FAILED`
+        `[PipelineOrchestrator] Cannot retry ${item.title}: ${decision.reason}, transitioning to FAILED`
       );
-      const errorMessage = retryStrategy.formatError(error);
+
       const failedItem = await this.transitionStatus(itemId, "FAILED", {
-        error: errorMessage,
+        error: decision.reason,
+      });
+
+      // Update error history on failed item
+      await prisma.processingItem.update({
+        where: { id: itemId },
+        data: {
+          errorHistory: errorHistory as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
       });
 
       console.log(`[PipelineOrchestrator] Successfully transitioned ${item.title} to FAILED`);

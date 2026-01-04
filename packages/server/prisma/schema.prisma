@@ -514,12 +514,19 @@ model ProcessingItem {
   attempts    Int       @default(0)
   maxAttempts Int       @default(5)
   lastError   String?
-  nextRetryAt DateTime?
+  nextRetryAt DateTime? // Exponential backoff retry
+  skipUntil   DateTime? // Service outage skip (doesn't count as attempt)
 
   // Progress tracking
-  progress    Int       @default(0) // 0-100
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
+  progress             Int       @default(0) // 0-100
+  lastProgressUpdate   DateTime? // When progress last changed
+  lastProgressValue    Int? // Previous progress for stall detection
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+
+  // Checkpointing for resume capability
+  checkpoint   Json? // Resume partial work (e.g., delivered servers)
+  errorHistory Json? // Array of timestamped errors for debugging
 
   // External references
   downloadId    String?
@@ -1326,4 +1333,19 @@ enum ApprovalStatus {
   REJECTED
   SKIPPED
   TIMEOUT
+}
+
+// Circuit Breaker for service health tracking
+model CircuitBreaker {
+  id          String   @id @default(cuid())
+  service     String   @unique // "indexer:torrentleech", "encoder:enc-01", "server:plex-01"
+  state       String   @default("CLOSED") // CLOSED, OPEN, HALF_OPEN
+  failures    Int      @default(0)
+  lastFailure DateTime?
+  opensAt     DateTime? // When to attempt half-open
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([service])
+  @@index([state])
 }
