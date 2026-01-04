@@ -535,6 +535,7 @@ export const requestsRouter = router({
               episode: true,
               attempts: true,
               lastError: true,
+              stepContext: true,
             },
           },
           totalItems: true,
@@ -575,6 +576,22 @@ export const requestsRouter = router({
           targets: true;
           requestedSeasons: true;
           requestedEpisodes: true;
+          processingItems: {
+            select: {
+              id: true;
+              type: true;
+              status: true;
+              progress: true;
+              season: true;
+              episode: true;
+              attempts: true;
+              lastError: true;
+              stepContext: true;
+            };
+          };
+          totalItems: true;
+          completedItems: true;
+          failedItems: true;
           status: true;
           progress: true;
           currentStep: true;
@@ -654,7 +671,6 @@ export const requestsRouter = router({
 
       return results.map((r: MediaRequestWithEpisodes) => {
         const targets = r.targets as unknown as RequestTarget[];
-        const availableReleases = r.availableReleases as unknown[] | null;
         // Use stored posterPath, or fall back to MediaItem lookup for legacy requests
         const mediaItemId = `tmdb-${r.type === MediaType.MOVIE ? "movie" : "tv"}-${r.tmdbId}`;
         const posterPath = r.posterPath ?? posterMap.get(mediaItemId) ?? null;
@@ -686,10 +702,14 @@ export const requestsRouter = router({
           currentStepStartedAt: computed?.currentStepStartedAt ?? r.currentStepStartedAt,
           error: computed?.error ?? r.error,
           requiredResolution: r.requiredResolution,
-          hasAlternatives:
-            (computed?.status ?? r.status) === RequestStatus.QUALITY_UNAVAILABLE &&
-            Array.isArray(availableReleases) &&
-            availableReleases.length > 0,
+          hasAlternatives: r.processingItems.some((item: { stepContext: unknown }) => {
+            const stepContext = item.stepContext as Record<string, unknown>;
+            return (
+              stepContext?.qualityMet === false &&
+              Array.isArray(stepContext?.alternativeReleases) &&
+              stepContext.alternativeReleases.length > 0
+            );
+          }),
           qualitySearchedAt: r.qualitySearchedAt,
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
@@ -1374,26 +1394,47 @@ export const requestsRouter = router({
 
   /**
    * Get alternative releases for a quality-unavailable request
+   * NEW: Reads from ProcessingItem.stepContext instead of MediaRequest
    */
   getAlternatives: publicProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const request = await prisma.mediaRequest.findUnique({
       where: { id: input.id },
-      select: {
-        status: true,
-        requiredResolution: true,
-        availableReleases: true,
-        title: true,
-        year: true,
-        type: true,
+      include: {
+        processingItems: {
+          where: {
+            status: ProcessingStatus.FOUND,
+          },
+        },
       },
     });
 
     if (!request) return null;
 
+    // Find items with alternativeReleases in stepContext
+    const itemsWithAlternatives = request.processingItems.filter(
+      (item: { stepContext: unknown }) => {
+        const stepContext = item.stepContext as Record<string, unknown>;
+        return (
+          stepContext?.qualityMet === false &&
+          Array.isArray(stepContext?.alternativeReleases) &&
+          stepContext.alternativeReleases.length > 0
+        );
+      }
+    );
+
+    // If no items with alternatives, return null
+    if (itemsWithAlternatives.length === 0) {
+      return null;
+    }
+
+    // Get data from first item (all items should have same alternatives for a request)
+    const firstItem = itemsWithAlternatives[0];
+    const stepContext = firstItem.stepContext as Record<string, unknown>;
+
     return {
       status: fromRequestStatus(request.status),
-      requiredResolution: request.requiredResolution,
-      availableReleases: request.availableReleases as unknown[] | null,
+      requiredResolution: (stepContext?.bestAvailableQuality as string) || "Unknown",
+      availableReleases: (stepContext?.alternativeReleases as unknown[]) || [],
       title: request.title,
       year: request.year,
       type: fromMediaType(request.type),
