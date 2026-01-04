@@ -68,27 +68,15 @@ export class DeliverWorker extends BaseWorker {
 
   /**
    * Monitor active deliveries for DELIVERING items
-   * Since delivery is synchronous (happens in startDelivery), this mainly catches stuck items
+   * Handles both retry of failed deliveries and detection of stuck items
    */
   private async monitorActiveDeliveries(): Promise<void> {
     const deliveringItems = await pipelineOrchestrator.getItemsForProcessing("DELIVERING");
 
     for (const item of deliveringItems) {
       try {
-        // Check if item is stuck (no progress update in 30 minutes)
-        if (item.lastProgressUpdate) {
-          const stallTime = Date.now() - item.lastProgressUpdate.getTime();
-
-          if (stallTime > 30 * 60 * 1000) {
-            console.warn(
-              `[${this.name}] Delivery stuck for ${item.title} (no update for 30 min), retrying`
-            );
-            // Reset to ENCODED to retry
-            await pipelineOrchestrator.transitionStatus(item.id, "ENCODED", {
-              currentStep: undefined,
-            });
-          }
-        }
+        // Retry failed deliveries that are ready
+        await this.startDelivery(item);
       } catch (error) {
         await this.handleError(item, error instanceof Error ? error : new Error(String(error)));
       }
