@@ -1,12 +1,8 @@
 import type { BaseWorker } from "./BaseWorker";
 import { deliverWorker } from "./DeliverWorker";
-import { downloadProgressWorker } from "./DownloadProgressWorker";
-import { downloadRecoveryWorker } from "./DownloadRecoveryWorker";
 import { downloadWorker } from "./DownloadWorker";
-import { encoderMonitorWorker } from "./EncoderMonitorWorker";
 import { encodeWorker } from "./EncodeWorker";
 import { searchWorker } from "./SearchWorker";
-import { stuckItemRecoveryWorker } from "./StuckItemRecoveryWorker";
 
 /**
  * WorkerManager - Manages all pipeline workers
@@ -17,16 +13,7 @@ export class WorkerManager {
   private isRegistered = false;
 
   constructor() {
-    this.workers = [
-      searchWorker,
-      downloadWorker,
-      downloadProgressWorker,
-      downloadRecoveryWorker,
-      encodeWorker,
-      encoderMonitorWorker,
-      deliverWorker,
-      stuckItemRecoveryWorker,
-    ];
+    this.workers = [searchWorker, downloadWorker, encodeWorker, deliverWorker];
   }
 
   /**
