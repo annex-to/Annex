@@ -143,6 +143,29 @@ async function translateToRemotePath(serverPath: string, encoderId: string): Pro
   return serverPath;
 }
 
+/**
+ * Translate remote encoder path back to server path
+ * If remapping is disabled, returns path unchanged
+ */
+async function translateToServerPath(remotePath: string, encoderId: string): Promise<string> {
+  const { mappings, remappingEnabled } = await getPathMappingsForEncoder(encoderId);
+
+  // If remapping is disabled, return path unchanged
+  if (!remappingEnabled) {
+    return remotePath;
+  }
+
+  // Apply reverse path mappings (first match wins)
+  for (const mapping of mappings) {
+    if (remotePath.startsWith(mapping.remote)) {
+      return remotePath.replace(mapping.remote, mapping.server);
+    }
+  }
+
+  // No mapping matched, return original path
+  return remotePath;
+}
+
 // =============================================================================
 // Encoder Dispatch Service
 // =============================================================================
@@ -193,13 +216,15 @@ class EncoderDispatchService {
         });
 
         if (job?.requestId) {
-          // Update MediaRequest to FAILED
-          await prisma.mediaRequest.update({
-            where: { id: job.requestId },
+          // Update ProcessingItems to FAILED (MediaRequest status computed from items)
+          await prisma.processingItem.updateMany({
+            where: {
+              requestId: job.requestId,
+              status: { in: ["ENCODING", "DOWNLOADED"] },
+            },
             data: {
               status: "FAILED",
-              error: `Encoding failed: ${error}`,
-              currentStep: null,
+              lastError: `Encoding failed: ${error}`,
             },
           });
 
@@ -910,12 +935,29 @@ class EncoderDispatchService {
   }
 
   private async handleJobComplete(msg: JobCompleteMessage): Promise<void> {
+    // First get the assignment to find the encoder ID
+    const existingAssignment = await prisma.encoderAssignment.findUnique({
+      where: { jobId: msg.jobId },
+      select: { encoderId: true },
+    });
+
+    if (!existingAssignment) {
+      console.error(`[EncoderDispatch] Assignment not found for job ${msg.jobId}`);
+      return;
+    }
+
+    // Translate output path from encoder's remote path to server's local path
+    const serverOutputPath = await translateToServerPath(
+      msg.outputPath,
+      existingAssignment.encoderId
+    );
+
     const assignment = await prisma.encoderAssignment.update({
       where: { jobId: msg.jobId },
       data: {
         status: "COMPLETED",
         progress: 100,
-        outputPath: msg.outputPath, // Update to actual final path (after rename from temp)
+        outputPath: serverOutputPath, // Use translated server path instead of encoder's remote path
         outputSize: BigInt(msg.outputSize),
         compressionRatio: msg.compressionRatio,
         encodeDuration: msg.duration,
@@ -1169,9 +1211,9 @@ class EncoderDispatchService {
     }
 
     // Find encoder with available capacity, or use least-loaded encoder
-    type EncoderData = { encoderId: string; currentJobs: number; maxConcurrentJobs: number };
+    type EncoderData = { encoderId: string; currentJobs: number; maxConcurrent: number };
     const encoderWithCapacity = allEncoders.find(
-      (enc: EncoderData) => enc.currentJobs < enc.maxConcurrentJobs
+      (enc: EncoderData) => enc.currentJobs < enc.maxConcurrent
     );
     const encoder = encoderWithCapacity || allEncoders[0];
 
@@ -1188,11 +1230,11 @@ class EncoderDispatchService {
 
     if (encoderWithCapacity) {
       console.log(
-        `[EncoderDispatch] Queued job ${jobId} for encoder ${encoder.encoderId} (${encoder.currentJobs}/${encoder.maxConcurrentJobs})`
+        `[EncoderDispatch] Queued job ${jobId} for encoder ${encoder.encoderId} (${encoder.currentJobs}/${encoder.maxConcurrent})`
       );
     } else {
       console.log(
-        `[EncoderDispatch] Queued job ${jobId} - all encoders at capacity, will assign when available. Current: ${allEncoders.map((e: EncoderData) => `${e.encoderId}(${e.currentJobs}/${e.maxConcurrentJobs})`).join(", ")}`
+        `[EncoderDispatch] Queued job ${jobId} - all encoders at capacity, will assign when available. Current: ${allEncoders.map((e: EncoderData) => `${e.encoderId}(${e.currentJobs}/${e.maxConcurrent})`).join(", ")}`
       );
     }
 

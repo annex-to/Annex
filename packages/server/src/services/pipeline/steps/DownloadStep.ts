@@ -2,9 +2,7 @@ import {
   ActivityType,
   DownloadStatus,
   MediaType,
-  Prisma,
   ProcessingStatus,
-  RequestStatus,
   StepType,
 } from "@prisma/client";
 import ptt from "parse-torrent-title";
@@ -221,13 +219,7 @@ export class DownloadStep extends BaseStep {
         `Queued ${queuedCount} episode(s) for sequential delivery`
       );
 
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          progress: 50,
-          currentStep: `Delivering ${queuedCount} episode(s) sequentially`,
-        },
-      });
+      // Status/progress now handled by ProcessingItem
 
       // Return success - episodes are queued for delivery
       return {
@@ -252,15 +244,7 @@ export class DownloadStep extends BaseStep {
         "Multiple episodes downloading in parallel - will encode/deliver each as it completes"
       );
 
-      // Update request status to DOWNLOADING
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          status: RequestStatus.DOWNLOADING,
-          currentStep: "Downloading multiple episodes in parallel...",
-          progress: 30,
-        },
-      });
+      // Status/progress now handled by ProcessingItem
 
       // End pipeline - episodes will be processed individually via download monitor
       return {
@@ -356,10 +340,7 @@ export class DownloadStep extends BaseStep {
             };
           }
 
-          await prisma.mediaRequest.update({
-            where: { id: requestId },
-            data: { sourceFilePath: videoFile.path },
-          });
+          // sourceFilePath is returned in step context, no need to store in MediaRequest
 
           return {
             success: true,
@@ -424,18 +405,8 @@ export class DownloadStep extends BaseStep {
           "Download creation failed (likely stale auth headers)"
         );
 
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            selectedRelease: Prisma.JsonNull,
-            availableReleases: Prisma.JsonNull,
-            status: RequestStatus.PENDING,
-            progress: 0,
-            currentStep: null,
-            currentStepStartedAt: new Date(),
-            error: "Download failed - stale authentication. Please retry the request.",
-          },
-        });
+        // Status/error now handled by ProcessingItem
+        // selectedRelease clearing now handled by stepContext
 
         // Fail this execution so user can retry with fresh search
         return {
@@ -545,15 +516,7 @@ export class DownloadStep extends BaseStep {
       };
     }
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.DOWNLOADING,
-        progress: 20,
-        currentStep: "Downloading...",
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Status/progress now handled by ProcessingItem
 
     const download = await prisma.download.findUnique({
       where: { id: downloadId },
@@ -588,19 +551,7 @@ export class DownloadStep extends BaseStep {
           },
         });
 
-        const overallProgress = 20 + progress.progress * 0.3;
-        const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
-        const speed = `${this.formatBytes(progress.downloadSpeed)}/s`;
-
-        // Don't update currentStepStartedAt on progress updates - timestamp was set when
-        // download started (line 166)
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            progress: overallProgress,
-            currentStep: `Downloading: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`,
-          },
-        });
+        // Progress now handled by ProcessingItem
       },
     });
 
@@ -643,14 +594,7 @@ export class DownloadStep extends BaseStep {
 
     if (archiveInfo.hasArchive && archiveInfo.archivePath) {
       await this.logActivity(requestId, ActivityType.INFO, "Extracting RAR archive...");
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          progress: 45,
-          currentStep: "Extracting archive...",
-          currentStepStartedAt: new Date(),
-        },
-      });
+      // Progress now handled by ProcessingItem
 
       const extractResult = await extractRar(archiveInfo.archivePath, contentPath);
 
@@ -686,15 +630,8 @@ export class DownloadStep extends BaseStep {
               `Video file: ${this.formatBytes(extractedVideoFile.size)}`
             );
 
-            await prisma.mediaRequest.update({
-              where: { id: requestId },
-              data: {
-                sourceFilePath: extractedVideoFile.path,
-                progress: 50,
-                currentStep: "Download complete",
-                currentStepStartedAt: new Date(),
-              },
-            });
+            // sourceFilePath is returned in step context, no need to store in MediaRequest
+            // Progress now handled by ProcessingItem
 
             return {
               success: true,
@@ -732,15 +669,8 @@ export class DownloadStep extends BaseStep {
         `Video file: ${this.formatBytes(videoFile.size)}`
       );
 
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          sourceFilePath: videoFile.path,
-          progress: 50,
-          currentStep: "Download complete",
-          currentStepStartedAt: new Date(),
-        },
-      });
+      // sourceFilePath is returned in step context, no need to store in MediaRequest
+      // Progress now handled by ProcessingItem
 
       return {
         success: true,
@@ -780,14 +710,7 @@ export class DownloadStep extends BaseStep {
         `Extracted ${episodeFiles.length} episodes from season pack`
       );
 
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          progress: 50,
-          currentStep: `Download complete (${episodeFiles.length} episodes)`,
-          currentStepStartedAt: new Date(),
-        },
-      });
+      // Progress now handled by ProcessingItem
 
       return {
         success: true,
@@ -1034,13 +957,5 @@ export class DownloadStep extends BaseStep {
     const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
-  }
-
-  private formatDuration(seconds: number): string {
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
   }
 }

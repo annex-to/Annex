@@ -303,7 +303,7 @@ model MediaRequest {
   failedItems    Int @default(0)
 
   // Relations
-  user               User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user               User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId             String?
   activityLog        ActivityLog[]
   downloads          Download[] // All downloads associated with this request
@@ -311,12 +311,86 @@ model MediaRequest {
   pipelineExecutions PipelineExecution[] // Main execution + episode branches (LEGACY - being replaced)
   processingItems    ProcessingItem[] // NEW: Universal work tracking
   approvalQueue      ApprovalQueue[]
+  targetServers          RequestTarget[] // Replaces targets JSONB
+  requestedEpisodesList  RequestedEpisode[] // Replaces requestedEpisodes JSONB
+  alternativeReleasesList AlternativeRelease[] // Replaces availableReleases JSONB
 
   @@index([userId])
   @@index([monitoring, type]) // For finding monitored TV shows
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+}
+
+// =============================================================================
+// Request Configuration Relations (replaces JSONB columns)
+// =============================================================================
+
+// RequestTarget - Replaces MediaRequest.targets JSON
+model RequestTarget {
+  id                String @id @default(cuid())
+  requestId         String
+  serverId          String
+  encodingProfileId String?
+  order             Int    @default(0) // Preserve target order
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  request MediaRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, serverId])
+  @@index([requestId])
+  @@index([serverId])
+}
+
+// RequestedEpisode - Replaces MediaRequest.requestedEpisodes JSON
+model RequestedEpisode {
+  id        String @id @default(cuid())
+  requestId String
+  season    Int
+  episode   Int
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  request MediaRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, season, episode])
+  @@index([requestId])
+}
+
+// AlternativeRelease - Replaces availableReleases JSON in multiple models
+model AlternativeRelease {
+  id               String  @id @default(cuid())
+  requestId        String?
+  processingItemId String?
+  title            String
+  indexerId        String
+  indexerName      String
+  resolution       String
+  source           String
+  codec            String
+  size             BigInt
+  seeders          Int
+  leechers         Int
+  magnetUri        String?
+  downloadUrl      String?
+  infoUrl          String?
+  publishDate      DateTime
+  score            Int
+  rank             Int      @default(0) // Preserve release ranking
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  request        MediaRequest?   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  processingItem ProcessingItem? @relation(fields: [processingItemId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([processingItemId])
+  @@index([requestId, rank])
+  @@index([processingItemId, rank])
 }
 
 // =============================================================================
@@ -358,6 +432,14 @@ model Download {
   lastProgressAt DateTime? // Last time progress increased
   seedCount      Int? // Current seed count
   peerCount      Int? // Current peer count
+
+  // Release metadata (migrated from MediaRequest)
+  indexerName  String? // Name of indexer
+  resolution   String? // e.g., "1080p", "2160p"
+  source       String? // e.g., "BluRay", "WEB-DL"
+  codec        String? // e.g., "HEVC", "H264"
+  qualityScore Int? // Quality score
+  publishDate  DateTime? // When release was published
 
   // Timestamps
   startedAt   DateTime?
@@ -432,12 +514,19 @@ model ProcessingItem {
   attempts    Int       @default(0)
   maxAttempts Int       @default(5)
   lastError   String?
-  nextRetryAt DateTime?
+  nextRetryAt DateTime? // Exponential backoff retry
+  skipUntil   DateTime? // Service outage skip (doesn't count as attempt)
 
   // Progress tracking
-  progress    Int       @default(0) // 0-100
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
+  progress             Int       @default(0) // 0-100
+  lastProgressUpdate   DateTime? // When progress last changed
+  lastProgressValue    Int? // Previous progress for stall detection
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+
+  // Checkpointing for resume capability
+  checkpoint   Json? // Resume partial work (e.g., delivered servers)
+  errorHistory Json? // Array of timestamped errors for debugging
 
   // External references
   downloadId    String?
@@ -453,8 +542,9 @@ model ProcessingItem {
   availableReleases Json?     // Lower-quality alternatives
 
   // Relations
-  request  MediaRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  download Download?    @relation(fields: [downloadId], references: [id], onDelete: SetNull)
+  request                 MediaRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  download                Download?            @relation(fields: [downloadId], references: [id], onDelete: SetNull)
+  alternativeReleasesList AlternativeRelease[] // Replaces availableReleases JSONB
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1243,4 +1333,19 @@ enum ApprovalStatus {
   REJECTED
   SKIPPED
   TIMEOUT
+}
+
+// Circuit Breaker for service health tracking
+model CircuitBreaker {
+  id          String   @id @default(cuid())
+  service     String   @unique // "indexer:torrentleech", "encoder:enc-01", "server:plex-01"
+  state       String   @default("CLOSED") // CLOSED, OPEN, HALF_OPEN
+  failures    Int      @default(0)
+  lastFailure DateTime?
+  opensAt     DateTime? // When to attempt half-open
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([service])
+  @@index([state])
 }

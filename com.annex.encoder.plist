@@ -13,7 +13,7 @@
         <key>ANNEX_SERVER_URL</key>
         <string>ws://server:3000/encoder</string>
         <key>ANNEX_ENCODER_ID</key>
-        <string>encoder-annex</string>
+        <string>encoder-test-host</string>
         <key>ANNEX_GPU_DEVICE</key>
         <string>0</string>
         <key>ANNEX_NFS_BASE_PATH</key>

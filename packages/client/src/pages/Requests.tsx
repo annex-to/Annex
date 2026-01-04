@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { AlternativesModal, Button, ContextMenu, Input, Select, Skeleton } from "../components/ui";
+import {
+  AlternativesModal,
+  Button,
+  ContextMenu,
+  Input,
+  ManualSearchModal,
+  Select,
+  Skeleton,
+} from "../components/ui";
 import { trpc } from "../trpc";
 
 type RequestStatus =
@@ -32,7 +40,7 @@ interface MediaRequest {
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
 const statusConfig: Record<
-  RequestStatus,
+  string,
   {
     label: string;
     color: string;
@@ -46,13 +54,43 @@ const statusConfig: Record<
     bgColor: "bg-yellow-500/20",
     variant: "warning",
   },
+  PENDING: {
+    label: "Pending",
+    color: "text-yellow-400",
+    bgColor: "bg-yellow-500/20",
+    variant: "warning",
+  },
   searching: {
     label: "Searching",
     color: "text-blue-400",
     bgColor: "bg-blue-500/20",
     variant: "info",
   },
+  SEARCHING: {
+    label: "Searching",
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/20",
+    variant: "info",
+  },
+  processing: {
+    label: "Processing",
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/20",
+    variant: "info",
+  },
+  PROCESSING: {
+    label: "Processing",
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/20",
+    variant: "info",
+  },
   awaiting: {
+    label: "Awaiting",
+    color: "text-amber-400",
+    bgColor: "bg-amber-500/20",
+    variant: "warning",
+  },
+  AWAITING: {
     label: "Awaiting",
     color: "text-amber-400",
     bgColor: "bg-amber-500/20",
@@ -64,7 +102,19 @@ const statusConfig: Record<
     bgColor: "bg-orange-500/20",
     variant: "warning",
   },
+  QUALITY_UNAVAILABLE: {
+    label: "Quality N/A",
+    color: "text-orange-400",
+    bgColor: "bg-orange-500/20",
+    variant: "warning",
+  },
   downloading: {
+    label: "Downloading",
+    color: "text-purple-400",
+    bgColor: "bg-purple-500/20",
+    variant: "info",
+  },
+  DOWNLOADING: {
     label: "Downloading",
     color: "text-purple-400",
     bgColor: "bg-purple-500/20",
@@ -76,7 +126,19 @@ const statusConfig: Record<
     bgColor: "bg-cyan-500/20",
     variant: "info",
   },
+  ENCODING: {
+    label: "Encoding",
+    color: "text-cyan-400",
+    bgColor: "bg-cyan-500/20",
+    variant: "info",
+  },
   delivering: {
+    label: "Delivering",
+    color: "text-teal-400",
+    bgColor: "bg-teal-500/20",
+    variant: "info",
+  },
+  DELIVERING: {
     label: "Delivering",
     color: "text-teal-400",
     bgColor: "bg-teal-500/20",
@@ -88,21 +150,112 @@ const statusConfig: Record<
     bgColor: "bg-green-500/20",
     variant: "success",
   },
-  failed: { label: "Failed", color: "text-red-400", bgColor: "bg-red-500/20", variant: "danger" },
+  COMPLETED: {
+    label: "Completed",
+    color: "text-green-400",
+    bgColor: "bg-green-500/20",
+    variant: "success",
+  },
+  partial: {
+    label: "Partial",
+    color: "text-yellow-400",
+    bgColor: "bg-yellow-500/20",
+    variant: "warning",
+  },
+  PARTIAL: {
+    label: "Partial",
+    color: "text-yellow-400",
+    bgColor: "bg-yellow-500/20",
+    variant: "warning",
+  },
+  failed: {
+    label: "Failed",
+    color: "text-red-400",
+    bgColor: "bg-red-500/20",
+    variant: "danger",
+  },
+  FAILED: {
+    label: "Failed",
+    color: "text-red-400",
+    bgColor: "bg-red-500/20",
+    variant: "danger",
+  },
+  cancelled: {
+    label: "Cancelled",
+    color: "text-gray-400",
+    bgColor: "bg-gray-500/20",
+    variant: "default",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    color: "text-gray-400",
+    bgColor: "bg-gray-500/20",
+    variant: "default",
+  },
 };
 
-const episodeStatusColors: Record<EpisodeStatus, string> = {
+const episodeStatusColors: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400",
+  PENDING: "bg-yellow-500/20 text-yellow-400",
   searching: "bg-blue-500/20 text-blue-400",
+  SEARCHING: "bg-blue-500/20 text-blue-400",
+  processing: "bg-blue-500/20 text-blue-400",
+  PROCESSING: "bg-blue-500/20 text-blue-400",
   awaiting: "bg-amber-500/20 text-amber-400",
+  AWAITING: "bg-amber-500/20 text-amber-400",
   quality_unavailable: "bg-orange-500/20 text-orange-400",
+  QUALITY_UNAVAILABLE: "bg-orange-500/20 text-orange-400",
   downloading: "bg-purple-500/20 text-purple-400",
+  DOWNLOADING: "bg-purple-500/20 text-purple-400",
   encoding: "bg-cyan-500/20 text-cyan-400",
+  ENCODING: "bg-cyan-500/20 text-cyan-400",
   delivering: "bg-teal-500/20 text-teal-400",
+  DELIVERING: "bg-teal-500/20 text-teal-400",
   completed: "bg-green-500/20 text-green-400",
+  COMPLETED: "bg-green-500/20 text-green-400",
+  partial: "bg-yellow-500/20 text-yellow-400",
+  PARTIAL: "bg-yellow-500/20 text-yellow-400",
   failed: "bg-red-500/20 text-red-400",
+  FAILED: "bg-red-500/20 text-red-400",
+  cancelled: "bg-gray-500/20 text-gray-400",
+  CANCELLED: "bg-gray-500/20 text-gray-400",
   available: "bg-emerald-500/20 text-emerald-400",
 };
+
+function formatCurrentStep(step: string | null): string | null {
+  if (!step) return null;
+
+  // Map technical step names to user-friendly descriptions
+  const stepMessages: Record<string, string> = {
+    // Search phase
+    search: "Searching for releases",
+    searching: "Searching for releases",
+
+    // Download phase
+    download: "Downloading from torrent",
+    downloading: "Downloading from torrent",
+    download_complete: "Download complete",
+
+    // Encode phase
+    encode: "Encoding video",
+    encoding: "Encoding video",
+    encode_complete: "Encoding complete",
+
+    // Deliver phase
+    deliver: "Uploading to server",
+    delivering: "Uploading to server",
+    deliver_complete: "Upload complete",
+
+    // Processing
+    processing: "Processing request",
+  };
+
+  // Return mapped message or capitalize the step name
+  return (
+    stepMessages[step.toLowerCase()] ||
+    step.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+  );
+}
 
 function ProgressRing({
   progress,
@@ -338,7 +491,8 @@ function EpisodeGrid({ requestId }: { requestId: string }) {
                 // Build detailed tooltip
                 let tooltipText = `Episode ${episode.episodeNumber}: ${episode.status}`;
                 if (episode.currentStep) {
-                  tooltipText += `\n${episode.currentStep}`;
+                  const stepMessage = formatCurrentStep(episode.currentStep);
+                  tooltipText += `\n${stepMessage}`;
                 } else if (hasProgress) {
                   tooltipText += ` - ${Math.round(episode.progress || 0)}%`;
                 }
@@ -489,10 +643,26 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
   });
 
   const status = request.status as RequestStatus;
-  const config = statusConfig[status];
-  const isActive = ["pending", "searching", "downloading", "encoding", "delivering"].includes(
-    status
-  );
+  const config = statusConfig[status] || {
+    label: status,
+    color: "text-gray-400",
+    bgColor: "bg-gray-500/20",
+    variant: "default" as const,
+  };
+  const isActive = [
+    "pending",
+    "searching",
+    "downloading",
+    "encoding",
+    "delivering",
+    "PENDING",
+    "SEARCHING",
+    "DOWNLOADING",
+    "ENCODING",
+    "DELIVERING",
+    "PROCESSING",
+    "processing",
+  ].includes(status);
   const isAwaiting = status === "awaiting";
   const isQualityUnavailable = status === "quality_unavailable";
   const isFailed = status === "failed";
@@ -612,7 +782,7 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
             )}
             {request.currentStep && isActive && (
               <div className="flex items-center gap-2 text-xs text-white/40">
-                <span>{request.currentStep}</span>
+                <span>{formatCurrentStep(request.currentStep)}</span>
                 {request.currentStepStartedAt && (
                   <span className="text-white/30">
                     ({formatRelativeTime(request.currentStepStartedAt)})
@@ -725,6 +895,90 @@ function RequestCard({ request, onShowAlternatives }: RequestCardProps) {
               <EpisodeGrid requestId={request.id} />
             </div>
           )}
+
+          {/* Download Progress for Movies */}
+          {request.type === "movie" &&
+            isDownloading &&
+            request.progress > 0 &&
+            request.progress < 100 && (
+              <div>
+                <div className="text-xs text-white/40 mb-2 font-medium">Download Progress</div>
+                <div className="bg-white/5 rounded border border-white/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white/70">Downloading from torrent</span>
+                        <span className="text-sm font-medium text-white">
+                          {Math.round(request.progress)}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-purple-500 transition-all duration-300"
+                          style={{ width: `${request.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          {/* Encoding Progress for Movies */}
+          {request.type === "movie" &&
+            status === "encoding" &&
+            request.progress > 0 &&
+            request.progress < 100 && (
+              <div>
+                <div className="text-xs text-white/40 mb-2 font-medium">Encoding Progress</div>
+                <div className="bg-white/5 rounded border border-white/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white/70">Encoding video</span>
+                        <span className="text-sm font-medium text-white">
+                          {Math.round(request.progress)}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-500 transition-all duration-300"
+                          style={{ width: `${request.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          {/* Delivery Progress for Movies */}
+          {request.type === "movie" &&
+            status === "delivering" &&
+            request.progress > 0 &&
+            request.progress < 100 && (
+              <div>
+                <div className="text-xs text-white/40 mb-2 font-medium">Delivery Progress</div>
+                <div className="bg-white/5 rounded border border-white/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white/70">Delivering to servers</span>
+                        <span className="text-sm font-medium text-white">
+                          {Math.round(request.progress)}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-teal-500 transition-all duration-300"
+                          style={{ width: `${request.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* Torrent Metadata */}
           {request.releaseMetadata && (
@@ -966,6 +1220,7 @@ export default function RequestsPage() {
   const [typeFilter, setTypeFilter] = useState<FilterType>("all");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [alternativesRequestId, setAlternativesRequestId] = useState<string | null>(null);
+  const [manualSearchRequestId, setManualSearchRequestId] = useState<string | null>(null);
 
   const requests = trpc.requests.list.useQuery({ limit: 100 }, { refetchInterval: 5000 });
 
@@ -1222,6 +1477,13 @@ export default function RequestsPage() {
         isOpen={alternativesRequestId !== null}
         onClose={() => setAlternativesRequestId(null)}
         requestId={alternativesRequestId}
+      />
+
+      {/* Manual Search Modal */}
+      <ManualSearchModal
+        isOpen={manualSearchRequestId !== null}
+        onClose={() => setManualSearchRequestId(null)}
+        requestId={manualSearchRequestId}
       />
     </div>
   );

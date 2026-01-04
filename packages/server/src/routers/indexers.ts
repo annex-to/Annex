@@ -286,6 +286,49 @@ export const indexersRouter = router({
               }
             : null,
         };
+      } else if (indexer.type === IndexerType.CARDIGANN) {
+        // Test Cardigann indexer by performing a simple search
+        const cardigannIndexer = await prisma.cardigannIndexer.findUnique({
+          where: { id: apiKey }, // For Cardigann, apiKey stores the CardigannIndexer ID
+        });
+
+        if (!cardigannIndexer) {
+          return {
+            success: false,
+            message: "Cardigann indexer configuration not found",
+            capabilities: null,
+          };
+        }
+
+        const { getCardigannProvider } = await import("../services/cardigannProvider.js");
+        const provider = getCardigannProvider();
+
+        try {
+          // Perform a simple test search
+          await provider.search(
+            {
+              indexerId: indexer.id,
+              indexerName: indexer.name,
+              cardigannIndexer,
+            },
+            { type: "movie", query: "test" }
+          );
+          return {
+            success: true,
+            message: `Connected to ${cardigannIndexer.siteName}`,
+            capabilities: {
+              search: true,
+              tvSearch: true,
+              movieSearch: true,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: error instanceof Error ? error.message : "Connection test failed",
+            capabilities: null,
+          };
+        }
       } else {
         // Test Torznab/Newznab connection via capabilities endpoint
         const baseUrl = indexer.url.replace(/\/+$/, "");

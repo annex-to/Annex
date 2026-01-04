@@ -112,28 +112,26 @@ export async function recoverStuckDownloadExtractions(): Promise<void> {
         `[DownloadExtractionRecovery] ${data.title}: Extracted ${episodeFiles.length} episodes`
       );
 
-      // Check if request is already in a later stage (ENCODING/DELIVERING)
+      // Check if request is already in a later stage (ENCODING/DELIVERING/COMPLETED)
       // If so, don't restart the pipeline - it would destroy all progress
       const request = await prisma.mediaRequest.findUnique({
         where: { id: data.requestId },
-        select: { status: true },
+        select: { id: true },
       });
 
-      if (request && ["ENCODING", "DELIVERING", "COMPLETED"].includes(request.status)) {
-        console.log(
-          `[DownloadExtractionRecovery] ${data.title}: Request already in ${request.status} - skipping pipeline restart to preserve progress`
-        );
-        continue;
+      if (request) {
+        const { requestStatusComputer } = await import("./requestStatusComputer.js");
+        const computedStatus = await requestStatusComputer.computeStatus(data.requestId);
+
+        if (["ENCODING", "DELIVERING", "COMPLETED"].includes(computedStatus.status)) {
+          console.log(
+            `[DownloadExtractionRecovery] ${data.title}: Request already in ${computedStatus.status} - skipping pipeline restart to preserve progress`
+          );
+          continue;
+        }
       }
 
-      // Update request status
-      await prisma.mediaRequest.update({
-        where: { id: data.requestId },
-        data: {
-          progress: 50,
-          currentStep: `Download complete (${episodeFiles.length} episodes)`,
-        },
-      });
+      // MediaRequest status computed from ProcessingItems - pipeline will manage state
 
       // Continue pipeline to encoding
       const execution = await prisma.pipelineExecution.findFirst({

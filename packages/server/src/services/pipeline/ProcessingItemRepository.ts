@@ -237,58 +237,14 @@ export class ProcessingItemRepository {
 
   /**
    * Update request aggregate fields based on ProcessingItems
+   *
+   * @deprecated Phase 2: MediaRequest execution state is now computed on-demand by
+   * RequestStatusComputer. This method is a no-op to maintain backwards compatibility
+   * with existing call sites.
    */
-  async updateRequestAggregates(requestId: string): Promise<void> {
-    const items = await this.findByRequestId(requestId);
-    const stats = await this.getRequestStats(requestId);
-
-    // Determine request status based on ProcessingItem statuses
-    let requestStatus: import("@prisma/client").RequestStatus;
-
-    if (stats.total === 0) {
-      requestStatus = "PENDING";
-    } else if (stats.completed === stats.total) {
-      requestStatus = "COMPLETED";
-    } else if (stats.failed === stats.total) {
-      requestStatus = "FAILED";
-    } else {
-      // Determine status from the earliest active step
-      const hasSearching = items.some((i) => i.status === "SEARCHING" || i.status === "PENDING");
-      const hasDownloading = items.some((i) => i.status === "DOWNLOADING" || i.status === "FOUND");
-      const hasEncoding = items.some((i) => i.status === "ENCODING" || i.status === "DOWNLOADED");
-      const hasDelivering = items.some((i) => i.status === "DELIVERING" || i.status === "ENCODED");
-
-      if (hasSearching) {
-        requestStatus = "SEARCHING";
-      } else if (hasDownloading) {
-        requestStatus = "DOWNLOADING";
-      } else if (hasEncoding) {
-        requestStatus = "ENCODING";
-      } else if (hasDelivering) {
-        requestStatus = "DELIVERING";
-      } else {
-        requestStatus = "PENDING";
-      }
-    }
-
-    // Calculate average progress across all items
-    const totalProgress = items.reduce((sum, item) => sum + item.progress, 0);
-    const avgProgress = items.length > 0 ? Math.round(totalProgress / items.length) : 0;
-
-    console.log(
-      `[ProcessingItemRepository] Updating MediaRequest ${requestId}: status=${requestStatus}, progress=${avgProgress}%, items=${items.length}`
-    );
-
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        totalItems: stats.total,
-        completedItems: stats.completed,
-        failedItems: stats.failed,
-        status: requestStatus,
-        progress: avgProgress,
-      },
-    });
+  async updateRequestAggregates(_requestId: string): Promise<void> {
+    // No-op: MediaRequest status/progress/totalItems/completedItems/failedItems
+    // are now computed on-demand from ProcessingItems via RequestStatusComputer
   }
 }
 

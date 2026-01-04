@@ -34,6 +34,25 @@ function SetupGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+// Setup redirect - redirects away from /setup if app is already configured
+function SetupRedirect({ children }: { children: ReactNode }) {
+  const { data: status, isLoading } = trpc.secrets.setupStatus.useQuery();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-annex-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (status?.isConfigured) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { token, user, isLoading } = useAuthStore();
@@ -240,8 +259,15 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Setup wizard - no guards needed */}
-        <Route path="/setup" element={<SetupPage />} />
+        {/* Setup wizard - only accessible if not configured */}
+        <Route
+          path="/setup"
+          element={
+            <SetupRedirect>
+              <SetupPage />
+            </SetupRedirect>
+          }
+        />
         {/* Login - only accessible if app is configured */}
         <Route
           path="/login"

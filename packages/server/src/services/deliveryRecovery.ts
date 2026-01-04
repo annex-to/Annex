@@ -111,16 +111,7 @@ export async function recoverStuckDeliveries(): Promise<void> {
         }
       }
 
-      // Update request to COMPLETED
-      await prisma.mediaRequest.update({
-        where: { id: request.id },
-        data: {
-          status: RequestStatus.COMPLETED,
-          progress: 100,
-          currentStep: null,
-          completedAt: new Date(),
-        },
-      });
+      // MediaRequest status computed from ProcessingItems - no update needed
 
       // Mark pipeline as COMPLETED
       await prisma.pipelineExecution.updateMany({
@@ -136,17 +127,26 @@ export async function recoverStuckDeliveries(): Promise<void> {
 
       recovered++;
     } else if (request.updatedAt < cutoff) {
-      // No progress for over 5 minutes - mark as failed
+      // No progress for over 5 minutes - mark ProcessingItems as failed
       console.log(
-        `[DeliveryRecovery] ${request.title}: No progress for > 5 minutes, marking as FAILED`
+        `[DeliveryRecovery] ${request.title}: No progress for > 5 minutes, marking items as FAILED`
       );
 
-      await prisma.mediaRequest.update({
-        where: { id: request.id },
+      // Update non-terminal ProcessingItems to FAILED (MediaRequest status computed from items)
+      await prisma.processingItem.updateMany({
+        where: {
+          requestId: request.id,
+          status: {
+            notIn: [
+              ProcessingStatus.COMPLETED,
+              ProcessingStatus.FAILED,
+              ProcessingStatus.CANCELLED,
+            ],
+          },
+        },
         data: {
-          status: RequestStatus.FAILED,
-          error: "Delivery stalled - no progress for over 5 minutes",
-          currentStep: null,
+          status: ProcessingStatus.FAILED,
+          lastError: "Delivery stalled - no progress for over 5 minutes",
         },
       });
 

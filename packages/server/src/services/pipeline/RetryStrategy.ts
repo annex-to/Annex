@@ -67,7 +67,11 @@ export class RetryStrategy {
       message.includes("econnrefused") ||
       message.includes("enotfound") ||
       message.includes("enetunreach") ||
-      message.includes("etimedout")
+      message.includes("etimedout") ||
+      message.includes("connection lost") ||
+      message.includes("connection refused") ||
+      message.includes("connection reset") ||
+      message.includes("getconnection")
     ) {
       return ErrorType.NETWORK;
     }

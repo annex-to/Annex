@@ -10,6 +10,7 @@ export { FilterPanel } from "./FilterPanel";
 export { Input } from "./Input";
 export { Label } from "./Label";
 export { LibraryCard } from "./LibraryCard";
+export { ManualSearchModal } from "./ManualSearchModal";
 export type { LibraryInfo } from "./MediaCard";
 export { MediaCard } from "./MediaCard";
 export { Modal, TrailerModal } from "./Modal";

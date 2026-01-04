@@ -84,6 +84,8 @@ export function createMockPrisma() {
   const indexerStore = new Map<string, any>();
   const cardigannIndexerStore = new Map<string, any>();
   const cardigannIndexerRateLimitRequestStore = new Map<string, any>();
+  const jobStore = new Map<string, any>();
+  const encoderAssignmentStore = new Map<string, any>();
 
   let idCounter = 1;
   const generateId = () => `test-id-${idCounter++}`;
@@ -316,16 +318,37 @@ export function createMockPrisma() {
       }),
     },
     processingItem: {
+      create: mock(async ({ data }: { data: any }) => {
+        const id = data.id || generateId();
+        const record = { id, ...data, createdAt: new Date(), updatedAt: new Date() };
+        processingItemStore.set(id, record);
+        return record;
+      }),
+      createMany: mock(async ({ data }: { data: any[] }) => {
+        const records = data.map((item) => {
+          const id = item.id || generateId();
+          const record = { id, ...item, createdAt: new Date(), updatedAt: new Date() };
+          processingItemStore.set(id, record);
+          return record;
+        });
+        return { count: records.length };
+      }),
       findUnique: mock(async ({ where }: { where: { id: string } }) => {
         return processingItemStore.get(where.id) || null;
       }),
-      findMany: mock(async ({ where }: { where?: any } = {}) => {
-        const values = Array.from(processingItemStore.values());
-        if (!where) return values;
+      findMany: mock(async ({ where, select }: { where?: any; select?: any } = {}) => {
+        let results = Array.from(processingItemStore.values());
+        if (!where) return results;
 
-        return values.filter((v) =>
+        results = results.filter((v) =>
           Object.keys(where).every((key) => {
-            if (key === "requestId") return v.requestId === where.requestId;
+            if (key === "requestId") {
+              // Handle { in: [...] } syntax
+              if (where.requestId?.in) {
+                return where.requestId.in.includes(v.requestId);
+              }
+              return v.requestId === where.requestId;
+            }
             if (key === "status" && where.status?.notIn) {
               return !where.status.notIn.includes(v.status);
             }
@@ -333,6 +356,19 @@ export function createMockPrisma() {
             return v[key] === where[key];
           })
         );
+
+        // Apply select if provided
+        if (select) {
+          results = results.map((r: any) => {
+            const selected: any = {};
+            Object.keys(select).forEach((key) => {
+              if (select[key]) selected[key] = r[key];
+            });
+            return selected;
+          });
+        }
+
+        return results;
       }),
       count: mock(async ({ where }: { where?: any } = {}) => {
         const values = Array.from(processingItemStore.values());
@@ -616,6 +652,43 @@ export function createMockPrisma() {
         downloadStore.set(id, record);
         return record;
       }),
+      findFirst: mock(
+        async ({ where, orderBy, select }: { where?: any; orderBy?: any; select?: any } = {}) => {
+          let values = Array.from(downloadStore.values());
+
+          // Apply where filter
+          if (where) {
+            values = values.filter((v) =>
+              Object.keys(where).every((key) => {
+                if (key === "requestId") return v.requestId === where.requestId;
+                return v[key] === where[key];
+              })
+            );
+          }
+
+          // Apply orderBy
+          if (orderBy?.createdAt === "desc") {
+            values.sort(
+              (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            );
+          }
+
+          const result = values[0] || null;
+
+          // Apply select
+          if (result && select) {
+            const selectedFields: any = {};
+            for (const key of Object.keys(select)) {
+              if (select[key]) {
+                selectedFields[key] = result[key];
+              }
+            }
+            return selectedFields;
+          }
+
+          return result;
+        }
+      ),
       deleteMany: mock(async () => {
         const count = downloadStore.size;
         downloadStore.clear();
@@ -795,6 +868,197 @@ export function createMockPrisma() {
         return { count };
       }),
     },
+    job: {
+      create: mock(async ({ data }: { data: any }) => {
+        const id = data.id || generateId();
+        const record = { id, ...data, createdAt: new Date(), updatedAt: new Date() };
+        jobStore.set(id, record);
+        return record;
+      }),
+      findUnique: mock(async ({ where }: { where: { id: string } }) => {
+        return jobStore.get(where.id) || null;
+      }),
+      findFirst: mock(
+        async ({
+          where,
+          orderBy,
+          select,
+          include,
+        }: {
+          where?: any;
+          orderBy?: any;
+          select?: any;
+          include?: any;
+        } = {}) => {
+          let values = Array.from(jobStore.values());
+
+          // Apply where filter
+          if (where) {
+            values = values.filter((v) =>
+              Object.keys(where).every((key) => {
+                if (key === "requestId") return v.requestId === where.requestId;
+                if (key === "type") return v.type === where.type;
+                if (key === "encoderAssignment" && where.encoderAssignment?.isNot === null) {
+                  // Filter for jobs that have an encoderAssignment
+                  return encoderAssignmentStore.has(v.id);
+                }
+                return v[key] === where[key];
+              })
+            );
+          }
+
+          // Apply orderBy
+          if (orderBy?.createdAt === "desc") {
+            values.sort(
+              (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            );
+          }
+
+          const result = values[0] || null;
+
+          if (!result) return null;
+
+          // Apply include
+          if (include?.encoderAssignment) {
+            const assignment = encoderAssignmentStore.get(result.id);
+            return { ...result, encoderAssignment: assignment || null };
+          }
+
+          // Apply select
+          if (select) {
+            const selectedFields: any = {};
+            for (const key of Object.keys(select)) {
+              if (select[key]) {
+                if (key === "encoderAssignment" && include?.encoderAssignment) {
+                  const assignment = encoderAssignmentStore.get(result.id);
+                  selectedFields[key] = assignment || null;
+                } else {
+                  selectedFields[key] = result[key];
+                }
+              }
+            }
+            return selectedFields;
+          }
+
+          return result;
+        }
+      ),
+      findMany: mock(async ({ where, include }: { where?: any; include?: any } = {}) => {
+        let results = Array.from(jobStore.values());
+
+        if (where) {
+          results = results.filter((r) => {
+            if (where.requestId) return r.requestId === where.requestId;
+            if (where.type) return r.type === where.type;
+            return Object.keys(where).every((k) => r[k] === where[k]);
+          });
+        }
+
+        if (include?.encoderAssignment) {
+          results = results.map((r) => {
+            const assignment = encoderAssignmentStore.get(r.id);
+            return { ...r, encoderAssignment: assignment || null };
+          });
+        }
+
+        return results;
+      }),
+      update: mock(async ({ where, data }: { where: { id: string }; data: any }) => {
+        const record = jobStore.get(where.id);
+        if (!record) return null;
+        const updated = { ...record, ...data, updatedAt: new Date() };
+        jobStore.set(where.id, updated);
+        return updated;
+      }),
+      updateMany: mock(async ({ where, data }: { where: any; data: any }) => {
+        let count = 0;
+        for (const [id, record] of jobStore.entries()) {
+          const matches = Object.keys(where).every((key) => {
+            if (key === "requestId") return record.requestId === where.requestId;
+            if (key === "type") return record.type === where.type;
+            return record[key] === where[key];
+          });
+          if (matches) {
+            const updated = { ...record, ...data, updatedAt: new Date() };
+            jobStore.set(id, updated);
+            count++;
+          }
+        }
+        return { count };
+      }),
+      deleteMany: mock(async ({ where }: { where?: any } = {}) => {
+        let count = 0;
+        if (where) {
+          for (const [id, record] of jobStore.entries()) {
+            const matches = Object.keys(where).every((key) => {
+              if (key === "requestId") return record.requestId === where.requestId;
+              if (key === "type") return record.type === where.type;
+              return record[key] === where[key];
+            });
+            if (matches) {
+              jobStore.delete(id);
+              // Also delete associated encoder assignment
+              encoderAssignmentStore.delete(id);
+              count++;
+            }
+          }
+        } else {
+          count = jobStore.size;
+          jobStore.clear();
+          encoderAssignmentStore.clear();
+        }
+        return { count };
+      }),
+    },
+    encoderAssignment: {
+      create: mock(async ({ data }: { data: any }) => {
+        const record = {
+          jobId: data.jobId,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        encoderAssignmentStore.set(data.jobId, record);
+        return record;
+      }),
+      findUnique: mock(async ({ where }: { where: { jobId: string } }) => {
+        return encoderAssignmentStore.get(where.jobId) || null;
+      }),
+      findMany: mock(async ({ where }: { where?: any } = {}) => {
+        const values = Array.from(encoderAssignmentStore.values());
+        if (!where) return values;
+
+        return values.filter((v) =>
+          Object.keys(where).every((key) => {
+            if (key === "encoderId") return v.encoderId === where.encoderId;
+            if (key === "status") return v.status === where.status;
+            return v[key] === where[key];
+          })
+        );
+      }),
+      update: mock(async ({ where, data }: { where: { jobId: string }; data: any }) => {
+        const record = encoderAssignmentStore.get(where.jobId);
+        if (!record) return null;
+        const updated = { ...record, ...data, updatedAt: new Date() };
+        encoderAssignmentStore.set(where.jobId, updated);
+        return updated;
+      }),
+      deleteMany: mock(async ({ where }: { where?: any } = {}) => {
+        let count = 0;
+        if (where?.encoderId) {
+          for (const [jobId, assignment] of encoderAssignmentStore.entries()) {
+            if (assignment.encoderId === where.encoderId) {
+              encoderAssignmentStore.delete(jobId);
+              count++;
+            }
+          }
+        } else {
+          count = encoderAssignmentStore.size;
+          encoderAssignmentStore.clear();
+        }
+        return { count };
+      }),
+    },
     _stores: {
       setting: settingStore,
       mediaRequest: mediaRequestStore,
@@ -813,6 +1077,8 @@ export function createMockPrisma() {
       indexer: indexerStore,
       cardigannIndexer: cardigannIndexerStore,
       cardigannIndexerRateLimitRequest: cardigannIndexerRateLimitRequestStore,
+      job: jobStore,
+      encoderAssignment: encoderAssignmentStore,
     },
     _store: settingStore, // Backwards compatibility
     _clear: () => {
@@ -833,6 +1099,8 @@ export function createMockPrisma() {
       indexerStore.clear();
       cardigannIndexerStore.clear();
       cardigannIndexerRateLimitRequestStore.clear();
+      jobStore.clear();
+      encoderAssignmentStore.clear();
     },
   };
 

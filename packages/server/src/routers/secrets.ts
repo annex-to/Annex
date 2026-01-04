@@ -68,14 +68,15 @@ export const secretsRouter = router({
     )
     .mutation(async ({ input }) => {
       const secretsService = getSecretsService();
+      const { TRPCError } = await import("@trpc/server");
 
       // Check if already configured
       const isConfigured = await secretsService.hasSecret("auth.sessionSecret");
       if (isConfigured) {
-        return {
-          success: false,
-          error: "System is already configured",
-        };
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "System is already configured",
+        });
       }
 
       // Generate session secret if not provided

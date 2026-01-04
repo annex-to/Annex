@@ -67,15 +67,17 @@ export async function recoverFailedJobs(): Promise<void> {
 
       const error = job.encoderAssignment?.error || "Unknown encoding error";
 
-      console.log(`[FailedJobRecovery] ${job.request.title}: Marking as FAILED (${error})`);
+      console.log(`[FailedJobRecovery] ${job.request.title}: Marking items as FAILED (${error})`);
 
-      // Update MediaRequest to FAILED
-      await prisma.mediaRequest.update({
-        where: { id: job.requestId },
+      // Update ProcessingItems to FAILED (MediaRequest status computed from items)
+      await prisma.processingItem.updateMany({
+        where: {
+          requestId: job.requestId,
+          status: { in: ["ENCODING", "DOWNLOADED"] },
+        },
         data: {
           status: "FAILED",
-          error: `Encoding failed: ${error}`,
-          currentStep: null,
+          lastError: `Encoding failed: ${error}`,
         },
       });
 

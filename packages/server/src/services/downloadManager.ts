@@ -734,6 +734,13 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
       alternativeReleases: alternativeReleases
         ? JSON.parse(JSON.stringify(alternativeReleases))
         : undefined,
+      // Release metadata (migrated from MediaRequest)
+      indexerName: release.indexerName || release.indexer || null,
+      resolution: release.resolution || null,
+      source: release.source || null,
+      codec: release.codec || null,
+      qualityScore: (release as { score?: number }).score || null,
+      publishDate: release.publishDate || null,
     },
     update: {
       requestId, // Update to new request

@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { RequestStatus, StepType } from "@prisma/client";
+import { StepType } from "@prisma/client";
 import { createMockPrisma } from "../../../../__tests__/setup.js";
 import { PipelineExecutor } from "../../PipelineExecutor.js";
 import { registerPipelineSteps } from "../../registerSteps.js";
@@ -218,20 +218,21 @@ describe("Movie Pipeline Integration", () => {
 
       await executor.startExecution(request.id, templateId);
 
-      // Pipeline should complete but request should be in QUALITY_UNAVAILABLE
-      const updatedRequest = await mockPrisma.mediaRequest.findUnique({
-        where: { id: request.id },
-      });
-
-      expect(updatedRequest?.status).toBe(RequestStatus.QUALITY_UNAVAILABLE);
-      expect(updatedRequest?.availableReleases).toBeDefined();
-
       const execution = await mockPrisma.pipelineExecution.findFirst({
         where: { requestId: request.id },
       });
 
-      // Pipeline execution should be completed (not failed)
+      // Pipeline execution should be completed (not failed) even when quality unavailable
       expect(execution?.status).toBe("COMPLETED");
+
+      // Verify activity log shows quality unavailable warning
+      const activities = await mockPrisma.activityLog.findMany({
+        where: { requestId: request.id },
+      });
+      const qualityActivity = activities.find((a: any) =>
+        a.message.includes("Quality unavailable")
+      );
+      expect(qualityActivity).toBeDefined();
     });
 
     test("should select appropriate quality based on target server", async () => {
@@ -273,20 +274,21 @@ describe("Movie Pipeline Integration", () => {
 
       await executor.startExecution(request.id, templateId);
 
-      // Request should be in AWAITING status
-      const updatedRequest = await mockPrisma.mediaRequest.findUnique({
-        where: { id: request.id },
-      });
-
-      expect(updatedRequest?.status).toBe(RequestStatus.AWAITING);
-      expect(updatedRequest?.progress).toBe(0);
-
-      // Pipeline should complete gracefully
+      // Pipeline should complete gracefully (SearchStep returns success: false with shouldRetry: true)
       const execution = await mockPrisma.pipelineExecution.findFirst({
         where: { requestId: request.id },
       });
 
       expect(execution?.status).toBe("COMPLETED");
+
+      // Verify activity log shows warning about no releases
+      const activities = await mockPrisma.activityLog.findMany({
+        where: { requestId: request.id },
+      });
+      const noReleasesActivity = activities.find((a: any) =>
+        a.message.includes("No releases found")
+      );
+      expect(noReleasesActivity).toBeDefined();
     });
 
     test("should handle indexer search errors gracefully", async () => {

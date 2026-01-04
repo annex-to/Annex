@@ -3,7 +3,6 @@ import {
   AssignmentStatus,
   type Prisma,
   ProcessingStatus,
-  RequestStatus,
   StepType,
 } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
@@ -330,17 +329,13 @@ export class EncodeStep extends BaseStep {
         }
 
         // Update request progress
-        let overallProgress = 50;
         let currentStep = "Encoding...";
 
         if (assignmentStatus.status === AssignmentStatus.PENDING) {
           currentStep = "Waiting for encoder...";
-          overallProgress = 50;
         } else if (assignmentStatus.status === AssignmentStatus.ASSIGNED) {
           currentStep = "Encoder assigned, starting...";
-          overallProgress = 50;
         } else if (assignmentStatus.progress !== null) {
-          overallProgress = 50 + assignmentStatus.progress * 0.4;
           const speed = assignmentStatus.speed ? ` - ${assignmentStatus.speed}x` : "";
           const eta = assignmentStatus.eta
             ? ` - ETA: ${this.formatDuration(assignmentStatus.eta)}`
@@ -348,22 +343,7 @@ export class EncodeStep extends BaseStep {
           currentStep = `Encoding: ${assignmentStatus.progress.toFixed(1)}%${speed}${eta}`;
         }
 
-        const previousRequest = await prisma.mediaRequest.findUnique({
-          where: { id: requestId },
-          select: { currentStep: true },
-        });
-
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            progress: overallProgress,
-            currentStep,
-            ...(previousRequest?.currentStep !== currentStep && {
-              currentStepStartedAt: new Date(),
-            }),
-          },
-        });
-
+        // Progress now handled by ProcessingItem
         this.reportProgress(assignmentStatus.progress || 0, currentStep);
 
         // Check if complete
@@ -374,14 +354,7 @@ export class EncodeStep extends BaseStep {
             `Encoding complete (resumed after server restart)`
           );
 
-          await prisma.mediaRequest.update({
-            where: { id: requestId },
-            data: {
-              progress: 90,
-              currentStep: "Encoding complete",
-              currentStepStartedAt: new Date(),
-            },
-          });
+          // Progress now handled by ProcessingItem
 
           const targetServerIds = context.targets.map((t) => t.serverId);
           const videoEncoder = encodingConfig.videoEncoder || "libsvtav1";
@@ -465,15 +438,7 @@ export class EncodeStep extends BaseStep {
             "Reusing existing encoded file from previous attempt (source may have changed but encoded file is valid)"
           );
 
-          await prisma.mediaRequest.update({
-            where: { id: requestId },
-            data: {
-              status: RequestStatus.ENCODING,
-              progress: 90,
-              currentStep: "Encoding complete (reused existing file)",
-              currentStepStartedAt: new Date(),
-            },
-          });
+          // Progress now handled by ProcessingItem
 
           // Extract target server IDs and codec info
           const targetServerIds = context.targets.map((t) => t.serverId);
@@ -514,15 +479,7 @@ export class EncodeStep extends BaseStep {
     const pollInterval = cfg.pollInterval || 5000;
     const timeout = cfg.timeout || 12 * 60 * 60 * 1000; // 12 hours
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.ENCODING,
-        progress: 50,
-        currentStep: "Encoding...",
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Progress now handled by ProcessingItem
 
     await this.logActivity(requestId, ActivityType.INFO, "Starting encoding job");
 
@@ -602,17 +559,13 @@ export class EncodeStep extends BaseStep {
 
       // Update progress based on assignment status
       let currentStep: string;
-      let overallProgress: number;
 
       if (assignmentStatus.status === AssignmentStatus.PENDING) {
         currentStep = "Waiting for encoder...";
-        overallProgress = 50;
       } else if (assignmentStatus.status === AssignmentStatus.ASSIGNED) {
         currentStep = "Encoder assigned, starting...";
-        overallProgress = 50;
       } else if (assignmentStatus.progress !== null) {
         // ENCODING status with progress
-        overallProgress = 50 + assignmentStatus.progress * 0.4; // 50-90%
         const speed = assignmentStatus.speed ? ` - ${assignmentStatus.speed}x` : "";
         const eta = assignmentStatus.eta
           ? ` - ETA: ${this.formatDuration(assignmentStatus.eta)}`
@@ -621,26 +574,9 @@ export class EncodeStep extends BaseStep {
       } else {
         // Fallback for other statuses
         currentStep = "Encoding...";
-        overallProgress = 50;
       }
 
-      // Only update currentStepStartedAt if the step actually changed
-      const previousRequest = await prisma.mediaRequest.findUnique({
-        where: { id: requestId },
-        select: { currentStep: true },
-      });
-
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          progress: overallProgress,
-          currentStep,
-          ...(previousRequest?.currentStep !== currentStep && {
-            currentStepStartedAt: new Date(),
-          }),
-        },
-      });
-
+      // Progress now handled by ProcessingItem
       this.reportProgress(assignmentStatus.progress || 0, currentStep);
 
       // Check if complete
@@ -651,14 +587,7 @@ export class EncodeStep extends BaseStep {
           `Encoding complete in ${this.formatDuration((Date.now() - startTime) / 1000)}`
         );
 
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            progress: 90,
-            currentStep: "Encoding complete",
-            currentStepStartedAt: new Date(),
-          },
-        });
+        // Progress now handled by ProcessingItem
 
         // Extract target server IDs
         const targetServerIds = context.targets.map((t) => t.serverId);
@@ -976,15 +905,7 @@ export class EncodeStep extends BaseStep {
       `Starting encoding for ${episodeFiles.length} episodes`
     );
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.ENCODING,
-        progress: 50,
-        currentStep: `Encoding ${episodeFiles.length} episodes...`,
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Progress now handled by ProcessingItem
 
     const encodedFiles = [];
     const targetServerIds = context.targets.map((t) => t.serverId);
@@ -1095,14 +1016,7 @@ export class EncodeStep extends BaseStep {
       }
     }
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        progress: 50,
-        currentStep: `Encoding ${assignments.length} episode(s) in parallel...`,
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Progress now handled by ProcessingItem
 
     // Monitor all assignments collectively
     const startTime = Date.now();
@@ -1219,53 +1133,7 @@ export class EncodeStep extends BaseStep {
         }
       }
 
-      // Update progress based on encoded count
-      const completed = encodedFiles.length;
-      const total = episodeFiles.length;
-      const overallProgress = 50 + (completed / total) * 30; // 50-80% for encoding
-
-      // Find most interesting status to show
-      const activeStatuses = statuses.filter(
-        (s: (typeof statuses)[number]) =>
-          s.status === AssignmentStatus.ASSIGNED || s.status === AssignmentStatus.ENCODING
-      );
-      const showStatus =
-        activeStatuses.find((s: (typeof activeStatuses)[number]) => s.progress !== null) ||
-        activeStatuses[0];
-
-      let currentStep: string;
-      if (showStatus && assignments.length > 0) {
-        const assignment = assignments.find((a) => a.assignmentId === showStatus.id);
-        if (assignment && showStatus.progress !== null) {
-          const speed = showStatus.speed ? ` - ${showStatus.speed}x` : "";
-          const eta = showStatus.eta ? ` - ETA: ${this.formatDuration(showStatus.eta)}` : "";
-          currentStep = `${assignment.epNum}: ${showStatus.progress.toFixed(1)}%${speed}${eta} (${completed}/${total} done)`;
-        } else if (assignment) {
-          currentStep = `${assignment.epNum}: Encoding... (${completed}/${total} done)`;
-        } else {
-          currentStep = `Encoding ${assignments.length} episode(s)... (${completed}/${total} done)`;
-        }
-      } else if (assignments.length > 0) {
-        currentStep = `Waiting for encoders... (${completed}/${total} done)`;
-      } else {
-        currentStep = `Encoding complete (${completed}/${total} episodes)`;
-      }
-
-      const previousRequest = await prisma.mediaRequest.findUnique({
-        where: { id: requestId },
-        select: { currentStep: true },
-      });
-
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          progress: overallProgress,
-          currentStep,
-          ...(previousRequest?.currentStep !== currentStep && {
-            currentStepStartedAt: new Date(),
-          }),
-        },
-      });
+      // Progress now handled by ProcessingItem
 
       // Exit if all done
       if (assignments.length === 0) {
@@ -1295,14 +1163,7 @@ export class EncodeStep extends BaseStep {
       };
     }
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        progress: 80,
-        currentStep: `Encoding complete (${encodedFiles.length}/${episodeFiles.length} episodes)`,
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Progress now handled by ProcessingItem
 
     return {
       success: true,

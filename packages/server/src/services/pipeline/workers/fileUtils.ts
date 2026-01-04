@@ -37,6 +37,25 @@ export async function findMainVideoFile(filePath: string): Promise<string | null
     return largestFile;
   } catch (error) {
     console.error("[fileUtils] Error finding main video file:", error);
+
+    // If path doesn't exist and has a video extension, try without the extension
+    // This handles cases where qBittorrent reports contentPath with .mkv but it's actually a directory
+    const videoExtensions = [".mkv", ".mp4", ".avi", ".m4v", ".ts", ".mov", ".wmv", ".flv"];
+    const ext = path.extname(filePath).toLowerCase();
+    if (videoExtensions.includes(ext)) {
+      const pathWithoutExt = filePath.substring(0, filePath.length - ext.length);
+      console.log(`[fileUtils] Path doesn't exist, trying without extension: ${pathWithoutExt}`);
+      try {
+        const stats = await fs.stat(pathWithoutExt);
+        if (stats.isDirectory()) {
+          // Recursively call with the directory path
+          return findMainVideoFile(pathWithoutExt);
+        }
+      } catch {
+        // Ignore error, return null below
+      }
+    }
+
     return null;
   }
 }

@@ -34,7 +34,7 @@ if ($existingService) {
 # Set environment variables for the service
 Write-Host "[1/3] Setting environment variables..." -ForegroundColor Cyan
 [Environment]::SetEnvironmentVariable("ANNEX_SERVER_URL", "ws://server:3000/encoder", "Machine")
-[Environment]::SetEnvironmentVariable("ANNEX_ENCODER_ID", "encoder-annex", "Machine")
+[Environment]::SetEnvironmentVariable("ANNEX_ENCODER_ID", "encoder-test-host", "Machine")
 [Environment]::SetEnvironmentVariable("ANNEX_GPU_DEVICE", "0", "Machine")
 [Environment]::SetEnvironmentVariable("ANNEX_NFS_BASE_PATH", "Z:\downloads", "Machine")
 [Environment]::SetEnvironmentVariable("ANNEX_LOG_LEVEL", "info", "Machine")

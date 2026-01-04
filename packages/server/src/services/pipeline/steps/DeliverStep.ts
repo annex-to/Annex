@@ -1,11 +1,4 @@
-import {
-  ActivityType,
-  MediaType,
-  Prisma,
-  ProcessingStatus,
-  RequestStatus,
-  StepType,
-} from "@prisma/client";
+import { ActivityType, MediaType, Prisma, ProcessingStatus, StepType } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import { getDeliveryService } from "../../delivery.js";
 import { getNamingService } from "../../naming.js";
@@ -177,18 +170,8 @@ export class DeliverStep extends BaseStep {
         }
       }
 
-      // Mark request as completed
-      await prisma.mediaRequest.update({
-        where: { id: requestId },
-        data: {
-          status: RequestStatus.COMPLETED,
-          progress: 100,
-          currentStep: null,
-          currentStepStartedAt: new Date(),
-          error: null,
-          completedAt: new Date(),
-        },
-      });
+      // Status/progress now handled by ProcessingItem
+      // Request completion is computed from ProcessingItem statuses
 
       await this.logActivity(
         requestId,
@@ -210,15 +193,7 @@ export class DeliverStep extends BaseStep {
       };
     }
 
-    await prisma.mediaRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RequestStatus.DELIVERING,
-        progress: 75,
-        currentStep: "Preparing for delivery...",
-        currentStepStartedAt: new Date(),
-      },
-    });
+    // Status/progress now handled by ProcessingItem
 
     const deliveredServers: string[] = [];
     const failedServers: Array<{ serverId: string; serverName: string; error: string }> = [];
@@ -249,7 +224,6 @@ export class DeliverStep extends BaseStep {
       });
 
       const container = encodedFilePath.split(".").pop() || "mkv";
-      let serverIndex = 0;
 
       for (const server of servers) {
         let remotePath: string;
@@ -293,14 +267,7 @@ export class DeliverStep extends BaseStep {
           `Delivering ${displayName} to ${server.name}: ${remotePath}`
         );
 
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            progress: 75 + (serverIndex / servers.length) * 20,
-            currentStep: `Transferring ${displayName} to ${server.name}...`,
-            currentStepStartedAt: new Date(),
-          },
-        });
+        // Status/progress now handled by ProcessingItem
 
         const result = await delivery.deliver(server.id, encodedFilePath, remotePath, {
           onProgress: async (progress) => {
@@ -394,8 +361,6 @@ export class DeliverStep extends BaseStep {
             `Failed to deliver ${displayName} to ${server.name}: ${result.error}`
           );
         }
-
-        serverIndex++;
       }
     }
 
@@ -457,18 +422,8 @@ export class DeliverStep extends BaseStep {
       }
 
       if (allEpisodesComplete) {
-        // All episodes done (or this is a movie) - mark request as complete
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            status: RequestStatus.COMPLETED,
-            progress: 100,
-            currentStep: null,
-            currentStepStartedAt: new Date(),
-            error: null,
-            completedAt: new Date(),
-          },
-        });
+        // All episodes done (or this is a movie)
+        // Status/progress now handled by ProcessingItem
 
         await this.logActivity(requestId, ActivityType.SUCCESS, "Request completed successfully");
       } else {
@@ -476,19 +431,8 @@ export class DeliverStep extends BaseStep {
         const needsSearch = remainingEpisodes > inProgressEpisodes;
 
         if (needsSearch) {
-          // More episodes needed - reset to pending to search for remaining episodes
-          await prisma.mediaRequest.update({
-            where: { id: requestId },
-            data: {
-              status: RequestStatus.PENDING,
-              progress: 50,
-              currentStep: `${remainingEpisodes - inProgressEpisodes} episode${remainingEpisodes - inProgressEpisodes !== 1 ? "s" : ""} needed`,
-              currentStepStartedAt: new Date(),
-              error: null,
-              // Clear selected release to force new search
-              selectedRelease: Prisma.JsonNull,
-            },
-          });
+          // More episodes needed - pipeline will search for remaining episodes
+          // Status/progress and selectedRelease now handled by ProcessingItem
 
           await this.logActivity(
             requestId,
@@ -591,29 +535,12 @@ export class DeliverStep extends BaseStep {
           `Encoded files preserved for retry to failed servers`
         );
 
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            status: RequestStatus.COMPLETED,
-            progress: 100,
-            currentStep: error,
-            currentStepStartedAt: new Date(),
-            completedAt: new Date(),
-          },
-        });
+        // Status/progress now handled by ProcessingItem
       } else {
-        // Total failure - update request to FAILED
+        // Total failure
+        // Status/error now handled by ProcessingItem
         await this.logActivity(requestId, ActivityType.ERROR, `Delivery failed: ${error}`);
         await this.logActivity(requestId, ActivityType.INFO, `Encoded files preserved for retry`);
-
-        await prisma.mediaRequest.update({
-          where: { id: requestId },
-          data: {
-            status: RequestStatus.FAILED,
-            error,
-            completedAt: new Date(),
-          },
-        });
       }
 
       // Update episode status if delivery failed completely
