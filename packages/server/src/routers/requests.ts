@@ -1001,11 +1001,10 @@ export const requestsRouter = router({
         }
       }
 
-      // Reset ALL ProcessingItems to PENDING and clear context
+      // Reset ALL ProcessingItems to PENDING and clear context (including COMPLETED)
       await tx.processingItem.updateMany({
         where: {
           requestId: input.id,
-          status: { not: ProcessingStatus.COMPLETED },
         },
         data: {
           status: ProcessingStatus.PENDING,
