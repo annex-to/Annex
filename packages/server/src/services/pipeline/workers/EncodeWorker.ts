@@ -317,21 +317,15 @@ export class EncodeWorker extends BaseWorker {
       const stallTime = Date.now() - item.lastProgressUpdate.getTime();
 
       if (stallTime > 10 * 60 * 1000) {
-        // Stalled for >10 minutes
-        console.warn(`[${this.name}] Encoding stalled for ${item.title} (no progress for 10 min)`);
-
-        // Check if encoder is still connected
-        const encoder = await prisma.encoder.findUnique({
-          where: { id: assignment.encoderId },
-        });
-
-        if (!encoder || encoder.status !== "CONNECTED") {
+        // Stalled for >10 minutes - check if assignment status indicates a problem
+        if (assignment.status === "FAILED" || assignment.status === "CANCELLED") {
           throw new Error(
-            `Encoding stalled: Encoder ${assignment.encoderId} is ${encoder?.status || "missing"}`
+            `Encoding ${assignment.status.toLowerCase()}: ${assignment.error || "Unknown error"}`
           );
         }
 
-        // Encoder is connected but not making progress - suspicious
+        // Assignment is still active but not making progress
+        console.warn(`[${this.name}] Encoding stalled for ${item.title} (no progress for 10 min)`);
         throw new Error("Encoding stalled: No progress for 10 minutes");
       }
     }
