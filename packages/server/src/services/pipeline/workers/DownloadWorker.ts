@@ -84,23 +84,11 @@ export class DownloadWorker extends BaseWorker {
         console.log(
           `[${this.name}] Early exit: ${item.title} download already complete, promoting to DOWNLOADED`
         );
-        // Transition through DOWNLOADING to reach DOWNLOADED (state machine requirement)
-        await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
-          currentStep: "download_early_exit",
-          downloadId: item.downloadId,
-        });
-        // Refetch item with updated status before calling handleCompletedDownload
-        const updatedItem = await prisma.processingItem.findUnique({
-          where: { id: item.id },
-        });
-        if (!updatedItem) {
-          throw new Error(`Item ${item.id} not found after status update`);
-        }
         // Get torrent details for file path
         const qb = getDownloadService();
         const torrent = await qb.getProgress(download.torrentHash);
         if (torrent) {
-          await this.handleCompletedDownload(updatedItem, download, torrent);
+          await this.handleCompletedDownload(item, download, torrent);
         }
         return;
       }

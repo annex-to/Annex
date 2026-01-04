@@ -134,18 +134,7 @@ export class DeliverWorker extends BaseWorker {
       console.log(
         `[${this.name}] Early exit: ${item.title} already delivered to all servers, promoting to COMPLETED`
       );
-      // Transition through DELIVERING to reach COMPLETED (state machine requirement)
-      await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
-        currentStep: "deliver",
-      });
-      // Refetch item with updated status before calling handleCompletedDelivery
-      const updatedItem = await prisma.processingItem.findUnique({
-        where: { id: item.id },
-      });
-      if (!updatedItem) {
-        throw new Error(`Item ${item.id} not found after status update`);
-      }
-      await this.handleCompletedDelivery(updatedItem, encodeData, checkpoint.deliveredServers);
+      await this.handleCompletedDelivery(item, encodeData, checkpoint.deliveredServers);
       return;
     }
 

@@ -1,21 +1,19 @@
 import type { ProcessingStatus } from "@prisma/client";
 
 /**
- * State transition map defining valid status transitions
+ * Pipeline order - defines the natural progression of statuses
  */
-const STATE_TRANSITIONS: Record<ProcessingStatus, ProcessingStatus[]> = {
-  PENDING: ["SEARCHING", "CANCELLED"],
-  SEARCHING: ["FOUND", "FAILED", "CANCELLED"],
-  FOUND: ["DOWNLOADING", "FAILED", "CANCELLED"],
-  DOWNLOADING: ["DOWNLOADED", "FAILED", "CANCELLED"],
-  DOWNLOADED: ["ENCODING", "FAILED", "CANCELLED"],
-  ENCODING: ["ENCODED", "FAILED", "CANCELLED"],
-  ENCODED: ["DELIVERING", "FAILED", "CANCELLED"],
-  DELIVERING: ["COMPLETED", "FAILED", "CANCELLED"],
-  COMPLETED: [], // Terminal state
-  FAILED: ["PENDING"], // Can be retried by resetting to PENDING
-  CANCELLED: [], // Terminal state
-};
+const PIPELINE_ORDER: ProcessingStatus[] = [
+  "PENDING",
+  "SEARCHING",
+  "FOUND",
+  "DOWNLOADING",
+  "DOWNLOADED",
+  "ENCODING",
+  "ENCODED",
+  "DELIVERING",
+  "COMPLETED",
+];
 
 /**
  * State metadata for each status
@@ -110,10 +108,35 @@ export class StateTransitionError extends Error {
 export class StateMachine {
   /**
    * Check if a status transition is valid
+   * Simple validation: allow forward movement, FAILED, CANCELLED, or FAILED->PENDING retry
    */
   canTransition(from: ProcessingStatus, to: ProcessingStatus): boolean {
-    const allowedTransitions = STATE_TRANSITIONS[from];
-    return allowedTransitions.includes(to);
+    // Terminal states can't be left (except FAILED -> PENDING for retry)
+    if (from === "COMPLETED" || from === "CANCELLED") {
+      return false;
+    }
+
+    // Allow FAILED -> PENDING for retry
+    if (from === "FAILED" && to === "PENDING") {
+      return true;
+    }
+
+    // Allow transition to FAILED or CANCELLED from any non-terminal state
+    if (to === "FAILED" || to === "CANCELLED") {
+      return true;
+    }
+
+    // Allow any forward movement in pipeline
+    const fromIndex = PIPELINE_ORDER.indexOf(from);
+    const toIndex = PIPELINE_ORDER.indexOf(to);
+
+    // Both must be in pipeline order
+    if (fromIndex === -1 || toIndex === -1) {
+      return false;
+    }
+
+    // Can move forward (including skipping states)
+    return toIndex >= fromIndex;
   }
 
   /**
@@ -121,20 +144,46 @@ export class StateMachine {
    */
   transition(from: ProcessingStatus, to: ProcessingStatus): ProcessingStatus {
     if (!this.canTransition(from, to)) {
-      throw new StateTransitionError(
-        from,
-        to,
-        `Cannot transition from ${from} to ${to}. Allowed transitions: ${STATE_TRANSITIONS[from].join(", ")}`
-      );
+      let reason = "";
+      if (from === "COMPLETED" || from === "CANCELLED") {
+        reason = `Cannot leave terminal state ${from}`;
+      } else if (from === "FAILED" && to !== "PENDING") {
+        reason = `FAILED can only transition to PENDING (retry)`;
+      } else {
+        const fromIndex = PIPELINE_ORDER.indexOf(from);
+        const toIndex = PIPELINE_ORDER.indexOf(to);
+        if (toIndex < fromIndex) {
+          reason = `Cannot move backwards from ${from} to ${to}`;
+        } else {
+          reason = `Invalid transition from ${from} to ${to}`;
+        }
+      }
+      throw new StateTransitionError(from, to, reason);
     }
     return to;
   }
 
   /**
    * Get all valid next states from current state
+   * Returns all forward states plus FAILED and CANCELLED
    */
   getNextStates(current: ProcessingStatus): ProcessingStatus[] {
-    return STATE_TRANSITIONS[current];
+    if (current === "COMPLETED" || current === "CANCELLED") {
+      return [];
+    }
+
+    if (current === "FAILED") {
+      return ["PENDING"];
+    }
+
+    const currentIndex = PIPELINE_ORDER.indexOf(current);
+    if (currentIndex === -1) {
+      return ["FAILED", "CANCELLED"];
+    }
+
+    // All forward states plus FAILED and CANCELLED
+    const forwardStates = PIPELINE_ORDER.slice(currentIndex + 1);
+    return [...forwardStates, "FAILED", "CANCELLED"];
   }
 
   /**
