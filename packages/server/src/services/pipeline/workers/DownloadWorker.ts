@@ -131,19 +131,70 @@ export class DownloadWorker extends BaseWorker {
     const qb = getDownloadService();
     const release = searchData.selectedRelease;
 
-    if (!release || !release.magnetUri) {
-      throw new Error("No magnet URI in selected release");
+    if (!release || (!release.magnetUri && !release.downloadUrl)) {
+      throw new Error("No magnet URI or download URL in selected release");
     }
 
     try {
-      // Add torrent to qBittorrent
-      const result = await qb.addTorrentUrl(release.magnetUri);
+      let result: { success: boolean; hash?: string; error?: string };
 
-      if (!result.success || !result.hash) {
+      if (release.magnetUri) {
+        // Use magnet link
+        console.log(`[${this.name}] Adding torrent via magnet link: ${release.title}`);
+        result = await qb.addTorrentUrl(release.magnetUri);
+      } else if (release.downloadUrl) {
+        // Download torrent file first, then add it
+        console.log(`[${this.name}] Downloading torrent file from: ${release.downloadUrl}`);
+
+        const headers: Record<string, string> = {};
+        if (release.downloadHeaders) {
+          Object.assign(headers, release.downloadHeaders);
+        }
+
+        const response = await fetch(release.downloadUrl, { headers });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to download torrent file: HTTP ${response.status} ${response.statusText}`
+          );
+        }
+
+        const torrentData = await response.arrayBuffer();
+        const filename = `${release.title}.torrent`;
+
+        console.log(`[${this.name}] Adding torrent file to qBittorrent: ${filename}`);
+        result = await qb.addTorrentFile(torrentData, filename);
+      } else {
+        throw new Error("No valid download method available");
+      }
+
+      if (!result.success) {
         throw new Error(result.error || "Failed to add torrent to qBittorrent");
       }
 
-      const torrentHash = result.hash;
+      // For torrent files, hash may not be returned immediately
+      // We'll need to find it by tag or wait for it to appear
+      let torrentHash = result.hash;
+
+      if (!torrentHash && release.downloadUrl) {
+        // Wait a moment for qBittorrent to process the file
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Try to find the torrent by name
+        const torrents = await qb.getAllTorrents();
+        const matchingTorrent = torrents.find((t: { name: string }) => t.name === release.title);
+
+        if (!matchingTorrent) {
+          throw new Error("Torrent added but hash could not be determined");
+        }
+
+        torrentHash = matchingTorrent.hash;
+        console.log(`[${this.name}] Found torrent hash: ${torrentHash}`);
+      }
+
+      if (!torrentHash) {
+        throw new Error("Failed to get torrent hash");
+      }
 
       // Create Download record
       const download = await prisma.download.create({

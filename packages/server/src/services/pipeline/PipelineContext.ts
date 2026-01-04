@@ -33,7 +33,9 @@ export interface PipelineContext {
       leechers?: number;
       indexer: string;
       indexerName?: string;
-      magnetUri: string;
+      magnetUri?: string;
+      downloadUrl?: string;
+      downloadHeaders?: Record<string, string>;
       publishDate?: string;
       quality?: string;
       source?: string;
@@ -47,7 +49,9 @@ export interface PipelineContext {
       leechers?: number;
       indexer: string;
       indexerName?: string;
-      magnetUri: string;
+      magnetUri?: string;
+      downloadUrl?: string;
+      downloadHeaders?: Record<string, string>;
       publishDate?: string;
       quality?: string;
       source?: string;
