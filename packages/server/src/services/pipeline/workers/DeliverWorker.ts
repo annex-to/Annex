@@ -23,10 +23,12 @@ interface DeliveryCheckpoint {
 }
 
 /**
- * Active delivery tracking
+ * Active delivery tracking (per item-server pair)
  */
 interface ActiveDelivery {
   itemId: string;
+  serverId: string;
+  serverName: string;
   promise: Promise<void>;
   startedAt: Date;
   settled: boolean; // Track when promise completes
@@ -37,6 +39,7 @@ interface ActiveDelivery {
  * Processes ENCODED → DELIVERING → COMPLETED
  *
  * Uses scheduler-style polling with true concurrency
+ * Per-server concurrency limits (3 per server)
  * Checkpointing to resume partial deliveries
  * Skips already-delivered servers on retry
  */
@@ -44,9 +47,11 @@ export class DeliverWorker extends BaseWorker {
   readonly processingStatus = "ENCODED" as const;
   readonly nextStatus = "COMPLETED" as const;
   readonly name = "DeliverWorker";
-  readonly concurrency = 3; // Deliver up to 3 files in parallel per server
+  readonly concurrencyPerServer = 3; // Max 3 concurrent deliveries per storage server
 
-  // Track active deliveries (non-blocking promises)
+  // Track active deliveries by server (serverId -> Set of delivery keys)
+  private activeDeliveriesByServer: Map<string, Set<string>> = new Map();
+  // Track delivery details by key (itemId:serverId -> ActiveDelivery)
   private activeDeliveries: Map<string, ActiveDelivery> = new Map();
 
   /**
@@ -71,98 +76,179 @@ export class DeliverWorker extends BaseWorker {
    * Clean up completed delivery promises
    */
   private async cleanupCompletedDeliveries(): Promise<void> {
-    const completedIds: string[] = [];
+    const completedKeys: string[] = [];
 
     // Find settled deliveries
-    for (const [itemId, delivery] of this.activeDeliveries.entries()) {
+    for (const [deliveryKey, delivery] of this.activeDeliveries.entries()) {
       if (delivery.settled) {
-        completedIds.push(itemId);
+        completedKeys.push(deliveryKey);
       }
     }
 
     // Remove completed deliveries
-    if (completedIds.length > 0) {
-      for (const itemId of completedIds) {
-        this.activeDeliveries.delete(itemId);
+    if (completedKeys.length > 0) {
+      for (const deliveryKey of completedKeys) {
+        const delivery = this.activeDeliveries.get(deliveryKey);
+        if (delivery) {
+          // Remove from server tracking
+          const serverSet = this.activeDeliveriesByServer.get(delivery.serverId);
+          if (serverSet) {
+            serverSet.delete(deliveryKey);
+            if (serverSet.size === 0) {
+              this.activeDeliveriesByServer.delete(delivery.serverId);
+            }
+          }
+        }
+        // Remove from main tracking
+        this.activeDeliveries.delete(deliveryKey);
       }
+
+      // Log cleanup with per-server breakdown
+      const serverCounts = new Map<string, number>();
+      for (const delivery of this.activeDeliveries.values()) {
+        serverCounts.set(delivery.serverName, (serverCounts.get(delivery.serverName) || 0) + 1);
+      }
+      const breakdown = Array.from(serverCounts.entries())
+        .map(([name, count]) => `${name}: ${count}`)
+        .join(", ");
+
       console.log(
-        `[${this.name}] Cleaned up ${completedIds.length} completed deliveries, active count: ${this.activeDeliveries.size}`
+        `[${this.name}] Cleaned up ${completedKeys.length} deliveries, active: ${this.activeDeliveries.size} total (${breakdown || "none"})`
       );
     }
   }
 
   /**
-   * Start new deliveries for ENCODED items (non-blocking)
+   * Start new deliveries for ENCODED items (non-blocking, per-server concurrency)
    */
   private async startNewDeliveries(): Promise<void> {
-    // Check how many slots are available
-    const activeCount = this.activeDeliveries.size;
-    const availableSlots = this.concurrency - activeCount;
-
-    if (availableSlots <= 0) {
-      return; // No capacity
-    }
-
-    // Get ENCODED items that aren't already being delivered
+    // Get ENCODED items
     const encodedItems = await pipelineOrchestrator.getItemsForProcessing("ENCODED");
-    const newItems = encodedItems.filter((item) => !this.activeDeliveries.has(item.id));
 
-    // Start deliveries up to available slots
-    for (const item of newItems.slice(0, availableSlots)) {
-      console.log(
-        `[${this.name}] Starting delivery for ${item.title} (active: ${this.activeDeliveries.size + 1}/${this.concurrency})`
-      );
+    for (const item of encodedItems) {
+      // Get step context
+      const stepContext = item.stepContext as Record<string, unknown>;
+      const encodeData = stepContext.encode as PipelineContext["encode"];
 
-      // Create tracking entry
-      const activeDelivery: ActiveDelivery = {
-        itemId: item.id,
-        promise: Promise.resolve(), // Placeholder, will be replaced
-        startedAt: new Date(),
-        settled: false,
+      if (!encodeData?.encodedFiles || encodeData.encodedFiles.length === 0) {
+        continue; // Skip items without encoded files
+      }
+
+      // Load checkpoint to see which servers already delivered
+      const checkpoint = (item.checkpoint as unknown as DeliveryCheckpoint) || {
+        deliveredServers: [],
+        failedServers: [],
       };
+      const deliveredServerIds = checkpoint.deliveredServers.map((s) => s.serverId);
 
-      // Start delivery in background (non-blocking)
-      const deliveryPromise = this.executeDelivery(item).finally(() => {
-        // Mark as settled when promise completes (success or failure)
-        const delivery = this.activeDeliveries.get(item.id);
-        if (delivery) {
-          delivery.settled = true;
-        }
+      // Get target servers for this item
+      const targetServerIds = encodeData.encodedFiles.flatMap((file) => {
+        const f = file as { targetServerIds: string[] };
+        return f.targetServerIds || [];
+      });
+      const uniqueTargetServers = [...new Set(targetServerIds)];
+
+      // Get server details
+      const servers = await prisma.storageServer.findMany({
+        where: { id: { in: uniqueTargetServers } },
+        select: { id: true, name: true },
       });
 
-      // Update with actual promise
-      activeDelivery.promise = deliveryPromise;
+      // For each server, check if we can start a delivery
+      for (const server of servers) {
+        // Skip if already delivered to this server
+        if (deliveredServerIds.includes(server.id)) {
+          continue;
+        }
 
-      // Track active delivery
-      this.activeDeliveries.set(item.id, activeDelivery);
+        // Check server capacity
+        const serverActiveSet = this.activeDeliveriesByServer.get(server.id);
+        const serverActiveCount = serverActiveSet?.size || 0;
+
+        if (serverActiveCount >= this.concurrencyPerServer) {
+          continue; // Server at capacity
+        }
+
+        // Check if this (item, server) pair is already being delivered
+        const deliveryKey = `${item.id}:${server.id}`;
+        if (this.activeDeliveries.has(deliveryKey)) {
+          continue; // Already delivering
+        }
+
+        // Start delivery for this (item, server) pair
+        console.log(
+          `[${this.name}] Starting delivery: ${item.title} → ${server.name} (server: ${serverActiveCount + 1}/${this.concurrencyPerServer})`
+        );
+
+        // Create tracking entry
+        const activeDelivery: ActiveDelivery = {
+          itemId: item.id,
+          serverId: server.id,
+          serverName: server.name,
+          promise: Promise.resolve(), // Placeholder
+          startedAt: new Date(),
+          settled: false,
+        };
+
+        // Start delivery in background
+        const deliveryPromise = this.executeDeliveryToServer(item, server.id, server.name).finally(
+          () => {
+            const delivery = this.activeDeliveries.get(deliveryKey);
+            if (delivery) {
+              delivery.settled = true;
+            }
+          }
+        );
+
+        activeDelivery.promise = deliveryPromise;
+
+        // Track active delivery
+        this.activeDeliveries.set(deliveryKey, activeDelivery);
+
+        // Track by server
+        if (!this.activeDeliveriesByServer.has(server.id)) {
+          this.activeDeliveriesByServer.set(server.id, new Set());
+        }
+        this.activeDeliveriesByServer.get(server.id)?.add(deliveryKey);
+      }
     }
   }
 
   /**
-   * Execute delivery for ENCODED item (runs in background, handles errors internally)
+   * Execute delivery for one item to one server (runs in background, handles errors internally)
    */
-  private async executeDelivery(item: ProcessingItem): Promise<void> {
+  private async executeDeliveryToServer(
+    item: ProcessingItem,
+    serverId: string,
+    serverName: string
+  ): Promise<void> {
     try {
-      await this.performDelivery(item);
+      await this.performDeliveryToServer(item, serverId, serverName);
     } catch (error) {
-      // Handle error internally since this runs in background
-      await this.handleError(item, error instanceof Error ? error : new Error(String(error)));
+      console.error(
+        `[${this.name}] Error delivering ${item.title} to ${serverName}:`,
+        error instanceof Error ? error.message : error
+      );
+      // Don't call handleError - partial delivery failures are tracked in checkpoints
+      // Item will retry failed servers on next cycle
     }
   }
 
   /**
-   * Perform delivery for ENCODED item (or resume DELIVERING item)
+   * Perform delivery for one item to one server
    */
-  private async performDelivery(item: ProcessingItem): Promise<void> {
-    console.log(`[${this.name}] Starting delivery for ${item.title}`);
-
+  private async performDeliveryToServer(
+    item: ProcessingItem,
+    serverId: string,
+    serverName: string
+  ): Promise<void> {
     // Get request details
     const request = await this.getRequest(item.requestId);
     if (!request) {
       throw new Error(`Request ${item.requestId} not found`);
     }
 
-    // Extract previous step contexts
+    // Extract encode context
     const stepContext = item.stepContext as Record<string, unknown>;
     const encodeData = stepContext.encode as PipelineContext["encode"];
 
@@ -170,269 +256,226 @@ export class DeliverWorker extends BaseWorker {
       throw new Error("No encoded files found in item context");
     }
 
-    // Load checkpoint (which servers have already been delivered)
+    // Load checkpoint
     const checkpoint = (item.checkpoint as unknown as DeliveryCheckpoint) || {
       deliveredServers: [],
       failedServers: [],
     };
 
-    // Early exit: if all servers already delivered, skip to COMPLETED
-    const targetServerIds = encodeData.encodedFiles.flatMap((file) => {
-      const f = file as { targetServerIds: string[] };
-      return f.targetServerIds || [];
-    });
-    const uniqueTargetServers = [...new Set(targetServerIds)];
-    const deliveredServerIds = checkpoint.deliveredServers.map((s) => s.serverId);
-    const allServersDelivered = uniqueTargetServers.every((id) => deliveredServerIds.includes(id));
-
-    if (allServersDelivered && checkpoint.deliveredServers.length > 0) {
-      console.log(
-        `[${this.name}] Early exit: ${item.title} already delivered to all servers, promoting to COMPLETED`
-      );
-      await this.handleCompletedDelivery(item, encodeData, checkpoint.deliveredServers);
+    // Check if already delivered to this server
+    if (checkpoint.deliveredServers.some((s) => s.serverId === serverId)) {
+      console.log(`[${this.name}] ${item.title} already delivered to ${serverName}, skipping`);
       return;
     }
 
-    // Transition to DELIVERING (only if not already there)
+    // Transition to DELIVERING if needed
     if (item.status !== "DELIVERING") {
       await pipelineOrchestrator.transitionStatus(item.id, "DELIVERING", {
         currentStep: "deliver",
       });
     }
 
-    // Initialize progress tracking
-    await pipelineOrchestrator.updateProgress(item.id, 0, {
-      lastProgressUpdate: new Date(),
-      lastProgressValue: 0,
+    // Get server details
+    const server = await prisma.storageServer.findUnique({
+      where: { id: serverId },
     });
 
-    // Deliver files
+    if (!server) {
+      throw new Error(`Server ${serverId} not found`);
+    }
+
+    // Find the encoded file for this server
+    const encodedFile = encodeData.encodedFiles.find((file) => {
+      const f = file as { targetServerIds: string[] };
+      return f.targetServerIds?.includes(serverId);
+    });
+
+    if (!encodedFile) {
+      throw new Error(`No encoded file found for server ${serverId}`);
+    }
+
+    const {
+      path: encodedFilePath,
+      resolution,
+      codec,
+      season,
+      episode,
+    } = encodedFile as {
+      path: string;
+      resolution: string;
+      codec: string;
+      season?: number;
+      episode?: number;
+    };
+
+    const container = encodedFilePath.split(".").pop() || "mkv";
     const deliveryService = getDeliveryService();
     const namingService = getNamingService();
 
-    const deliveredServers: Array<{
-      serverId: string;
-      serverName: string;
-      completedAt: string;
-    }> = [...checkpoint.deliveredServers];
-    const failedServers: Array<{ serverId: string; serverName: string; error: string }> = [
-      ...checkpoint.failedServers,
-    ];
+    // Calculate remote path
+    let remotePath: string;
+    let displayName: string;
 
-    // Process each encoded file
-    for (const encodedFile of encodeData.encodedFiles) {
-      const {
-        path: encodedFilePath,
-        resolution,
+    if (item.type === "MOVIE") {
+      remotePath = namingService.getMovieDestinationPath(server.pathMovies, {
+        title: item.title,
+        year: item.year || new Date().getFullYear(),
+        tmdbId: item.tmdbId,
+        quality: resolution,
         codec,
-        targetServerIds,
+        container,
+      });
+      displayName = `${item.title} (${item.year})`;
+    } else {
+      // TV episode
+      if (season === undefined || episode === undefined) {
+        throw new Error("Missing season/episode metadata for TV delivery");
+      }
+
+      const episodeTitle = (encodedFile as { episodeTitle?: string }).episodeTitle;
+
+      remotePath = namingService.getTvDestinationPath(server.pathTv, {
+        series: request.title,
+        year: item.year || new Date().getFullYear(),
         season,
         episode,
-      } = encodedFile as {
-        path: string;
-        resolution: string;
-        codec: string;
-        targetServerIds: string[];
-        season?: number;
-        episode?: number;
-      };
-
-      const servers = await prisma.storageServer.findMany({
-        where: { id: { in: targetServerIds } },
+        episodeTitle,
+        quality: resolution,
+        codec,
+        container,
       });
-
-      const container = encodedFilePath.split(".").pop() || "mkv";
-      const totalServers = servers.length;
-      let completedServers = 0;
-
-      for (const server of servers) {
-        // Skip if already delivered to this server
-        if (deliveredServers.some((s) => s.serverId === server.id)) {
-          console.log(
-            `[${this.name}] ${item.title}: Already delivered to ${server.name}, skipping`
-          );
-          completedServers++;
-          continue;
-        }
-
-        // Calculate remote path
-        let remotePath: string;
-        let displayName: string;
-
-        if (item.type === "MOVIE") {
-          remotePath = namingService.getMovieDestinationPath(server.pathMovies, {
-            title: item.title,
-            year: item.year || new Date().getFullYear(),
-            tmdbId: item.tmdbId,
-            quality: resolution,
-            codec,
-            container,
-          });
-          displayName = `${item.title} (${item.year})`;
-        } else {
-          // TV episode
-          if (season === undefined || episode === undefined) {
-            throw new Error("Missing season/episode metadata for TV delivery");
-          }
-
-          const episodeTitle = (encodedFile as { episodeTitle?: string }).episodeTitle;
-
-          remotePath = namingService.getTvDestinationPath(server.pathTv, {
-            series: request.title, // Use series title, not episode title
-            year: item.year || new Date().getFullYear(),
-            season,
-            episode,
-            episodeTitle,
-            quality: resolution,
-            codec,
-            container,
-          });
-          displayName = `${request.title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-        }
-
-        await this.logActivity(
-          item.requestId,
-          ActivityType.INFO,
-          `Delivering ${displayName} to ${server.name}: ${remotePath}`
-        );
-
-        // Deliver file
-        try {
-          const result = await deliveryService.deliver(server.id, encodedFilePath, remotePath, {
-            onProgress: async (progress) => {
-              const speed = `${this.formatBytes(progress.speed)}/s`;
-              const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
-              const progressMessage = `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`;
-
-              // Update progress
-              const overallProgress =
-                ((completedServers + progress.progress / 100) / totalServers) * 100;
-
-              await pipelineOrchestrator.updateProgress(item.id, overallProgress, {
-                lastProgressUpdate: new Date(),
-                lastProgressValue: overallProgress,
-              });
-
-              // Update current step message
-              await prisma.processingItem.update({
-                where: { id: item.id },
-                data: { currentStep: progressMessage },
-              });
-            },
-          });
-
-          if (result.success) {
-            // Mark as delivered
-            deliveredServers.push({
-              serverId: server.id,
-              serverName: server.name,
-              completedAt: new Date().toISOString(),
-            });
-            completedServers++;
-
-            await this.logActivity(
-              item.requestId,
-              ActivityType.SUCCESS,
-              `Delivered ${displayName} to ${server.name} in ${this.formatDuration(result.duration)}`,
-              {
-                server: server.name,
-                bytesTransferred: result.bytesTransferred,
-                duration: result.duration,
-                libraryScanTriggered: result.libraryScanTriggered,
-              }
-            );
-
-            // Create LibraryItem record
-            await prisma.libraryItem.upsert({
-              where: {
-                tmdbId_type_serverId: {
-                  tmdbId: item.tmdbId,
-                  type: request.type as MediaType,
-                  serverId: server.id,
-                },
-              },
-              create: {
-                tmdbId: item.tmdbId,
-                type: request.type as MediaType,
-                serverId: server.id,
-                quality: `${resolution} ${codec}`,
-                addedAt: new Date(),
-              },
-              update: {
-                quality: `${resolution} ${codec}`,
-                syncedAt: new Date(),
-              },
-            });
-
-            // Update checkpoint
-            const updatedCheckpoint: DeliveryCheckpoint = {
-              deliveredServers,
-              failedServers,
-            };
-
-            await prisma.processingItem.update({
-              where: { id: item.id },
-              data: {
-                checkpoint:
-                  updatedCheckpoint as unknown as import("@prisma/client").Prisma.InputJsonValue,
-              },
-            });
-          } else {
-            // Mark as failed
-            failedServers.push({
-              serverId: server.id,
-              serverName: server.name,
-              error: result.error || "Unknown error",
-            });
-
-            await this.logActivity(
-              item.requestId,
-              ActivityType.ERROR,
-              `Failed to deliver ${displayName} to ${server.name}: ${result.error}`
-            );
-          }
-        } catch (error) {
-          // Handle delivery exception
-          const errorMessage = error instanceof Error ? error.message : String(error);
-
-          failedServers.push({
-            serverId: server.id,
-            serverName: server.name,
-            error: errorMessage,
-          });
-
-          await this.logActivity(
-            item.requestId,
-            ActivityType.ERROR,
-            `Failed to deliver ${displayName} to ${server.name}: ${errorMessage}`
-          );
-        }
-      }
+      displayName = `${request.title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
     }
 
-    // Determine overall success
-    const allServersSucceeded = failedServers.length === 0;
-    const someServersSucceeded = deliveredServers.length > 0;
+    // Deliver file
+    const result = await deliveryService.deliver(server.id, encodedFilePath, remotePath, {
+      onProgress: async (progress) => {
+        const speed = `${this.formatBytes(progress.speed)}/s`;
+        const eta = progress.eta > 0 ? `ETA: ${this.formatDuration(progress.eta)}` : "";
+        const progressMessage = `${server.name}: ${progress.progress.toFixed(1)}% - ${speed} ${eta}`;
 
-    if (allServersSucceeded) {
-      // Complete success
-      await this.handleCompletedDelivery(item, encodeData, deliveredServers);
-    } else if (someServersSucceeded) {
-      // Partial success - keep checkpoint and retry failed servers
-      const errorDetails = failedServers.map((f) => `${f.serverName}: ${f.error}`).join("; ");
-      const error = `Delivered to ${deliveredServers.length} servers, failed ${failedServers.length} - ${errorDetails}`;
+        await prisma.processingItem.update({
+          where: { id: item.id },
+          data: { currentStep: progressMessage },
+        });
+      },
+    });
 
-      await this.logActivity(
-        item.requestId,
-        ActivityType.WARNING,
-        `Partial delivery success: ${deliveredServers.length} succeeded, ${failedServers.length} failed`
+    if (!result.success) {
+      // Update checkpoint with failure
+      const updatedCheckpoint: DeliveryCheckpoint = {
+        ...checkpoint,
+        failedServers: [
+          ...checkpoint.failedServers.filter((s) => s.serverId !== serverId),
+          {
+            serverId: server.id,
+            serverName: server.name,
+            error: result.error || "Unknown error",
+          },
+        ],
+      };
+
+      await prisma.processingItem.update({
+        where: { id: item.id },
+        data: {
+          checkpoint:
+            updatedCheckpoint as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+
+      throw new Error(`Delivery failed: ${result.error}`);
+    }
+
+    // Success - update checkpoint
+    const updatedCheckpoint: DeliveryCheckpoint = {
+      deliveredServers: [
+        ...checkpoint.deliveredServers,
+        {
+          serverId: server.id,
+          serverName: server.name,
+          completedAt: new Date().toISOString(),
+        },
+      ],
+      failedServers: checkpoint.failedServers.filter((s) => s.serverId !== serverId),
+    };
+
+    await prisma.processingItem.update({
+      where: { id: item.id },
+      data: {
+        checkpoint: updatedCheckpoint as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      },
+    });
+
+    // Create LibraryItem record
+    await prisma.libraryItem.upsert({
+      where: {
+        tmdbId_type_serverId: {
+          tmdbId: item.tmdbId,
+          type: request.type as MediaType,
+          serverId: server.id,
+        },
+      },
+      create: {
+        tmdbId: item.tmdbId,
+        type: request.type as MediaType,
+        serverId: server.id,
+        quality: `${resolution} ${codec}`,
+        addedAt: new Date(),
+      },
+      update: {
+        quality: `${resolution} ${codec}`,
+        syncedAt: new Date(),
+      },
+    });
+
+    await this.logActivity(
+      item.requestId,
+      ActivityType.SUCCESS,
+      `Delivered ${displayName} to ${server.name} in ${this.formatDuration(result.duration)}`
+    );
+
+    // Check if all servers complete
+    await this.checkItemCompletion(item);
+  }
+
+  /**
+   * Check if item has been delivered to all target servers and transition to COMPLETED if so
+   */
+  private async checkItemCompletion(item: ProcessingItem): Promise<void> {
+    // Reload item to get latest checkpoint
+    const currentItem = await prisma.processingItem.findUnique({
+      where: { id: item.id },
+      select: { stepContext: true, checkpoint: true },
+    });
+
+    if (!currentItem) return;
+
+    const stepContext = currentItem.stepContext as Record<string, unknown>;
+    const encodeData = stepContext.encode as PipelineContext["encode"];
+
+    if (!encodeData?.encodedFiles) return;
+
+    const checkpoint = (currentItem.checkpoint as unknown as DeliveryCheckpoint) || {
+      deliveredServers: [],
+      failedServers: [],
+    };
+
+    // Get all target servers
+    const targetServerIds = encodeData.encodedFiles.flatMap((file) => {
+      const f = file as { targetServerIds: string[] };
+      return f.targetServerIds || [];
+    });
+    const uniqueTargetServers = [...new Set(targetServerIds)];
+
+    // Check if all delivered
+    const deliveredServerIds = checkpoint.deliveredServers.map((s) => s.serverId);
+    const allDelivered = uniqueTargetServers.every((id) => deliveredServerIds.includes(id));
+
+    if (allDelivered) {
+      console.log(
+        `[${this.name}] ${item.title} delivered to all ${uniqueTargetServers.length} servers, transitioning to COMPLETED`
       );
-
-      throw new Error(error);
-    } else {
-      // Total failure
-      const errorDetails = failedServers.map((f) => `${f.serverName}: ${f.error}`).join("; ");
-      throw new Error(`Failed to deliver to all servers - ${errorDetails}`);
+      await this.handleCompletedDelivery(item, encodeData, checkpoint.deliveredServers);
     }
   }
 
