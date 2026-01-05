@@ -149,86 +149,20 @@ export class DownloadStep extends BaseStep {
       await this.logActivity(
         requestId,
         ActivityType.INFO,
-        `Found ${downloadedEpisodes.length} downloaded episodes, queueing for delivery`
+        `Found ${downloadedEpisodes.length} downloaded episodes ready for delivery`
       );
 
-      // Queue episodes for sequential delivery instead of spawning branch pipelines
-      const { getDeliveryQueue } = await import("../../deliveryQueue.js");
-      const deliveryQueue = getDeliveryQueue();
-      let queuedCount = 0;
+      // DeliverWorker will automatically pick up ENCODED items
+      // No manual queuing needed with new pipeline system
 
-      // Get request details for delivery jobs
-      const request = await prisma.mediaRequest.findUnique({
-        where: { id: requestId },
-        select: { title: true, year: true, targets: true },
-      });
-
-      if (!request) {
-        return {
-          success: false,
-          shouldRetry: false,
-          nextStep: null,
-          error: "Request not found",
-        };
-      }
-
-      const targets = request.targets as unknown as Array<{
-        serverId: string;
-        encodingProfileId?: string;
-      }>;
-
-      for (const ep of downloadedEpisodes.filter(
-        (e: { sourceFilePath: string | null }) => e.sourceFilePath !== null
-      )) {
-        try {
-          await deliveryQueue.enqueue({
-            episodeId: ep.id,
-            requestId,
-            season: ep.season,
-            episode: ep.episode,
-            title: request.title,
-            year: request.year,
-            sourceFilePath: ep.sourceFilePath as string,
-            targetServers: targets.map((t) => ({
-              serverId: t.serverId,
-              encodingProfileId: t.encodingProfileId || "default",
-            })),
-          });
-
-          queuedCount++;
-
-          await this.logActivity(
-            requestId,
-            ActivityType.INFO,
-            `Queued S${ep.season}E${ep.episode} for delivery`,
-            { season: ep.season, episode: ep.episode }
-          );
-        } catch (error) {
-          await this.logActivity(
-            requestId,
-            ActivityType.ERROR,
-            `Failed to queue S${ep.season}E${ep.episode}: ${error}`,
-            { season: ep.season, episode: ep.episode }
-          );
-        }
-      }
-
-      await this.logActivity(
-        requestId,
-        ActivityType.SUCCESS,
-        `Queued ${queuedCount} episode(s) for sequential delivery`
-      );
-
-      // Status/progress now handled by ProcessingItem
-
-      // Return success - episodes are queued for delivery
+      // Return success - episodes ready for delivery
       return {
         success: true,
         nextStep: null,
         data: {
           download: {
             episodesQueued: true,
-            queuedCount,
+            queuedCount: downloadedEpisodes.length,
           },
         },
       };

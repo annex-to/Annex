@@ -2093,17 +2093,6 @@ export const requestsRouter = router({
       }
 
       // Extract stepContext and encoded data
-      const stepContext = (item.stepContext as Record<string, unknown>) || {};
-      const encodeData = stepContext.encode as Record<string, unknown> | undefined;
-      const encodedFiles = encodeData?.encodedFiles as Array<{ path: string }> | undefined;
-
-      // Verify episode has output file path before re-delivering
-      if (!encodedFiles?.[0]?.path) {
-        throw new Error("Episode missing encoded output file - cannot re-deliver");
-      }
-
-      const outputPath = encodedFiles[0].path;
-
       // Reset to encoded status
       await prisma.processingItem.update({
         where: { id: input.itemId },
@@ -2112,29 +2101,11 @@ export const requestsRouter = router({
           progress: 0,
           lastError: null,
           deliveredAt: null,
-          currentStep: "deliver",
+          currentStep: "encode_complete",
         },
       });
 
-      // Re-queue for delivery
-      const deliveryQueue = (await import("../services/deliveryQueue.js")).getDeliveryQueue();
-
-      const targets = item.request.targets as unknown as Array<{
-        serverId: string;
-        encodingProfileId: string;
-      }>;
-
-      await deliveryQueue.enqueue({
-        episodeId: item.id,
-        requestId: item.requestId,
-        season: item.season,
-        episode: item.episode,
-        title: item.request.title,
-        year: item.request.year ?? new Date().getFullYear(),
-        sourceFilePath: outputPath,
-        targetServers: targets,
-      });
-
+      // DeliverWorker will automatically pick up ENCODED items
       return { success: true };
     }),
 
