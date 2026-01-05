@@ -13,6 +13,7 @@ import {
   resolutionMeetsRequirement,
 } from "../../qualityService.js";
 import { getTraktService } from "../../trakt.js";
+import { circuitBreakerService } from "../CircuitBreakerService.js";
 import type { PipelineContext } from "../PipelineContext.js";
 import { getPipelineExecutor } from "../PipelineExecutor.js";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
@@ -247,6 +248,9 @@ export class SearchStep extends BaseStep {
           );
           // Fall through to indexer search
         } else {
+          // Record successful qBittorrent communication
+          await circuitBreakerService.recordSuccess("qbittorrent");
+
           const meetsQuality = resolutionMeetsRequirement(torrentName, requiredResolution);
           console.log(
             `[Search] Quality check: torrent="${torrentName}", required="${requiredResolution}", meetsQuality=${meetsQuality}`
