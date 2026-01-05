@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { MediaType, ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
+import { detectRarArchive, extractRar } from "../../archive.js";
 import { getDownloadService } from "../../download.js";
 import { circuitBreakerService } from "../CircuitBreakerService.js";
 import type { PipelineContext } from "../PipelineContext";
@@ -367,6 +368,23 @@ export class DownloadWorker extends BaseWorker {
     torrent: { contentPath: string; name: string }
   ): Promise<void> {
     console.log(`[${this.name}] Download complete: ${item.title}`);
+
+    // Extract RAR archives if present
+    const archiveInfo = detectRarArchive(torrent.contentPath);
+
+    if (archiveInfo.hasArchive && archiveInfo.archivePath) {
+      console.log(`[${this.name}] Extracting RAR archive...`);
+
+      const extractResult = await extractRar(archiveInfo.archivePath, torrent.contentPath);
+
+      if (!extractResult.success) {
+        throw new Error(`Failed to extract archive: ${extractResult.error}`);
+      } else {
+        console.log(
+          `[${this.name}] Extracted ${extractResult.extractedFiles.length} files from archive`
+        );
+      }
+    }
 
     // Find the actual video file
     let sourceFilePath = torrent.contentPath;
