@@ -954,8 +954,18 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          const parsed = parseProgress(line.trim());
+          const trimmed = line.trim();
+          if (!trimmed) continue; // Skip empty lines
+
+          const parsed = parseProgress(trimmed);
           Object.assign(progressState, parsed);
+
+          // Debug: Log when we receive critical progress fields
+          if (parsed.outTimeUs !== undefined || parsed.speed !== undefined) {
+            console.log(
+              `[Encoder] Progress update: out_time_us=${progressState.outTimeUs} speed=${progressState.speed} fps=${progressState.fps}`
+            );
+          }
 
           // Calculate progress percentage
           const elapsedTime = progressState.outTimeUs / 1_000_000;
@@ -988,7 +998,8 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
           const now = Date.now();
           const shouldLog =
             progress - lastLoggedProgress >= 5 || now - lastLogTime >= 30000 || progress >= 99;
-          if (shouldLog && progressState.fps && progressState.speed) {
+          // Changed: Log even if speed is 0, as long as we have fps
+          if (shouldLog && progressState.fps) {
             console.log(
               `[Encoder] Progress: ${progress.toFixed(1)}% | ${progressState.fps.toFixed(1)} fps | ${progressState.speed.toFixed(2)}x speed | ETA: ${Math.floor(eta / 60)}m ${eta % 60}s`
             );
@@ -997,8 +1008,9 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
           }
         }
       }
-    } catch {
-      // Stream closed, ignore
+    } catch (err) {
+      // Stream closed or error reading stdout
+      console.error(`[Encoder] stdout reader error: ${err instanceof Error ? err.message : err}`);
     }
   })();
 
