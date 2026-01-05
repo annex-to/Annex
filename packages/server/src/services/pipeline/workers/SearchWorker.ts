@@ -177,8 +177,17 @@ export class SearchWorker extends BaseWorker {
       );
     }
 
-    // Determine next status based on whether auto-selection succeeded
-    if (qualityNotMet) {
+    // Determine next status based on what was found
+    if (searchContext.existingDownload) {
+      // Existing download: skip DISCOVERED cooldown, go directly to DOWNLOADING
+      console.log(
+        `[${this.name}] Existing download found for ${request.title}, skipping discovery cooldown`
+      );
+      await pipelineOrchestrator.transitionStatus(item.id, "DOWNLOADING", {
+        currentStep: "download_existing",
+        stepContext,
+      });
+    } else if (qualityNotMet) {
       // Quality not met: skip DISCOVERED, go directly to FOUND with search_quality_unavailable
       console.log(`[${this.name}] Skipping DISCOVERED for ${request.title}: quality unavailable`);
       await pipelineOrchestrator.transitionStatus(item.id, "FOUND", {
@@ -186,7 +195,7 @@ export class SearchWorker extends BaseWorker {
         stepContext,
       });
     } else {
-      // Quality met: transition to DISCOVERED with cooldown
+      // New release or packs: transition to DISCOVERED with cooldown
       const cooldownSetting = await prisma.setting.findUnique({
         where: { key: "discovery.cooldownMinutes" },
       });
