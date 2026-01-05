@@ -460,19 +460,18 @@ function buildFfmpegArgs(
 }
 
 /**
- * Build subtitle stream mapping - only include MKV-compatible subtitle streams
+ * Build subtitle stream mapping - only include English MKV-compatible subtitle streams
+ * Uses FFmpeg's native language filtering instead of manual stream-by-stream mapping
  */
 function buildSubtitleMapping(mediaInfo: MediaInfo): {
   subArgs: string[];
   hasCompatibleSubs: boolean;
 } {
-  const subArgs: string[] = [];
-
   if (mediaInfo.subtitleStreams.length === 0) {
     return { subArgs: [], hasCompatibleSubs: false };
   }
 
-  // Filter to only compatible subtitle codecs
+  // Check if we have any compatible subtitle codecs
   const compatibleSubs = mediaInfo.subtitleStreams.filter((sub) =>
     MKV_COMPATIBLE_SUBTITLE_CODECS.has(sub.codec.toLowerCase())
   );
@@ -485,10 +484,10 @@ function buildSubtitleMapping(mediaInfo: MediaInfo): {
     return { subArgs: [], hasCompatibleSubs: false };
   }
 
-  // Filter to only English subtitles (forced + regular) to prevent OOM
+  // Check for English subtitles (compatible codecs only)
   const englishSubs = compatibleSubs.filter((sub) => {
     const lang = sub.language?.toLowerCase();
-    return lang === "eng" || lang === "en" || lang === "english" || !lang; // Include if English or unknown
+    return lang === "eng" || lang === "en" || lang === "english";
   });
 
   if (englishSubs.length === 0) {
@@ -498,40 +497,55 @@ function buildSubtitleMapping(mediaInfo: MediaInfo): {
     return { subArgs: [], hasCompatibleSubs: false };
   }
 
-  // Limit to reasonable number to prevent OOM (was causing 29GB RAM usage with 85 streams)
-  const MAX_SUBTITLE_STREAMS = 10; // Forced + regular English should fit well under this
-  const subsToInclude = englishSubs.slice(0, MAX_SUBTITLE_STREAMS);
-  const subsSkipped = englishSubs.length - subsToInclude.length;
-  const nonEnglishSkipped = compatibleSubs.length - englishSubs.length;
+  // Check if there are any incompatible English subs that would break native filtering
+  const allEnglishSubs = mediaInfo.subtitleStreams.filter((sub) => {
+    const lang = sub.language?.toLowerCase();
+    return lang === "eng" || lang === "en" || lang === "english";
+  });
+  const incompatibleEnglishSubs = allEnglishSubs.filter(
+    (sub) => !MKV_COMPATIBLE_SUBTITLE_CODECS.has(sub.codec.toLowerCase())
+  );
 
-  // Log what we're doing
-  const skipped = mediaInfo.subtitleStreams.length - compatibleSubs.length;
-  if (skipped > 0) {
-    const skippedCodecs = mediaInfo.subtitleStreams
-      .filter((sub) => !MKV_COMPATIBLE_SUBTITLE_CODECS.has(sub.codec.toLowerCase()))
-      .map((s) => s.codec);
+  // Log what we're filtering
+  const incompatibleTotal = mediaInfo.subtitleStreams.length - compatibleSubs.length;
+  if (incompatibleTotal > 0) {
+    const skippedCodecs = [
+      ...new Set(
+        mediaInfo.subtitleStreams
+          .filter((sub) => !MKV_COMPATIBLE_SUBTITLE_CODECS.has(sub.codec.toLowerCase()))
+          .map((s) => s.codec)
+      ),
+    ];
     console.log(
-      `[Encoder] Skipping ${skipped} incompatible subtitle stream(s): ${skippedCodecs.join(", ")}`
+      `[Encoder] Skipping ${incompatibleTotal} incompatible subtitle stream(s): ${skippedCodecs.join(", ")}`
     );
   }
 
-  if (nonEnglishSkipped > 0) {
-    console.log(`[Encoder] Filtered ${nonEnglishSkipped} non-English subtitle streams`);
+  const nonEnglishCount = compatibleSubs.length - englishSubs.length;
+  if (nonEnglishCount > 0) {
+    console.log(`[Encoder] Filtered ${nonEnglishCount} non-English subtitle streams`);
   }
 
-  if (subsSkipped > 0) {
-    console.log(
-      `[Encoder] Including ${subsToInclude.length} of ${englishSubs.length} English subtitle streams (limit: ${MAX_SUBTITLE_STREAMS})`
-    );
+  console.log(
+    `[Encoder] Including ${englishSubs.length} English subtitle stream(s): ${englishSubs.map((s) => s.codec).join(", ")}`
+  );
+
+  const subArgs: string[] = [];
+
+  // If all English subs are compatible, use FFmpeg's native language filtering (cleaner)
+  // Otherwise, map compatible streams individually to avoid encoding failures
+  if (incompatibleEnglishSubs.length === 0) {
+    // All English subs are compatible - use native filtering
+    subArgs.push("-map", "0:s:m:language:eng?");
+    console.log("[Encoder] Using native language filter for English subtitles");
   } else {
+    // Some English subs are incompatible - map only compatible ones individually
     console.log(
-      `[Encoder] Including ${subsToInclude.length} English subtitle stream(s): ${subsToInclude.map((s) => s.codec).join(", ")}`
+      `[Encoder] Mapping ${englishSubs.length} compatible English subs individually (${incompatibleEnglishSubs.length} incompatible English subs skipped)`
     );
-  }
-
-  // Map only compatible subtitle streams (up to limit)
-  for (const sub of subsToInclude) {
-    subArgs.push("-map", `0:${sub.index}`);
+    for (const sub of englishSubs) {
+      subArgs.push("-map", `0:${sub.index}`);
+    }
   }
 
   return { subArgs, hasCompatibleSubs: true };
