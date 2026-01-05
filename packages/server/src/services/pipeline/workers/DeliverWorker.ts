@@ -29,6 +29,7 @@ interface ActiveDelivery {
   itemId: string;
   promise: Promise<void>;
   startedAt: Date;
+  settled: boolean; // Track when promise completes
 }
 
 /**
@@ -72,23 +73,20 @@ export class DeliverWorker extends BaseWorker {
   private async cleanupCompletedDeliveries(): Promise<void> {
     const completedIds: string[] = [];
 
+    // Find settled deliveries
     for (const [itemId, delivery] of this.activeDeliveries.entries()) {
-      // Check if promise is settled using Promise.race with immediate rejection
-      const isSettled = await Promise.race([
-        delivery.promise.then(() => true),
-        Promise.resolve(false),
-      ]);
-
-      if (isSettled) {
+      if (delivery.settled) {
         completedIds.push(itemId);
       }
     }
 
     // Remove completed deliveries
-    for (const itemId of completedIds) {
-      this.activeDeliveries.delete(itemId);
+    if (completedIds.length > 0) {
+      for (const itemId of completedIds) {
+        this.activeDeliveries.delete(itemId);
+      }
       console.log(
-        `[${this.name}] Delivery completed for ${itemId}, active count: ${this.activeDeliveries.size}`
+        `[${this.name}] Cleaned up ${completedIds.length} completed deliveries, active count: ${this.activeDeliveries.size}`
       );
     }
   }
@@ -115,15 +113,28 @@ export class DeliverWorker extends BaseWorker {
         `[${this.name}] Starting delivery for ${item.title} (active: ${this.activeDeliveries.size + 1}/${this.concurrency})`
       );
 
+      // Create tracking entry
+      const activeDelivery: ActiveDelivery = {
+        itemId: item.id,
+        promise: Promise.resolve(), // Placeholder, will be replaced
+        startedAt: new Date(),
+        settled: false,
+      };
+
       // Start delivery in background (non-blocking)
-      const deliveryPromise = this.executeDelivery(item);
+      const deliveryPromise = this.executeDelivery(item).finally(() => {
+        // Mark as settled when promise completes (success or failure)
+        const delivery = this.activeDeliveries.get(item.id);
+        if (delivery) {
+          delivery.settled = true;
+        }
+      });
+
+      // Update with actual promise
+      activeDelivery.promise = deliveryPromise;
 
       // Track active delivery
-      this.activeDeliveries.set(item.id, {
-        itemId: item.id,
-        promise: deliveryPromise,
-        startedAt: new Date(),
-      });
+      this.activeDeliveries.set(item.id, activeDelivery);
     }
   }
 
