@@ -58,12 +58,14 @@ export function DiscoveryOverrideModal({ isOpen, onClose, itemId }: DiscoveryOve
 
           {data && (
             <>
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-white/90 mb-2">
-                  Currently Selected (auto-download in {data.remainingSeconds}s)
-                </h3>
-                <ReleaseCard release={data.selectedRelease} isSelected />
-              </div>
+              {data.selectedRelease && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-medium text-white/90 mb-2">
+                    Currently Selected (auto-download in {data.remainingSeconds}s)
+                  </h3>
+                  <ReleaseCard release={data.selectedRelease} isSelected />
+                </div>
+              )}
 
               <div>
                 <h3 className="text-sm font-medium text-white/90 mb-2">All Search Results</h3>
