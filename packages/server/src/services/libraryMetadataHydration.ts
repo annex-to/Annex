@@ -2,7 +2,7 @@
  * Library Metadata Hydration Service
  *
  * Automatically fetches and caches metadata (cover images, ratings, etc.)
- * for all library items from media servers using Trakt.
+ * for all library items from media servers using TMDB.
  *
  * Features:
  * - Rate-limited to respect API limits
@@ -13,34 +13,13 @@
 
 import { MediaType } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { getTraktService } from "./trakt.js";
+import { getTMDBService } from "./tmdb.js";
 
 interface HydrationResult {
   processed: number;
   hydrated: number;
   failed: number;
   skipped: number;
-}
-
-interface TraktImageArray {
-  poster?: string[];
-  fanart?: string[];
-  banner?: string[];
-  thumb?: string[];
-  screenshot?: string[];
-}
-
-function extractTraktImage(
-  images: TraktImageArray | undefined,
-  type: "poster" | "fanart" | "banner" | "thumb" | "screenshot"
-): string | null {
-  const url = images?.[type]?.[0];
-  if (!url) return null;
-  return url.startsWith("http") ? url : `https://${url}`;
-}
-
-function extractTraktBackdrop(images: TraktImageArray | undefined): string | null {
-  return extractTraktImage(images, "fanart") || extractTraktImage(images, "banner");
 }
 
 /**
@@ -100,12 +79,12 @@ export async function hydrateLibraryMetadata(
       .filter((item: { tmdbId: number; type: MediaType }) => item.type === MediaType.TV)
       .map((item: { tmdbId: number; type: MediaType }) => item.tmdbId);
 
-    const trakt = getTraktService();
+    const tmdb = getTMDBService();
 
     // Process movies in batches
     if (movieIds.length > 0) {
       console.log(`[LibraryHydration] Processing ${movieIds.length} movies...`);
-      const movieResults = await hydrateBatch(trakt, movieIds, "movie");
+      const movieResults = await hydrateBatch(tmdb, movieIds, "movie");
       processed += movieResults.processed;
       hydrated += movieResults.hydrated;
       failed += movieResults.failed;
@@ -115,7 +94,7 @@ export async function hydrateLibraryMetadata(
     // Process TV shows in batches
     if (tvIds.length > 0) {
       console.log(`[LibraryHydration] Processing ${tvIds.length} TV shows...`);
-      const tvResults = await hydrateBatch(trakt, tvIds, "tv");
+      const tvResults = await hydrateBatch(tmdb, tvIds, "tv");
       processed += tvResults.processed;
       hydrated += tvResults.hydrated;
       failed += tvResults.failed;
@@ -138,7 +117,7 @@ export async function hydrateLibraryMetadata(
  * Hydrate a batch of items with rate limiting
  */
 async function hydrateBatch(
-  trakt: ReturnType<typeof getTraktService>,
+  tmdb: ReturnType<typeof getTMDBService>,
   tmdbIds: number[],
   type: "movie" | "tv"
 ): Promise<HydrationResult> {
@@ -148,12 +127,12 @@ async function hydrateBatch(
   let skipped = 0;
 
   // Process items one at a time to respect rate limits
-  // Trakt service has built-in rate limiting (4 req/sec)
+  // TMDB service has built-in rate limiting (10 req/sec)
   for (const tmdbId of tmdbIds) {
     processed++;
 
     try {
-      const success = await hydrateMediaItemFromTrakt(trakt, tmdbId, type);
+      const success = await hydrateMediaItemFromTMDB(tmdb, tmdbId, type);
 
       if (success) {
         hydrated++;
@@ -176,109 +155,169 @@ async function hydrateBatch(
 }
 
 /**
- * Hydrate a single media item from Trakt
+ * Hydrate a single media item from TMDB
  */
-async function hydrateMediaItemFromTrakt(
-  trakt: ReturnType<typeof getTraktService>,
+async function hydrateMediaItemFromTMDB(
+  tmdb: ReturnType<typeof getTMDBService>,
   tmdbId: number,
   type: "movie" | "tv"
 ): Promise<boolean> {
   try {
-    const data =
-      type === "movie" ? await trakt.getMovieDetails(tmdbId) : await trakt.getTvShowDetails(tmdbId);
+    // Fetch details, videos, and credits in parallel
+    const [details, videos, credits] = await Promise.all([
+      type === "movie" ? tmdb.getMovieDetails(tmdbId) : tmdb.getTVDetails(tmdbId),
+      type === "movie" ? tmdb.getMovieVideos(tmdbId) : tmdb.getTVVideos(tmdbId),
+      type === "movie" ? tmdb.getMovieCredits(tmdbId) : tmdb.getTVCredits(tmdbId),
+    ]);
 
-    if (!data) {
+    if (!details) {
       return false;
     }
 
     const id = `tmdb-${type}-${tmdbId}`;
     const prismaType = type === "movie" ? MediaType.MOVIE : MediaType.TV;
 
-    // Convert Trakt rating from 0-10 to 0-100 for storage
-    const traktScore = data.rating ? Math.round(data.rating * 10) : null;
+    // Extract trailer key
+    const trailerKey = tmdb.extractTrailerKey(videos);
+
+    // Extract director (for movies)
+    const director =
+      type === "movie" ? credits.crew.find((c) => c.job === "Director")?.name || null : null;
+
+    // Convert vote average from 0-10 to 0-100 for storage
+    const tmdbScore = details.vote_average ? Math.round(details.vote_average * 10) : null;
+
+    // Extract genre names
+    const genres = details.genres.map((g) => g.name);
+
+    // Get primary language
+    const language =
+      type === "movie"
+        ? "original_language" in details
+          ? details.original_language
+          : null
+        : "original_language" in details
+          ? details.original_language
+          : null;
+
+    // Get primary country
+    const country =
+      type === "movie"
+        ? "production_countries" in details && details.production_countries.length > 0
+          ? details.production_countries[0].iso_3166_1
+          : null
+        : "origin_country" in details && details.origin_country.length > 0
+          ? details.origin_country[0]
+          : null;
+
+    // Get runtime (movies have single value, TV shows have array)
+    const runtime =
+      type === "movie"
+        ? "runtime" in details
+          ? details.runtime
+          : null
+        : "episode_run_time" in details && details.episode_run_time.length > 0
+          ? details.episode_run_time[0]
+          : null;
+
+    const mediaItemData = {
+      id,
+      tmdbId,
+      imdbId: type === "movie" && "imdb_id" in details ? details.imdb_id : null,
+      type: prismaType,
+      title:
+        type === "movie"
+          ? "title" in details
+            ? details.title
+            : ""
+          : "name" in details
+            ? details.name
+            : "",
+      originalTitle:
+        type === "movie"
+          ? "original_title" in details
+            ? details.original_title
+            : null
+          : "original_name" in details
+            ? details.original_name
+            : null,
+      year:
+        type === "movie"
+          ? "release_date" in details && details.release_date
+            ? Number.parseInt(details.release_date.split("-")[0], 10)
+            : null
+          : "first_air_date" in details && details.first_air_date
+            ? Number.parseInt(details.first_air_date.split("-")[0], 10)
+            : null,
+      releaseDate:
+        type === "movie"
+          ? "release_date" in details
+            ? details.release_date
+            : null
+          : "first_air_date" in details
+            ? details.first_air_date
+            : null,
+      overview: details.overview || null,
+      tagline: "tagline" in details ? details.tagline : null,
+      runtime,
+      status: details.status || null,
+      genres,
+      language,
+      country,
+      posterPath: tmdb.getImageUrl(details.poster_path, "w500"),
+      backdropPath: tmdb.getImageUrl(details.backdrop_path, "original"),
+      numberOfSeasons:
+        type === "tv" && "number_of_seasons" in details ? details.number_of_seasons : null,
+      numberOfEpisodes:
+        type === "tv" && "number_of_episodes" in details ? details.number_of_episodes : null,
+      networks:
+        type === "tv" && "networks" in details && details.networks.length > 0
+          ? details.networks.map((n) => ({ name: n.name }))
+          : null,
+      videos: trailerKey ? [{ key: trailerKey, type: "Trailer", site: "YouTube" }] : [],
+      cast: credits.cast.slice(0, 20).map((c) => ({
+        id: c.id,
+        name: c.name,
+        character: c.character,
+        order: c.order,
+        profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+      })),
+      crew: credits.crew.slice(0, 20).map((c) => ({
+        id: c.id,
+        name: c.name,
+        job: c.job,
+        department: c.department,
+        profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+      })),
+      director,
+      tmdbUpdatedAt: new Date(),
+    };
 
     await prisma.mediaItem.upsert({
       where: { id },
-      create: {
-        id,
-        tmdbId,
-        imdbId: data.ids.imdb || null,
-        traktId: data.ids.trakt || null,
-        tvdbId: "ids" in data && "tvdb" in data.ids ? data.ids.tvdb || null : null,
-        type: prismaType,
-        title: data.title,
-        year: data.year || null,
-        releaseDate:
-          type === "movie" && "released" in data
-            ? data.released
-            : type === "tv" && "first_aired" in data
-              ? data.first_aired?.split("T")[0]
-              : null,
-        overview: data.overview || null,
-        posterPath: extractTraktImage(data.images, "poster"),
-        backdropPath: extractTraktBackdrop(data.images),
-        tagline: type === "movie" && "tagline" in data ? data.tagline : null,
-        genres: data.genres || [],
-        certification: data.certification || null,
-        runtime: data.runtime || null,
-        status: data.status || null,
-        language: data.language || null,
-        country: data.country || null,
-        numberOfSeasons: type === "tv" && "aired_episodes" in data ? null : null, // TV shows need separate season fetch
-        numberOfEpisodes: type === "tv" && "aired_episodes" in data ? data.aired_episodes : null,
-        networks:
-          type === "tv" && "network" in data && data.network ? [{ name: data.network }] : null,
-        traktUpdatedAt: new Date(),
-      },
-      update: {
-        imdbId: data.ids.imdb || undefined,
-        traktId: data.ids.trakt || undefined,
-        tvdbId: "ids" in data && "tvdb" in data.ids ? data.ids.tvdb || undefined : undefined,
-        title: data.title,
-        year: data.year || undefined,
-        releaseDate:
-          type === "movie" && "released" in data
-            ? data.released
-            : type === "tv" && "first_aired" in data
-              ? data.first_aired?.split("T")[0]
-              : undefined,
-        overview: data.overview || undefined,
-        posterPath: extractTraktImage(data.images, "poster"),
-        backdropPath: extractTraktBackdrop(data.images),
-        tagline: type === "movie" && "tagline" in data ? data.tagline : undefined,
-        genres: data.genres || [],
-        certification: data.certification || undefined,
-        runtime: data.runtime || undefined,
-        status: data.status || undefined,
-        language: data.language || undefined,
-        country: data.country || undefined,
-        numberOfEpisodes:
-          type === "tv" && "aired_episodes" in data ? data.aired_episodes : undefined,
-        networks:
-          type === "tv" && "network" in data && data.network ? [{ name: data.network }] : undefined,
-        traktUpdatedAt: new Date(),
-      },
+      create: mediaItemData,
+      update: mediaItemData,
     });
 
     // Save ratings separately (Prisma doesn't support nested upsert)
-    if (traktScore !== null || data.votes) {
+    if (tmdbScore !== null || details.vote_count) {
       await prisma.mediaRatings.upsert({
         where: { mediaId: id },
         create: {
           mediaId: id,
-          traktScore,
-          traktVotes: data.votes || null,
+          tmdbScore,
+          tmdbVotes: details.vote_count || null,
         },
         update: {
-          traktScore,
-          traktVotes: data.votes || undefined,
+          tmdbScore,
+          tmdbVotes: details.vote_count || undefined,
         },
       });
     }
 
     return true;
   } catch (error) {
-    console.error(`[LibraryHydration] Failed to save Trakt data for ${type} ${tmdbId}:`, error);
+    console.error(`[LibraryHydration] Failed to save TMDB data for ${type} ${tmdbId}:`, error);
     return false;
   }
 }
@@ -344,9 +383,9 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
       SELECT DISTINCT ON (mi."tmdbId", mi.type) mi."tmdbId", mi.type
       FROM "MediaItem" mi
       INNER JOIN "LibraryItem" li ON li."tmdbId" = mi."tmdbId" AND li.type = mi.type
-      WHERE mi."traktUpdatedAt" < ${staleDate}
-         OR mi."traktUpdatedAt" IS NULL
-      ORDER BY mi."tmdbId", mi.type, mi."traktUpdatedAt" ASC NULLS FIRST
+      WHERE mi."tmdbUpdatedAt" < ${staleDate}
+         OR mi."tmdbUpdatedAt" IS NULL
+      ORDER BY mi."tmdbId", mi.type, mi."tmdbUpdatedAt" ASC NULLS FIRST
       LIMIT ${limit}
     `;
 
@@ -365,11 +404,11 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
       .filter((item: { tmdbId: number; type: MediaType }) => item.type === MediaType.TV)
       .map((item: { tmdbId: number; type: MediaType }) => item.tmdbId);
 
-    const trakt = getTraktService();
+    const tmdb = getTMDBService();
 
     // Refresh movies
     if (movieIds.length > 0) {
-      const movieResults = await hydrateBatch(trakt, movieIds, "movie");
+      const movieResults = await hydrateBatch(tmdb, movieIds, "movie");
       processed += movieResults.processed;
       hydrated += movieResults.hydrated;
       failed += movieResults.failed;
@@ -378,7 +417,7 @@ export async function refreshStaleMetadata(daysStale = 30, limit = 50): Promise<
 
     // Refresh TV shows
     if (tvIds.length > 0) {
-      const tvResults = await hydrateBatch(trakt, tvIds, "tv");
+      const tvResults = await hydrateBatch(tmdb, tvIds, "tv");
       processed += tvResults.processed;
       hydrated += tvResults.hydrated;
       failed += tvResults.failed;

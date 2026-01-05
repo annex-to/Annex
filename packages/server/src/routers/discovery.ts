@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../db/client.js";
 import { getJobQueueService } from "../services/jobQueue.js";
 import { getLibraryStatusService } from "../services/libraryStatus.js";
+import { getTMDBService } from "../services/tmdb.js";
 import {
   getTraktService,
   type TraktEpisodeDetails,
@@ -344,7 +345,7 @@ function extractTraktImage(
 }
 
 // Get backdrop - try fanart first, fall back to banner
-function extractTraktBackdrop(images: TraktImageArray | undefined): string | null {
+function _extractTraktBackdrop(images: TraktImageArray | undefined): string | null {
   return extractTraktImage(images, "fanart") || extractTraktImage(images, "banner");
 }
 
@@ -784,17 +785,17 @@ export const discoveryRouter = router({
 
   /**
    * JIT Movie Details endpoint
-   * Fetches from Trakt API with database caching (7-day TTL for Trakt, 1-hour for ratings)
+   * Fetches from TMDB API with database caching (7-day TTL for TMDB, 1-hour for ratings)
    * Uses stale-while-revalidate: returns cached data immediately, refreshes in background if stale
    */
   traktMovieDetails: publicProcedure
     .input(z.object({ tmdbId: z.number() }))
     .query(async ({ input }) => {
-      const trakt = getTraktService();
+      const tmdb = getTMDBService();
       const { getMDBListService } = await import("../services/mdblist.js");
       const mdblist = getMDBListService();
 
-      const TRAKT_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+      const TMDB_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
       const RATINGS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
       const id = `tmdb-movie-${input.tmdbId}`;
@@ -806,7 +807,7 @@ export const discoveryRouter = router({
       });
 
       const now = Date.now();
-      const traktAge = cached?.traktUpdatedAt ? now - cached.traktUpdatedAt.getTime() : Infinity;
+      const tmdbAge = cached?.tmdbUpdatedAt ? now - cached.tmdbUpdatedAt.getTime() : Infinity;
       const ratingsAge = cached?.mdblistUpdatedAt
         ? now - cached.mdblistUpdatedAt.getTime()
         : Infinity;
@@ -853,13 +854,13 @@ export const discoveryRouter = router({
                 mdblistScore: item.ratings.mdblistScore,
               }
             : null,
-          traktUpdatedAt: item.traktUpdatedAt,
+          tmdbUpdatedAt: item.tmdbUpdatedAt,
           mdblistUpdatedAt: item.mdblistUpdatedAt,
         };
       };
 
       // If we have fresh data, return it immediately
-      if (cached && traktAge < TRAKT_CACHE_TTL && ratingsAge < RATINGS_CACHE_TTL) {
+      if (cached && tmdbAge < TMDB_CACHE_TTL && ratingsAge < RATINGS_CACHE_TTL) {
         return formatResponse(cached);
       }
 
@@ -867,38 +868,78 @@ export const discoveryRouter = router({
       if (cached) {
         (async () => {
           try {
-            if (traktAge >= TRAKT_CACHE_TTL) {
-              const traktData = await trakt.getMovieDetails(input.tmdbId);
+            if (tmdbAge >= TMDB_CACHE_TTL) {
+              const [details, videos, credits] = await Promise.all([
+                tmdb.getMovieDetails(input.tmdbId),
+                tmdb.getMovieVideos(input.tmdbId),
+                tmdb.getMovieCredits(input.tmdbId),
+              ]);
+
+              const trailerKey = tmdb.extractTrailerKey(videos);
+              const director = credits.crew.find((c) => c.job === "Director")?.name || null;
+              const genres = details.genres.map((g) => g.name);
+
               await prisma.mediaItem.update({
                 where: { id },
                 data: {
-                  title: traktData.title,
-                  year: traktData.year,
-                  overview: traktData.overview,
-                  tagline: traktData.tagline,
-                  runtime: traktData.runtime,
-                  status: traktData.status,
-                  certification: traktData.certification,
-                  releaseDate: traktData.released,
-                  genres: traktData.genres,
-                  language: traktData.language,
-                  country: traktData.country,
-                  imdbId: traktData.ids.imdb,
-                  traktId: traktData.ids.trakt,
-                  posterPath: extractTraktImage(traktData.images, "poster") || cached.posterPath,
-                  backdropPath: extractTraktBackdrop(traktData.images) || cached.backdropPath,
-                  videos: traktData.trailer
-                    ? [
-                        {
-                          key: trakt.extractTrailerKey(traktData.trailer) || "",
-                          type: "Trailer",
-                          site: "YouTube",
-                        },
-                      ]
+                  title: details.title,
+                  originalTitle: details.original_title,
+                  year: details.release_date
+                    ? Number.parseInt(details.release_date.split("-")[0], 10)
                     : undefined,
-                  traktUpdatedAt: new Date(),
+                  releaseDate: details.release_date,
+                  overview: details.overview,
+                  tagline: details.tagline,
+                  runtime: details.runtime,
+                  status: details.status,
+                  genres,
+                  language: details.original_language,
+                  country:
+                    details.production_countries.length > 0
+                      ? details.production_countries[0].iso_3166_1
+                      : undefined,
+                  imdbId: details.imdb_id,
+                  posterPath: tmdb.getImageUrl(details.poster_path, "w500") || cached.posterPath,
+                  backdropPath:
+                    tmdb.getImageUrl(details.backdrop_path, "original") || cached.backdropPath,
+                  videos: trailerKey
+                    ? [{ key: trailerKey, type: "Trailer", site: "YouTube" }]
+                    : undefined,
+                  cast: credits.cast.slice(0, 20).map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    character: c.character,
+                    order: c.order,
+                    profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+                  })),
+                  crew: credits.crew.slice(0, 20).map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    job: c.job,
+                    department: c.department,
+                    profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+                  })),
+                  director,
+                  tmdbUpdatedAt: new Date(),
                 },
               });
+
+              // Update TMDB rating
+              const tmdbScore = details.vote_average ? Math.round(details.vote_average * 10) : null;
+              if (tmdbScore !== null || details.vote_count) {
+                await prisma.mediaRatings.upsert({
+                  where: { mediaId: id },
+                  create: {
+                    mediaId: id,
+                    tmdbScore,
+                    tmdbVotes: details.vote_count || null,
+                  },
+                  update: {
+                    tmdbScore,
+                    tmdbVotes: details.vote_count || undefined,
+                  },
+                });
+              }
             }
 
             const isMdblistConfigured = await mdblist.isConfigured();
@@ -926,35 +967,59 @@ export const discoveryRouter = router({
       }
 
       // No cache - fetch from APIs and save
-      if (!trakt.isConfigured()) {
-        throw new Error("Trakt API not configured");
+      if (!(await tmdb.isConfigured())) {
+        throw new Error("TMDB API not configured");
       }
 
-      const traktData = await trakt.getMovieDetails(input.tmdbId);
+      const [details, videos, credits] = await Promise.all([
+        tmdb.getMovieDetails(input.tmdbId),
+        tmdb.getMovieVideos(input.tmdbId),
+        tmdb.getMovieCredits(input.tmdbId),
+      ]);
+
+      const trailerKey = tmdb.extractTrailerKey(videos);
+      const director = credits.crew.find((c) => c.job === "Director")?.name || null;
+      const genres = details.genres.map((g) => g.name);
+      const tmdbScore = details.vote_average ? Math.round(details.vote_average * 10) : null;
 
       const mediaItemData = {
         id,
         tmdbId: input.tmdbId,
         type: "MOVIE" as const,
-        title: traktData.title,
-        year: traktData.year,
-        overview: traktData.overview,
-        tagline: traktData.tagline,
-        runtime: traktData.runtime,
-        status: traktData.status,
-        certification: traktData.certification,
-        releaseDate: traktData.released,
-        genres: traktData.genres,
-        language: traktData.language,
-        country: traktData.country,
-        imdbId: traktData.ids.imdb,
-        traktId: traktData.ids.trakt,
-        posterPath: extractTraktImage(traktData.images, "poster"),
-        backdropPath: extractTraktBackdrop(traktData.images),
-        videos: traktData.trailer
-          ? [{ key: trakt.extractTrailerKey(traktData.trailer), type: "Trailer", site: "YouTube" }]
-          : [],
-        traktUpdatedAt: new Date(),
+        title: details.title,
+        originalTitle: details.original_title,
+        year: details.release_date ? Number.parseInt(details.release_date.split("-")[0], 10) : null,
+        releaseDate: details.release_date,
+        overview: details.overview,
+        tagline: details.tagline,
+        runtime: details.runtime,
+        status: details.status,
+        genres,
+        language: details.original_language,
+        country:
+          details.production_countries.length > 0
+            ? details.production_countries[0].iso_3166_1
+            : null,
+        imdbId: details.imdb_id,
+        posterPath: tmdb.getImageUrl(details.poster_path, "w500"),
+        backdropPath: tmdb.getImageUrl(details.backdrop_path, "original"),
+        videos: trailerKey ? [{ key: trailerKey, type: "Trailer", site: "YouTube" }] : [],
+        cast: credits.cast.slice(0, 20).map((c) => ({
+          id: c.id,
+          name: c.name,
+          character: c.character,
+          order: c.order,
+          profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+        })),
+        crew: credits.crew.slice(0, 20).map((c) => ({
+          id: c.id,
+          name: c.name,
+          job: c.job,
+          department: c.department,
+          profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+        })),
+        director,
+        tmdbUpdatedAt: new Date(),
       };
 
       await prisma.mediaItem.upsert({
@@ -962,6 +1027,22 @@ export const discoveryRouter = router({
         create: mediaItemData,
         update: mediaItemData,
       });
+
+      // Save TMDB rating
+      if (tmdbScore !== null || details.vote_count) {
+        await prisma.mediaRatings.upsert({
+          where: { mediaId: id },
+          create: {
+            mediaId: id,
+            tmdbScore,
+            tmdbVotes: details.vote_count || null,
+          },
+          update: {
+            tmdbScore,
+            tmdbVotes: details.vote_count || undefined,
+          },
+        });
+      }
 
       // Fetch and save ratings from MDBList (if configured)
       const isMdblistConfigured = await mdblist.isConfigured();
@@ -991,17 +1072,17 @@ export const discoveryRouter = router({
 
   /**
    * JIT TV Show Details endpoint
-   * Fetches from Trakt API with database caching (7-day TTL for Trakt, 1-hour for ratings)
+   * Fetches from TMDB API with database caching (7-day TTL for TMDB, 1-hour for ratings)
    * Uses stale-while-revalidate: returns cached data immediately, refreshes in background if stale
    */
   traktTvShowDetails: publicProcedure
     .input(z.object({ tmdbId: z.number() }))
     .query(async ({ input }) => {
-      const trakt = getTraktService();
+      const tmdb = getTMDBService();
       const { getMDBListService } = await import("../services/mdblist.js");
       const mdblist = getMDBListService();
 
-      const TRAKT_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+      const TMDB_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
       const RATINGS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
       const id = `tmdb-tv-${input.tmdbId}`;
@@ -1020,7 +1101,7 @@ export const discoveryRouter = router({
       type Episode = Prisma.EpisodeGetPayload<Record<string, never>>;
 
       const now = Date.now();
-      const traktAge = cached?.traktUpdatedAt ? now - cached.traktUpdatedAt.getTime() : Infinity;
+      const tmdbAge = cached?.tmdbUpdatedAt ? now - cached.tmdbUpdatedAt.getTime() : Infinity;
       const ratingsAge = cached?.mdblistUpdatedAt
         ? now - cached.mdblistUpdatedAt.getTime()
         : Infinity;
@@ -1087,13 +1168,13 @@ export const discoveryRouter = router({
                 mdblistScore: item.ratings.mdblistScore,
               }
             : null,
-          traktUpdatedAt: item.traktUpdatedAt,
+          tmdbUpdatedAt: item.tmdbUpdatedAt,
           mdblistUpdatedAt: item.mdblistUpdatedAt,
         };
       };
 
       // If we have fresh data, return it immediately
-      if (cached && traktAge < TRAKT_CACHE_TTL && ratingsAge < RATINGS_CACHE_TTL) {
+      if (cached && tmdbAge < TMDB_CACHE_TTL && ratingsAge < RATINGS_CACHE_TTL) {
         return formatResponse(cached);
       }
 
@@ -1101,101 +1182,139 @@ export const discoveryRouter = router({
       if (cached) {
         (async () => {
           try {
-            if (traktAge >= TRAKT_CACHE_TTL) {
-              const traktData = await trakt.getTvShowDetails(input.tmdbId);
+            if (tmdbAge >= TMDB_CACHE_TTL) {
+              const [details, videos, credits] = await Promise.all([
+                tmdb.getTVDetails(input.tmdbId),
+                tmdb.getTVVideos(input.tmdbId),
+                tmdb.getTVCredits(input.tmdbId),
+              ]);
 
-              // Fetch seasons
-              const traktSeasons = await trakt.getSeasons(input.tmdbId);
-              const seasonCount = traktSeasons.filter((s) => s.number > 0).length;
+              const trailerKey = tmdb.extractTrailerKey(videos);
+              const genres = details.genres.map((g) => g.name);
+              const runtime =
+                details.episode_run_time.length > 0 ? details.episode_run_time[0] : null;
+              const seasonCount = details.seasons.filter((s) => s.season_number > 0).length;
 
               await prisma.mediaItem.update({
                 where: { id },
                 data: {
-                  title: traktData.title,
-                  year: traktData.year,
-                  overview: traktData.overview,
-                  runtime: traktData.runtime,
-                  status: traktData.status,
-                  certification: traktData.certification,
-                  releaseDate: traktData.first_aired?.split("T")[0] || null,
-                  genres: traktData.genres,
-                  language: traktData.language,
-                  country: traktData.country,
-                  imdbId: traktData.ids.imdb,
-                  traktId: traktData.ids.trakt,
-                  tvdbId: traktData.ids.tvdb,
-                  numberOfSeasons: seasonCount,
-                  numberOfEpisodes: traktData.aired_episodes,
-                  networks: traktData.network ? [{ name: traktData.network }] : undefined,
-                  posterPath: extractTraktImage(traktData.images, "poster") || cached.posterPath,
-                  backdropPath: extractTraktBackdrop(traktData.images) || cached.backdropPath,
-                  videos: traktData.trailer
-                    ? [
-                        {
-                          key: trakt.extractTrailerKey(traktData.trailer) || "",
-                          type: "Trailer",
-                          site: "YouTube",
-                        },
-                      ]
+                  title: details.name,
+                  originalTitle: details.original_name,
+                  year: details.first_air_date
+                    ? Number.parseInt(details.first_air_date.split("-")[0], 10)
                     : undefined,
-                  traktUpdatedAt: new Date(),
+                  releaseDate: details.first_air_date,
+                  overview: details.overview,
+                  runtime,
+                  status: details.status,
+                  genres,
+                  language: details.original_language,
+                  country:
+                    details.origin_country.length > 0 ? details.origin_country[0] : undefined,
+                  numberOfSeasons: seasonCount,
+                  numberOfEpisodes: details.number_of_episodes,
+                  networks:
+                    details.networks.length > 0
+                      ? details.networks.map((n) => ({ name: n.name }))
+                      : undefined,
+                  posterPath: tmdb.getImageUrl(details.poster_path, "w500") || cached.posterPath,
+                  backdropPath:
+                    tmdb.getImageUrl(details.backdrop_path, "original") || cached.backdropPath,
+                  videos: trailerKey
+                    ? [{ key: trailerKey, type: "Trailer", site: "YouTube" }]
+                    : undefined,
+                  cast: credits.cast.slice(0, 20).map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    character: c.character,
+                    order: c.order,
+                    profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+                  })),
+                  crew: credits.crew.slice(0, 20).map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    job: c.job,
+                    department: c.department,
+                    profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+                  })),
+                  tmdbUpdatedAt: new Date(),
                 },
               });
 
+              // Update TMDB rating
+              const tmdbScore = details.vote_average ? Math.round(details.vote_average * 10) : null;
+              if (tmdbScore !== null || details.vote_count) {
+                await prisma.mediaRatings.upsert({
+                  where: { mediaId: id },
+                  create: {
+                    mediaId: id,
+                    tmdbScore,
+                    tmdbVotes: details.vote_count || null,
+                  },
+                  update: {
+                    tmdbScore,
+                    tmdbVotes: details.vote_count || undefined,
+                  },
+                });
+              }
+
               // Save each season and its episodes
-              for (const season of traktSeasons) {
+              for (const season of details.seasons) {
                 const savedSeason = await prisma.season.upsert({
                   where: {
                     mediaItemId_seasonNumber: {
                       mediaItemId: id,
-                      seasonNumber: season.number,
+                      seasonNumber: season.season_number,
                     },
                   },
                   create: {
                     mediaItemId: id,
-                    seasonNumber: season.number,
-                    name: season.title || `Season ${season.number}`,
+                    seasonNumber: season.season_number,
+                    name: season.name,
                     overview: season.overview,
-                    posterPath: extractTraktImage(season.images, "poster"),
+                    posterPath: tmdb.getImageUrl(season.poster_path, "w500"),
                     episodeCount: season.episode_count,
-                    airDate: season.first_aired?.split("T")[0] || null,
+                    airDate: season.air_date,
                   },
                   update: {
-                    name: season.title || `Season ${season.number}`,
+                    name: season.name,
                     overview: season.overview,
-                    posterPath: extractTraktImage(season.images, "poster") || undefined,
+                    posterPath: tmdb.getImageUrl(season.poster_path, "w500") || undefined,
                     episodeCount: season.episode_count,
-                    airDate: season.first_aired?.split("T")[0] || null,
+                    airDate: season.air_date,
                   },
                 });
 
                 // Fetch and save episodes for this season
                 try {
-                  const seasonDetails = await trakt.getSeason(input.tmdbId, season.number);
+                  const seasonDetails = await tmdb.getTVSeasonDetails(
+                    input.tmdbId,
+                    season.season_number
+                  );
                   if (seasonDetails.episodes) {
                     for (const ep of seasonDetails.episodes) {
                       await prisma.episode.upsert({
                         where: {
                           seasonId_episodeNumber: {
                             seasonId: savedSeason.id,
-                            episodeNumber: ep.number,
+                            episodeNumber: ep.episode_number,
                           },
                         },
                         create: {
                           seasonId: savedSeason.id,
-                          seasonNumber: season.number,
-                          episodeNumber: ep.number,
-                          name: ep.title || `Episode ${ep.number}`,
+                          seasonNumber: season.season_number,
+                          episodeNumber: ep.episode_number,
+                          name: ep.name,
                           overview: ep.overview,
-                          stillPath: extractEpisodeStill(ep.images),
-                          airDate: ep.first_aired?.split("T")[0] || null,
+                          stillPath: tmdb.getImageUrl(ep.still_path, "w500"),
+                          airDate: ep.air_date,
                           runtime: ep.runtime,
                         },
                         update: {
-                          name: ep.title || `Episode ${ep.number}`,
+                          name: ep.name,
                           overview: ep.overview,
-                          stillPath: extractEpisodeStill(ep.images) || undefined,
-                          airDate: ep.first_aired?.split("T")[0] || null,
+                          stillPath: tmdb.getImageUrl(ep.still_path, "w500") || undefined,
+                          airDate: ep.air_date,
                           runtime: ep.runtime,
                         },
                       });
@@ -1203,7 +1322,7 @@ export const discoveryRouter = router({
                   }
                 } catch (epError) {
                   console.error(
-                    `[JIT] Background: Failed to fetch episodes for season ${season.number}:`,
+                    `[JIT] Background: Failed to fetch episodes for season ${season.season_number}:`,
                     epError
                   );
                 }
@@ -1235,37 +1354,60 @@ export const discoveryRouter = router({
       }
 
       // No cache - fetch from APIs and save
-      if (!trakt.isConfigured()) {
-        throw new Error("Trakt API not configured");
+      if (!(await tmdb.isConfigured())) {
+        throw new Error("TMDB API not configured");
       }
 
-      const traktData = await trakt.getTvShowDetails(input.tmdbId);
+      const [details, videos, credits] = await Promise.all([
+        tmdb.getTVDetails(input.tmdbId),
+        tmdb.getTVVideos(input.tmdbId),
+        tmdb.getTVCredits(input.tmdbId),
+      ]);
+
+      const trailerKey = tmdb.extractTrailerKey(videos);
+      const genres = details.genres.map((g) => g.name);
+      const runtime = details.episode_run_time.length > 0 ? details.episode_run_time[0] : null;
+      const seasonCount = details.seasons.filter((s) => s.season_number > 0).length;
+      const tmdbScore = details.vote_average ? Math.round(details.vote_average * 10) : null;
 
       const mediaItemData = {
         id,
         tmdbId: input.tmdbId,
         type: "TV" as const,
-        title: traktData.title,
-        year: traktData.year,
-        overview: traktData.overview,
-        runtime: traktData.runtime,
-        status: traktData.status,
-        certification: traktData.certification,
-        releaseDate: traktData.first_aired?.split("T")[0] || null,
-        genres: traktData.genres,
-        language: traktData.language,
-        country: traktData.country,
-        imdbId: traktData.ids.imdb,
-        traktId: traktData.ids.trakt,
-        tvdbId: traktData.ids.tvdb,
-        numberOfEpisodes: traktData.aired_episodes,
-        networks: traktData.network ? [{ name: traktData.network }] : [],
-        posterPath: extractTraktImage(traktData.images, "poster"),
-        backdropPath: extractTraktBackdrop(traktData.images),
-        videos: traktData.trailer
-          ? [{ key: trakt.extractTrailerKey(traktData.trailer), type: "Trailer", site: "YouTube" }]
-          : [],
-        traktUpdatedAt: new Date(),
+        title: details.name,
+        originalTitle: details.original_name,
+        year: details.first_air_date
+          ? Number.parseInt(details.first_air_date.split("-")[0], 10)
+          : null,
+        releaseDate: details.first_air_date,
+        overview: details.overview,
+        runtime,
+        status: details.status,
+        genres,
+        language: details.original_language,
+        country: details.origin_country.length > 0 ? details.origin_country[0] : null,
+        numberOfSeasons: seasonCount,
+        numberOfEpisodes: details.number_of_episodes,
+        networks:
+          details.networks.length > 0 ? details.networks.map((n) => ({ name: n.name })) : [],
+        posterPath: tmdb.getImageUrl(details.poster_path, "w500"),
+        backdropPath: tmdb.getImageUrl(details.backdrop_path, "original"),
+        videos: trailerKey ? [{ key: trailerKey, type: "Trailer", site: "YouTube" }] : [],
+        cast: credits.cast.slice(0, 20).map((c) => ({
+          id: c.id,
+          name: c.name,
+          character: c.character,
+          order: c.order,
+          profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+        })),
+        crew: credits.crew.slice(0, 20).map((c) => ({
+          id: c.id,
+          name: c.name,
+          job: c.job,
+          department: c.department,
+          profilePath: tmdb.getImageUrl(c.profile_path, "w500"),
+        })),
+        tmdbUpdatedAt: new Date(),
       };
 
       await prisma.mediaItem.upsert({
@@ -1274,78 +1416,87 @@ export const discoveryRouter = router({
         update: mediaItemData,
       });
 
-      // Fetch and save seasons from Trakt
-      try {
-        const traktSeasons = await trakt.getSeasons(input.tmdbId);
-        const seasonCount = traktSeasons.filter((s) => s.number > 0).length; // Exclude specials (season 0)
-
-        // Update numberOfSeasons
-        await prisma.mediaItem.update({
-          where: { id },
-          data: { numberOfSeasons: seasonCount },
+      // Save TMDB rating
+      if (tmdbScore !== null || details.vote_count) {
+        await prisma.mediaRatings.upsert({
+          where: { mediaId: id },
+          create: {
+            mediaId: id,
+            tmdbScore,
+            tmdbVotes: details.vote_count || null,
+          },
+          update: {
+            tmdbScore,
+            tmdbVotes: details.vote_count || undefined,
+          },
         });
+      }
 
-        // Save each season and its episodes
-        for (const season of traktSeasons) {
+      // Save each season and its episodes
+      try {
+        for (const season of details.seasons) {
           const savedSeason = await prisma.season.upsert({
             where: {
               mediaItemId_seasonNumber: {
                 mediaItemId: id,
-                seasonNumber: season.number,
+                seasonNumber: season.season_number,
               },
             },
             create: {
               mediaItemId: id,
-              seasonNumber: season.number,
-              name: season.title || `Season ${season.number}`,
+              seasonNumber: season.season_number,
+              name: season.name,
               overview: season.overview,
-              posterPath: extractTraktImage(season.images, "poster"),
+              posterPath: tmdb.getImageUrl(season.poster_path, "w500"),
               episodeCount: season.episode_count,
-              airDate: season.first_aired?.split("T")[0] || null,
+              airDate: season.air_date,
             },
             update: {
-              name: season.title || `Season ${season.number}`,
+              name: season.name,
               overview: season.overview,
-              posterPath: extractTraktImage(season.images, "poster") || undefined,
+              posterPath: tmdb.getImageUrl(season.poster_path, "w500") || undefined,
               episodeCount: season.episode_count,
-              airDate: season.first_aired?.split("T")[0] || null,
+              airDate: season.air_date,
             },
           });
 
           // Fetch and save episodes for this season
           try {
-            const seasonDetails = await trakt.getSeason(input.tmdbId, season.number);
+            const seasonDetails = await tmdb.getTVSeasonDetails(input.tmdbId, season.season_number);
             if (seasonDetails.episodes) {
               for (const ep of seasonDetails.episodes) {
                 await prisma.episode.upsert({
                   where: {
                     seasonId_episodeNumber: {
                       seasonId: savedSeason.id,
-                      episodeNumber: ep.number,
+                      episodeNumber: ep.episode_number,
                     },
                   },
                   create: {
                     seasonId: savedSeason.id,
-                    seasonNumber: season.number,
-                    episodeNumber: ep.number,
-                    name: ep.title || `Episode ${ep.number}`,
+                    seasonNumber: season.season_number,
+                    episodeNumber: ep.episode_number,
+                    name: ep.name,
                     overview: ep.overview,
-                    stillPath: extractEpisodeStill(ep.images),
-                    airDate: ep.first_aired?.split("T")[0] || null,
+                    stillPath: tmdb.getImageUrl(ep.still_path, "w500"),
+                    airDate: ep.air_date,
                     runtime: ep.runtime,
                   },
                   update: {
-                    name: ep.title || `Episode ${ep.number}`,
+                    name: ep.name,
                     overview: ep.overview,
-                    stillPath: extractEpisodeStill(ep.images) || undefined,
-                    airDate: ep.first_aired?.split("T")[0] || null,
+                    stillPath: tmdb.getImageUrl(ep.still_path, "w500") || undefined,
+                    airDate: ep.air_date,
                     runtime: ep.runtime,
                   },
                 });
               }
             }
           } catch (epError) {
-            console.error(`[JIT] Failed to fetch episodes for season ${season.number}:`, epError);
+            console.error(
+              `[JIT] Failed to fetch episodes for season ${season.season_number}:`,
+              epError
+            );
           }
         }
       } catch (error) {
