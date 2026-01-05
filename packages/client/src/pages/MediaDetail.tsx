@@ -90,15 +90,30 @@ export default function MediaDetailPage() {
     }
   }, [searchParams, setSearchParams]);
 
+  // Helper to check if data is fully hydrated
+  const isDataHydrated = (data: unknown) => {
+    if (!data || typeof data !== "object") return false;
+    const mediaData = data as { cast?: unknown[]; backdropPath?: string | null };
+    // Check for essential hydrated fields (cast, crew, backdrop)
+    return !!mediaData.cast && mediaData.cast.length > 0 && !!mediaData.backdropPath;
+  };
+
   // JIT data fetching - handles caching and background refresh automatically
+  // Poll every second until data is fully hydrated
   const movieQuery = trpc.discovery.traktMovieDetails.useQuery(
     { tmdbId },
-    { enabled: type === "movie" && tmdbId > 0 }
+    {
+      enabled: type === "movie" && tmdbId > 0,
+      refetchInterval: (data) => (isDataHydrated(data) ? false : 1000),
+    }
   );
 
   const tvShowQuery = trpc.discovery.traktTvShowDetails.useQuery(
     { tmdbId },
-    { enabled: type === "tv" && tmdbId > 0 }
+    {
+      enabled: type === "tv" && tmdbId > 0,
+      refetchInterval: (data) => (isDataHydrated(data) ? false : 1000),
+    }
   );
 
   // Fetch library availability for TV shows
