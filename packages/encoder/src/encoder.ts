@@ -32,12 +32,20 @@ interface SubtitleStream {
   language?: string;
 }
 
+interface AudioStream {
+  index: number;
+  codec: string;
+  channels: number;
+  language?: string;
+}
+
 interface MediaInfo {
   duration: number;
   width: number;
   height: number;
   fps: number;
   fileSize: number;
+  audioStreams: AudioStream[];
   subtitleStreams: SubtitleStream[];
 }
 
@@ -112,6 +120,23 @@ export async function probeMedia(filePath: string): Promise<MediaInfo> {
       if (den > 0) fps = num / den;
     }
 
+    // Parse audio streams
+    const audioStreams: AudioStream[] = (data.streams || [])
+      .filter((s: { codec_type: string }) => s.codec_type === "audio")
+      .map(
+        (s: {
+          index: number;
+          codec_name: string;
+          channels?: number;
+          tags?: { language?: string };
+        }) => ({
+          index: s.index,
+          codec: s.codec_name || "unknown",
+          channels: s.channels || 2,
+          language: s.tags?.language,
+        })
+      );
+
     // Parse subtitle streams
     const subtitleStreams: SubtitleStream[] = (data.streams || [])
       .filter((s: { codec_type: string }) => s.codec_type === "subtitle")
@@ -127,6 +152,7 @@ export async function probeMedia(filePath: string): Promise<MediaInfo> {
       height: videoStream.height || 1080,
       fps: fps,
       fileSize: parseInt(data.format?.size || "0", 10),
+      audioStreams,
       subtitleStreams,
     };
   } catch (e) {
@@ -429,7 +455,7 @@ function buildFfmpegArgs(
 
   // Explicit stream mapping - video and audio
   args.push("-map", "0:v:0"); // First video stream
-  args.push("-map", "0:a:0"); // First audio stream only (avoid multi-stream codec issues)
+  args.push("-map", "0:a?"); // All audio streams (optional)
 
   // Map compatible subtitle streams (or skip entirely)
   const { subArgs, hasCompatibleSubs } = buildSubtitleMapping(mediaInfo);
@@ -442,7 +468,7 @@ function buildFfmpegArgs(
   args.push(...videoArgs);
 
   // Audio encoding
-  const audioArgs = buildAudioArgs(encodingConfig);
+  const audioArgs = buildAudioArgs(encodingConfig, mediaInfo);
   args.push(...audioArgs);
 
   // Subtitle codec settings
@@ -632,12 +658,37 @@ function buildVideoArgs(
 /**
  * Build audio encoding arguments
  */
-function buildAudioArgs(encodingConfig: EncodingConfig): string[] {
+function buildAudioArgs(encodingConfig: EncodingConfig, mediaInfo: MediaInfo): string[] {
   const args: string[] = [];
 
   if (encodingConfig.audioEncoder === "copy" || encodingConfig.audioEncoder === "passthrough") {
     args.push("-c:a", "copy");
+  } else if (encodingConfig.audioEncoder === "libopus" && mediaInfo.audioStreams.length > 1) {
+    // Special handling for libopus with multiple audio streams:
+    // Encode first audio stream with opus (stereo downmix), copy the rest
+    console.log(
+      `[Encoder] Encoding first audio stream with libopus, copying ${mediaInfo.audioStreams.length - 1} additional stream(s)`
+    );
+
+    // First audio stream: libopus with stereo downmix
+    args.push("-c:a:0", encodingConfig.audioEncoder);
+    args.push("-ac:a:0", "2");
+
+    // Apply audio flags to first stream only
+    if (encodingConfig.audioFlags && typeof encodingConfig.audioFlags === "object") {
+      for (const [key, value] of Object.entries(encodingConfig.audioFlags)) {
+        if (value !== null && value !== undefined && value !== "") {
+          args.push(`-${key}:a:0`, String(value));
+        }
+      }
+    }
+
+    // Additional audio streams: copy
+    for (let i = 1; i < mediaInfo.audioStreams.length; i++) {
+      args.push(`-c:a:${i}`, "copy");
+    }
   } else {
+    // Single audio stream or non-opus encoder: apply settings globally
     args.push("-c:a", encodingConfig.audioEncoder);
 
     // Special handling for libopus - downmix to stereo for compatibility
