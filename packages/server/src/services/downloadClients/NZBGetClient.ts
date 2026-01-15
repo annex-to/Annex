@@ -406,6 +406,7 @@ export class NZBGetClient implements IDownloadClient {
     const totalBytes = item.FileSizeMB * 1024 * 1024;
     const state = this.mapState(item.Status);
     const isComplete = state === "complete";
+    // Use FinalDir if available (contains extracted files), otherwise DestDir
     const path = item.FinalDir || item.DestDir;
 
     console.log(`[NZBGetClient] History item ${item.NZBID}:`, {
@@ -438,6 +439,11 @@ export class NZBGetClient implements IDownloadClient {
   }
 
   private mapState(nzbGetStatus: string): DownloadState {
+    // Handle SUCCESS/PAR, SUCCESS/UNPACK, WARNING/SCRIPT, etc.
+    if (nzbGetStatus.startsWith("SUCCESS")) return "complete";
+    if (nzbGetStatus.startsWith("WARNING")) return "complete";
+    if (nzbGetStatus.startsWith("FAILURE")) return "error";
+
     return STATE_MAP[nzbGetStatus] || "unknown";
   }
 
