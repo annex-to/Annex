@@ -359,6 +359,13 @@ export class DownloadWorker extends BaseWorker {
       }
 
       // Check if complete
+      console.log(`[${this.name}] Progress for ${item.title}:`, {
+        progress: progress.progress,
+        isComplete: progress.isComplete,
+        state: progress.state,
+        contentPath: progress.contentPath,
+      });
+
       if (progress.isComplete || progress.progress >= 100) {
         await this.handleCompletedDownload(item, download, progress);
       }

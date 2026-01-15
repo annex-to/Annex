@@ -408,6 +408,15 @@ export class NZBGetClient implements IDownloadClient {
     const isComplete = state === "complete";
     const path = item.FinalDir || item.DestDir;
 
+    console.log(`[NZBGetClient] History item ${item.NZBID}:`, {
+      status: item.Status,
+      state,
+      isComplete,
+      finalDir: item.FinalDir,
+      destDir: item.DestDir,
+      path,
+    });
+
     return {
       clientHash: String(item.NZBID),
       hash: String(item.NZBID),
