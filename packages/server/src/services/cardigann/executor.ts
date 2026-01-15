@@ -237,19 +237,12 @@ export class CardigannExecutor {
       // Extract items array using rows.selector if specified
       let items: unknown[];
       if (rows?.selector) {
-        console.log(`[Cardigann Executor] JSON: Using rows.selector: ${rows.selector}`);
         const extracted = selectorEngine.extractJsonValue(json, rows.selector);
-        console.log(
-          `[Cardigann Executor] JSON: Extracted value type: ${Array.isArray(extracted) ? "array" : typeof extracted}, length: ${Array.isArray(extracted) ? extracted.length : "N/A"}`
-        );
         items = Array.isArray(extracted) ? extracted : [extracted];
       } else {
-        console.log(`[Cardigann Executor] JSON: No rows.selector found, using fallback`);
         // Fallback: assume top-level array or single object
         items = Array.isArray(json) ? json : [json];
       }
-
-      console.log(`[Cardigann Executor] JSON: Extracted ${items.length} items from response`);
 
       for (const item of items) {
         const extractedFields: { [key: string]: string } = {};
@@ -278,17 +271,12 @@ export class CardigannExecutor {
             typeof selector.text === "string" &&
             selector.text.includes(".Result.")
           ) {
-            console.log(
-              `[Cardigann Executor] Processing inter-field reference for ${key}: ${selector.text}`
-            );
             // Build variables object with extracted fields accessible as .Result.xxx
             const resultVars: { [key: string]: string | number | boolean } = {};
             for (const [fieldKey, fieldValue] of Object.entries(extractedFields)) {
               resultVars[fieldKey] = fieldValue;
             }
-            console.log(`[Cardigann Executor] Result vars for ${key}:`, resultVars);
             const replaced = cardigannParser.replaceVariables(selector.text, resultVars);
-            console.log(`[Cardigann Executor] After replacement for ${key}: ${replaced}`);
             extractedFields[key] = replaced;
           }
         }

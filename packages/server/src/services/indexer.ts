@@ -262,6 +262,7 @@ class IndexerService {
     options: SearchOptions
   ): Promise<Release[]> {
     const url = this.buildSearchUrl(indexer, options);
+    console.log(`[Indexer] ${indexer.name} - URL: ${url}`);
 
     const response = await fetch(url, {
       signal: AbortSignal.timeout(30000), // 30 second timeout
@@ -272,7 +273,9 @@ class IndexerService {
     }
 
     const xml = await response.text();
-    return this.parseResults(xml, indexer.id, indexer.name);
+    const results = this.parseResults(xml, indexer.id, indexer.name);
+    console.log(`[Indexer] ${indexer.name} - Found ${results.length} results`);
+    return results;
   }
 
   /**
