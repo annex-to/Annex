@@ -367,13 +367,18 @@ export class DownloadWorker extends BaseWorker {
         });
       }
 
-      // Check if complete
+      // Check if complete or failed
       console.log(`[${this.name}] Progress for ${item.title}:`, {
         progress: progress.progress,
         isComplete: progress.isComplete,
         state: progress.state,
         contentPath: progress.contentPath,
       });
+
+      // Check for failed downloads (FAILURE/HEALTH, FAILURE/PAR, etc.)
+      if (progress.state === "error") {
+        throw new Error(`Download failed with error state (likely health check failure)`);
+      }
 
       if (progress.isComplete || progress.progress >= 100) {
         await this.handleCompletedDownload(item, download, progress);
