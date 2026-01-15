@@ -177,20 +177,45 @@ export class SearchStep extends BaseStep {
       `Quality requirement: ${resolutionLabel} or better (derived from target servers)`
     );
 
-    // Check qBittorrent for existing downloads (if enabled)
+    // Check for existing downloads (if enabled)
     if (cfg.checkExistingDownloads !== false) {
-      console.log(`[Search] Checking qBittorrent for existing downloads: ${title}`);
+      console.log(`[Search] Checking for existing downloads: ${title}`);
       let existingMatch: {
         found: boolean;
         match?: { torrent: { hash: string; name: string } };
         isComplete?: boolean;
       } | null = null;
 
-      if (mediaType === MediaType.MOVIE) {
-        console.log(`[Search] Checking for existing movie download`);
+      // First check database for any completed downloads for this request
+      const existingDownload = await prisma.download.findFirst({
+        where: {
+          requestId,
+          status: "COMPLETED",
+        },
+        orderBy: { completedAt: "desc" },
+      });
+
+      if (existingDownload) {
+        console.log(
+          `[Search] Found existing completed download in database: ${existingDownload.torrentName}`
+        );
+        existingMatch = {
+          found: true,
+          match: {
+            torrent: {
+              hash: existingDownload.clientHash || existingDownload.torrentHash,
+              name: existingDownload.torrentName,
+            },
+          },
+          isComplete: true,
+        };
+      } else if (mediaType === MediaType.MOVIE) {
+        // If not found in database, check qBittorrent
+        console.log(`[Search] Checking qBittorrent for existing movie download`);
         existingMatch = await downloadManager.findExistingMovieDownload(title, year);
       } else if (mediaType === MediaType.TV) {
-        // Check for existing TV downloads (season or episode)
+        // If not found in database, check for existing TV downloads (season or episode)
+        console.log(`[Search] Checking qBittorrent for existing TV download`);
         const requestedEpisodes = context.requestedEpisodes;
         if (requestedEpisodes && requestedEpisodes.length === 1) {
           // Single episode - check BOTH individual episode AND season pack
