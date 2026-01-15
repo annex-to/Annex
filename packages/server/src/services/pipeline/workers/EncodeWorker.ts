@@ -221,10 +221,10 @@ export class EncodeWorker extends BaseWorker {
     const tempOutputPath = `${inputDir}/encoded_${item.id}_temp_${Date.now()}.mkv`;
 
     // Fix ownership and permissions for encoder access
-    console.log(`[${this.name}] Setting ownership to nobody:nogroup for ${inputDir}`);
+    console.log(`[${this.name}] Setting ownership to qbittorrent:qbittorrent-group for ${inputDir}`);
     try {
-      await Bun.$`sudo chown -R nobody:nogroup ${inputDir}`.quiet();
-      await Bun.$`sudo chmod -R 755 ${inputDir}`.quiet();
+      await Bun.$`sudo chown -R qbittorrent:qbittorrent-group ${inputDir}`.quiet();
+      await Bun.$`sudo chmod -R 775 ${inputDir}`.quiet();
     } catch (err) {
       console.warn(
         `[${this.name}] Failed to set ownership: ${err instanceof Error ? err.message : "Unknown"}`
