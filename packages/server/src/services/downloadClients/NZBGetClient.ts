@@ -71,7 +71,6 @@ export class NZBGetClient implements IDownloadClient {
   private password: string;
   private nzbGetBaseDir: string | undefined;
   private requestId = 1;
-  private cachedVersion: string | null = null;
 
   constructor(config: {
     name: string;
@@ -163,7 +162,9 @@ export class NZBGetClient implements IDownloadClient {
         [], // PPParameters (struct[])
       ];
 
-      console.log(`[NZBGetClient] Calling append with ${params.length} parameters (v21.1 signature)`);
+      console.log(
+        `[NZBGetClient] Calling append with ${params.length} parameters (v21.1 signature)`
+      );
       const response = await this.rpcCall<number>("append", params);
 
       if (response.error) {
@@ -171,8 +172,8 @@ export class NZBGetClient implements IDownloadClient {
         return { success: false, error: response.error.message };
       }
 
-      if (!response.result) {
-        return { success: false, error: "No NZBID returned" };
+      if (!response.result || response.result <= 0) {
+        return { success: false, error: `Invalid NZBID returned: ${response.result}` };
       }
 
       return { success: true, clientHash: String(response.result) };
@@ -237,8 +238,8 @@ export class NZBGetClient implements IDownloadClient {
         return { success: false, error: response.error.message };
       }
 
-      if (!response.result) {
-        return { success: false, error: "No NZBID returned" };
+      if (!response.result || response.result <= 0) {
+        return { success: false, error: `Invalid NZBID returned: ${response.result}` };
       }
 
       return { success: true, clientHash: String(response.result) };

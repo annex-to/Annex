@@ -39,6 +39,13 @@ export class DownloadWorker extends BaseWorker {
   }
 
   /**
+   * Get circuit breaker key for a download client
+   */
+  private getCircuitBreakerKey(client: { type: { toString(): string } }): string {
+    return client.type.toString().toLowerCase();
+  }
+
+  /**
    * Process batch - handle both new downloads and active monitoring
    */
   async processBatch(): Promise<void> {
@@ -302,18 +309,20 @@ export class DownloadWorker extends BaseWorker {
       throw new Error(`Download ${item.downloadId} not found`);
     }
 
-    // Check circuit breaker
-    const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
-    if (!qbHealthy) {
+    // Get client and check its circuit breaker
+    const client = this.getClientForDownload(download);
+    const circuitBreakerKey = this.getCircuitBreakerKey(client);
+    const clientHealthy = await circuitBreakerService.isAvailable(circuitBreakerKey);
+
+    if (!clientHealthy) {
       console.warn(
-        `[${this.name}] qBittorrent circuit open, skipping progress check for ${item.title}`
+        `[${this.name}] ${client.name} circuit open, skipping progress check for ${item.title}`
       );
       return; // Will retry next poll cycle
     }
 
     try {
       // Get download status from client
-      const client = this.getClientForDownload(download);
       const clientHash = download.clientHash || download.torrentHash;
       const progress = await client.getProgress(clientHash);
 
@@ -371,11 +380,11 @@ export class DownloadWorker extends BaseWorker {
       }
 
       // Record success in circuit breaker
-      await circuitBreakerService.recordSuccess("qbittorrent");
+      await circuitBreakerService.recordSuccess(circuitBreakerKey);
     } catch (error) {
       // Record failure in circuit breaker
       await circuitBreakerService.recordFailure(
-        "qbittorrent",
+        circuitBreakerKey,
         error instanceof Error ? error : new Error(String(error))
       );
       throw error;
@@ -493,10 +502,13 @@ export class DownloadWorker extends BaseWorker {
 
     const clientHash = downloadRecord.clientHash || downloadRecord.torrentHash;
 
-    // Check circuit breaker
-    const qbHealthy = await circuitBreakerService.isAvailable("qbittorrent");
-    if (!qbHealthy) {
-      console.warn(`[${this.name}] qBittorrent circuit open, skipping ${item.title}`);
+    // Get client and check its circuit breaker
+    const client = this.getClientForDownload(downloadRecord);
+    const circuitBreakerKey = this.getCircuitBreakerKey(client);
+    const clientHealthy = await circuitBreakerService.isAvailable(circuitBreakerKey);
+
+    if (!clientHealthy) {
+      console.warn(`[${this.name}] ${client.name} circuit open, skipping ${item.title}`);
       await prisma.processingItem.update({
         where: { id: item.id },
         data: { skipUntil: new Date(Date.now() + 5 * 60 * 1000) },
@@ -506,7 +518,6 @@ export class DownloadWorker extends BaseWorker {
 
     try {
       // Get download details from client
-      const client = this.getClientForDownload(downloadRecord);
       const progress = await client.getProgress(clientHash);
 
       if (!progress) {
@@ -570,13 +581,13 @@ export class DownloadWorker extends BaseWorker {
       }
 
       // Record success in circuit breaker
-      await circuitBreakerService.recordSuccess("qbittorrent");
+      await circuitBreakerService.recordSuccess(circuitBreakerKey);
 
       console.log(`[${this.name}] Linked ${item.title} to existing download`);
     } catch (error) {
       // Record failure in circuit breaker
       await circuitBreakerService.recordFailure(
-        "qbittorrent",
+        circuitBreakerKey,
         error instanceof Error ? error : new Error(String(error))
       );
       throw error;
