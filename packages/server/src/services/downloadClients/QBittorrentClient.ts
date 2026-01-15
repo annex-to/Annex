@@ -304,7 +304,12 @@ export class QBittorrentClient implements IDownloadClient {
       return { success: false, error: "Failed to add magnet" };
     }
 
-    return { success: true };
+    const clientHash = await this.findTorrentHash(options?.tags, options?.filename);
+    if (!clientHash) {
+      return { success: false, error: "Torrent added but hash not found" };
+    }
+
+    return { success: true, clientHash };
   }
 
   async addTorrentUrl(
@@ -345,7 +350,13 @@ export class QBittorrentClient implements IDownloadClient {
     }
 
     console.log(`[QBittorrent] Successfully added torrent from URL`);
-    return { success: true };
+
+    const clientHash = await this.findTorrentHash(options?.tags, options?.filename);
+    if (!clientHash) {
+      return { success: false, error: "Torrent added but hash not found" };
+    }
+
+    return { success: true, clientHash };
   }
 
   async addTorrentFile(
@@ -393,7 +404,65 @@ export class QBittorrentClient implements IDownloadClient {
     }
 
     console.log(`[QBittorrent] Successfully added torrent: ${torrentFilename}`);
-    return { success: true };
+
+    const clientHash = await this.findTorrentHash(options?.tags, options?.filename);
+    if (!clientHash) {
+      return { success: false, error: "Torrent added but hash not found" };
+    }
+
+    return { success: true, clientHash };
+  }
+
+  private async findTorrentHash(tags?: string[], filename?: string): Promise<string | null> {
+    const maxAttempts = 10;
+    const delayMs = 500;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      const torrents = await this.getAllDownloads();
+
+      if (tags && tags.length > 0) {
+        const response = await this.request("/torrents/info");
+        if (response.ok) {
+          const torrentInfos = (await response.json()) as Array<{ hash: string; tags?: string }>;
+          for (const tag of tags) {
+            const found = torrentInfos.find((t) => t.tags?.split(",").includes(tag));
+            if (found) {
+              return found.hash;
+            }
+          }
+        }
+      }
+
+      if (filename) {
+        const normalizedFilename = filename.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const found = torrents.find((t) => {
+          const normalizedName = t.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+          return normalizedName.includes(normalizedFilename);
+        });
+        if (found) {
+          return found.clientHash;
+        }
+      }
+
+      if (torrents.length > 0 && attempt === 0) {
+        const newest = torrents.sort((a, b) => {
+          const aRecent = a.downloadSpeed > 0 || a.uploadSpeed > 0;
+          const bRecent = b.downloadSpeed > 0 || b.uploadSpeed > 0;
+          if (aRecent && !bRecent) return -1;
+          if (!aRecent && bRecent) return 1;
+          return 0;
+        })[0];
+        if (newest && (newest.downloadSpeed > 0 || newest.uploadSpeed > 0)) {
+          return newest.clientHash;
+        }
+      }
+    }
+
+    return null;
   }
 
   private async authenticate(): Promise<void> {
