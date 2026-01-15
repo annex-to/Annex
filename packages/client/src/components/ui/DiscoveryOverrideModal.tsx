@@ -18,14 +18,22 @@ export function DiscoveryOverrideModal({ isOpen, onClose, itemId }: DiscoveryOve
   const overrideMutation = trpc.requests.overrideDiscoveredRelease.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
+      alert("Release selection updated. Download will begin in 30 seconds.");
       onClose();
+    },
+    onError: (error) => {
+      alert(`Failed to override release: ${error.message}`);
     },
   });
 
   const approveMutation = trpc.requests.approveDiscoveredItem.useMutation({
     onSuccess: () => {
       utils.requests.list.invalidate();
+      alert("Download approved and will begin shortly.");
       onClose();
+    },
+    onError: (error) => {
+      alert(`Failed to approve item: ${error.message}`);
     },
   });
 
