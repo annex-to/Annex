@@ -131,9 +131,9 @@ export class NZBGetClient implements IDownloadClient {
     options?: AddDownloadOptions
   ): Promise<AddDownloadResult> {
     try {
-      // Convert ArrayBuffer to base64
+      // Convert ArrayBuffer to base64 using chunked approach to avoid stack overflow
       const uint8Array = new Uint8Array(fileData);
-      const base64 = btoa(String.fromCharCode(...uint8Array));
+      const base64 = this.arrayBufferToBase64(uint8Array);
 
       const filename = "file.nzb";
       const category = options?.category || "";
@@ -167,6 +167,21 @@ export class NZBGetClient implements IDownloadClient {
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }
+  }
+
+  /**
+   * Convert Uint8Array to base64 string using chunked approach to avoid stack overflow
+   */
+  private arrayBufferToBase64(uint8Array: Uint8Array): string {
+    const chunkSize = 8192; // Process 8KB at a time
+    let binary = "";
+
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+      binary += String.fromCharCode(...chunk);
+    }
+
+    return btoa(binary);
   }
 
   private async addNzbUrl(
