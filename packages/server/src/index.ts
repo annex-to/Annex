@@ -12,6 +12,7 @@ import {
   recoverFailedEpisodeDeliveries,
   recoverStuckDeliveries,
 } from "./services/deliveryRecovery.js";
+import { initializeDownloadClients } from "./services/downloadClients/migrate.js";
 import { recoverStuckDownloadExtractions } from "./services/downloadExtractionRecovery.js";
 import {
   type EncoderWebSocketData,
@@ -182,6 +183,10 @@ const encoderDispatch = getEncoderDispatchService();
 
 // Wait for secrets migration before starting server
 await secretsInitPromise;
+
+// Initialize download clients from environment or database
+console.log("[Startup] Initializing download clients...");
+await initializeDownloadClients();
 
 const { port, host } = config.server;
 
