@@ -220,17 +220,6 @@ export class EncodeWorker extends BaseWorker {
     const finalOutputPath = `${inputDir}/encoded_${item.id}.mkv`;
     const tempOutputPath = `${inputDir}/encoded_${item.id}_temp_${Date.now()}.mkv`;
 
-    // Fix ownership and permissions for encoder access
-    console.log(`[${this.name}] Setting ownership to qbittorrent:qbittorrent-group for ${inputDir}`);
-    try {
-      await Bun.$`sudo chown -R qbittorrent:qbittorrent-group ${inputDir}`.quiet();
-      await Bun.$`sudo chmod -R 775 ${inputDir}`.quiet();
-    } catch (err) {
-      console.warn(
-        `[${this.name}] Failed to set ownership: ${err instanceof Error ? err.message : "Unknown"}`
-      );
-    }
-
     // Early exit: Check if final encoded file already exists
     const finalFile = Bun.file(finalOutputPath);
     if (await finalFile.exists()) {
