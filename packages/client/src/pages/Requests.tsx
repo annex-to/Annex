@@ -1072,8 +1072,8 @@ function RequestCard({ request, onShowAlternatives, onShowDiscoveryOverride }: R
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-white/70">
-                          {request.releaseIndexerName
-                            ? `Downloading from ${request.releaseIndexerName}`
+                          {request.releaseMetadata?.indexerName
+                            ? `Downloading from ${request.releaseMetadata.indexerName}`
                             : "Downloading release"}
                         </span>
                         <span className="text-sm font-medium text-white">
