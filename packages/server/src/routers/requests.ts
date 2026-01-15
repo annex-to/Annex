@@ -1225,7 +1225,7 @@ export const requestsRouter = router({
       if (downloadingEpisodes.length > 0) {
         try {
           const allTorrents = await downloadService.getAllTorrents();
-          const torrentMap = new Map(allTorrents.map((t) => [t.hash.toLowerCase(), t]));
+          const torrentMap = new Map(allTorrents.map((t) => [t.clientHash.toLowerCase(), t]));
 
           for (const ep of downloadingEpisodes) {
             if (!ep.downloadId) continue;

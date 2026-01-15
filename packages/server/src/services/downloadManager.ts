@@ -176,7 +176,7 @@ export async function findExistingMovieDownload(
     const score = calculateMatchScore(parsed, torrent);
     matches.push({
       torrent: {
-        hash: torrent.hash,
+        hash: torrent.clientHash,
         name: torrent.name,
         size: torrent.totalBytes,
         progress: torrent.progress / 100,
@@ -254,7 +254,7 @@ export async function findExistingSeasonDownload(
     const score = calculateMatchScore(parsed, torrent);
     matches.push({
       torrent: {
-        hash: torrent.hash,
+        hash: torrent.clientHash,
         name: torrent.name,
         size: torrent.totalBytes,
         progress: torrent.progress / 100,
@@ -320,7 +320,7 @@ export async function findExistingEpisodeDownload(
     const score = calculateMatchScore(parsed, torrent);
     matches.push({
       torrent: {
-        hash: torrent.hash,
+        hash: torrent.clientHash,
         name: torrent.name,
         size: torrent.totalBytes,
         progress: torrent.progress / 100,
@@ -640,9 +640,9 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
 
     if (existing) {
       console.log(
-        `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.hash})`
+        `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.clientHash})`
       );
-      torrentHash = existing.hash;
+      torrentHash = existing.clientHash;
 
       // Update tags to include the new request tag
       await qb.addTags(torrentHash, [requestTag, uniqueTag]);
@@ -663,8 +663,8 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     console.log(`[DownloadManager] No hash returned, searching by tag: ${uniqueTag}`);
     const torrent = await qb.findTorrentByTag(uniqueTag, 30000);
     if (torrent) {
-      torrentHash = torrent.hash;
-      console.log(`[DownloadManager] Found torrent by tag: ${torrent.hash}`);
+      torrentHash = torrent.clientHash;
+      console.log(`[DownloadManager] Found torrent by tag: ${torrent.clientHash}`);
     } else {
       // Fallback: search by parsed metadata (for duplicate detection or qBittorrent versions without tag support)
       console.log(
@@ -689,9 +689,9 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
       });
       if (existing) {
         console.log(
-          `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.hash})`
+          `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.clientHash})`
         );
-        torrentHash = existing.hash;
+        torrentHash = existing.clientHash;
 
         // Update tags to include the new request tag
         await qb.addTags(torrentHash, [requestTag, uniqueTag]);
@@ -890,7 +890,7 @@ export async function checkDownloadHealth(): Promise<DownloadHealth[]> {
 
   // Fetch all torrents once instead of individual calls per download
   const allTorrents = await qb.getAllTorrents();
-  const torrentMap = new Map(allTorrents.map((t) => [t.hash.toLowerCase(), t]));
+  const torrentMap = new Map(allTorrents.map((t) => [t.clientHash.toLowerCase(), t]));
 
   for (const download of activeDownloads) {
     const torrent = torrentMap.get(download.torrentHash.toLowerCase());

@@ -3,6 +3,7 @@ import type { DownloadClientType } from "@prisma/client";
 export type DownloadState =
   | "queued"
   | "downloading"
+  | "stalled"
   | "paused"
   | "checking"
   | "extracting"
@@ -13,6 +14,7 @@ export type DownloadState =
 
 export interface DownloadProgress {
   clientHash: string;
+  hash?: string; // Alias for backward compatibility
   name: string;
   downloadedBytes: number;
   totalBytes: number;
@@ -24,9 +26,9 @@ export interface DownloadProgress {
   contentPath: string;
   savePath: string;
   isComplete: boolean;
-  seeds?: number;
-  peers?: number;
-  ratio?: number;
+  seeds: number;
+  peers: number;
+  ratio: number;
 }
 
 export interface AddDownloadOptions {
