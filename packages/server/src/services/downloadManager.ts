@@ -30,6 +30,7 @@ import {
   RESOLUTION_RANK,
 } from "../types/download.js";
 import { type DownloadProgress, getDownloadService } from "./download.js";
+import { getDownloadClientManager } from "./downloadClients/DownloadClientManager.js";
 
 // =============================================================================
 // Configuration
@@ -529,12 +530,23 @@ export function getQualityProfile(id: string): QualityProfileConfig | undefined 
 // =============================================================================
 
 /**
- * Create a new Download record and add torrent to qBittorrent
+ * Create a new Download record and add to appropriate download client
  */
 export async function createDownload(params: CreateDownloadParams): Promise<Download | null> {
   const { requestId, mediaType, release, alternativeReleases, isSeasonPack, season, episodeIds } =
     params;
-  const qb = getDownloadService();
+
+  // Select appropriate download client based on release type
+  const clientManager = getDownloadClientManager();
+  const selection = clientManager.selectClientForRelease(release);
+
+  if (!selection) {
+    console.error(`[DownloadManager] No compatible download client for release: ${release.title}`);
+    return null;
+  }
+
+  const { client, clientId } = selection;
+  console.log(`[DownloadManager] Using client: ${client.name} for ${release.title}`);
 
   // Check if this specific torrent is already being downloaded
   // For TV shows, we may have multiple downloads per request (one per episode)
@@ -573,21 +585,17 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     return null;
   }
 
-  // Add to qBittorrent
-  // Use a unique tag per download attempt so we can identify the correct torrent
-  // when the hash isn't returned directly (e.g., when adding by URL)
-  const uniqueTag = `annex:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Add to download client
   const requestTag = `request:${requestId}`;
-  let addResult: { success: boolean; hash?: string; error?: string };
+  let addResult: { success: boolean; clientHash?: string; error?: string };
 
   if (magnetUri) {
-    addResult = await qb.addMagnet(magnetUri, {
+    addResult = await client.addDownload(magnetUri, undefined, {
       category: "annex",
-      tags: [requestTag, uniqueTag],
+      tags: [requestTag],
     });
   } else if (downloadUrl) {
-    // Fetch torrent file ourselves to avoid issues with authenticated URLs
-    // (e.g., UNIT3D trackers where qBittorrent can't access the authenticated endpoint)
+    // Fetch file data if needed for authenticated URLs
     const redactedUrl = downloadUrl.replace(
       /(?:api_token|apikey|passkey|torrent_pass|key)=[^&]+/gi,
       (match) => {
@@ -595,25 +603,31 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
         return `${param}=***`;
       }
     );
-    console.log(`[DownloadManager] Fetching torrent file from: ${redactedUrl}`);
-    // Pass authentication headers from release (e.g., Cardigann cookies)
-    const fetchResult = await qb.fetchTorrentFile(downloadUrl, release.downloadHeaders);
+    console.log(`[DownloadManager] Fetching file from: ${redactedUrl}`);
 
-    if (fetchResult.success && fetchResult.data) {
-      // Upload the torrent file data to qBittorrent
-      const filename = `${release.title.replace(/[^a-zA-Z0-9.-]/g, "_")}.torrent`;
-      addResult = await qb.addTorrentFile(fetchResult.data, filename, {
+    // Try fetching the file data
+    let fileData: ArrayBuffer | undefined;
+    try {
+      const response = await fetch(downloadUrl, {
+        headers: release.downloadHeaders || {},
+      });
+      if (response.ok) {
+        fileData = await response.arrayBuffer();
+      }
+    } catch (error) {
+      console.warn(`[DownloadManager] Failed to fetch file: ${error}`);
+    }
+
+    // Add with file data if we have it, otherwise try URL directly
+    if (fileData) {
+      addResult = await client.addDownload(downloadUrl, fileData, {
         category: "annex",
-        tags: [requestTag, uniqueTag],
+        tags: [requestTag],
       });
     } else {
-      // Fallback: try adding URL directly (may work for some trackers)
-      console.warn(
-        `[DownloadManager] Failed to fetch torrent file: ${fetchResult.error}, trying URL directly`
-      );
-      addResult = await qb.addTorrentUrl(downloadUrl, {
+      addResult = await client.addDownload(downloadUrl, undefined, {
         category: "annex",
-        tags: [requestTag, uniqueTag],
+        tags: [requestTag],
       });
     }
   } else {
@@ -623,100 +637,24 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     return null;
   }
 
-  let torrentHash = addResult.hash;
-
-  // If adding failed (e.g., "Fails." from qBittorrent), the torrent might already exist
-  // Search for an existing torrent with matching parsed metadata
-  if (!addResult.success || !torrentHash) {
-    console.log(
-      `[DownloadManager] Failed to add torrent or no hash returned (${addResult.error}), searching for existing torrent`
-    );
-    const allTorrents = await qb.getAllTorrents();
-    const parsedRelease = parseTorrentName(release.title);
-    const existing = allTorrents.find((t) => {
-      const parsedTorrent = parseTorrentName(t.name);
-      return parsedTorrentsMatch(parsedRelease, parsedTorrent, mediaType);
-    });
-
-    if (existing) {
-      console.log(
-        `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.clientHash})`
-      );
-      torrentHash = existing.clientHash;
-
-      // Update tags to include the new request tag
-      await qb.addTags(torrentHash, [requestTag, uniqueTag]);
-      console.log(
-        `[DownloadManager] Updated tags on existing torrent ${torrentHash} with ${requestTag}`
-      );
-    } else if (!addResult.success) {
-      console.error(
-        `[DownloadManager] Failed to add torrent and no existing match found: ${addResult.error}`
-      );
-      console.error(`[DownloadManager] Total torrents in qBittorrent: ${allTorrents.length}`);
-      return null;
-    }
+  if (!addResult.success || !addResult.clientHash) {
+    console.error(`[DownloadManager] Failed to add download to ${client.name}: ${addResult.error}`);
+    return null;
   }
 
-  // If hash wasn't returned, find by unique tag or by name
-  if (!torrentHash) {
-    console.log(`[DownloadManager] No hash returned, searching by tag: ${uniqueTag}`);
-    const torrent = await qb.findTorrentByTag(uniqueTag, 30000);
-    if (torrent) {
-      torrentHash = torrent.clientHash;
-      console.log(`[DownloadManager] Found torrent by tag: ${torrent.clientHash}`);
-    } else {
-      // Fallback: search by parsed metadata (for duplicate detection or qBittorrent versions without tag support)
-      console.log(
-        `[DownloadManager] Tag search failed, searching by parsed metadata: ${release.title}`
-      );
-      const allTorrents = await qb.getAllTorrents();
-      const parsedRelease = parseTorrentName(release.title);
-      console.log(
-        `[DownloadManager] Parsed release: title="${parsedRelease.title}", season=${parsedRelease.season}, resolution=${parsedRelease.resolution}, codec=${parsedRelease.codec}`
-      );
-      console.log(
-        `[DownloadManager] Existing torrents:\n${allTorrents
-          .map((t) => {
-            const parsed = parseTorrentName(t.name);
-            return `  - title="${parsed.title}", season=${parsed.season}, res=${parsed.resolution}, codec=${parsed.codec} (${t.name})`;
-          })
-          .join("\n")}`
-      );
-      const existing = allTorrents.find((t) => {
-        const parsedTorrent = parseTorrentName(t.name);
-        return parsedTorrentsMatch(parsedRelease, parsedTorrent, mediaType);
-      });
-      if (existing) {
-        console.log(
-          `[DownloadManager] Found existing torrent with matching metadata: ${existing.name} (${existing.clientHash})`
-        );
-        torrentHash = existing.clientHash;
+  const clientHash = addResult.clientHash;
 
-        // Update tags to include the new request tag
-        await qb.addTags(torrentHash, [requestTag, uniqueTag]);
-        console.log(
-          `[DownloadManager] Updated tags on existing torrent ${torrentHash} with ${requestTag}`
-        );
-      } else {
-        console.error(
-          `[DownloadManager] Failed to find torrent after adding. Tag: ${uniqueTag}, Release: ${release.title}`
-        );
-        console.error(`[DownloadManager] Total torrents in qBittorrent: ${allTorrents.length}`);
-        return null;
-      }
-    }
-  }
+  // Get initial download info
+  const progress = await client.getProgress(clientHash);
 
-  // Get initial torrent info
-  const progress = await qb.getProgress(torrentHash);
-
-  // Create or update Download record (upsert for reused torrents)
+  // Create or update Download record (upsert for reused downloads)
   const download = await prisma.download.upsert({
-    where: { torrentHash },
+    where: { torrentHash: clientHash },
     create: {
       requestId,
-      torrentHash,
+      torrentHash: clientHash, // Keep for backward compatibility
+      clientHash,
+      downloadClientId: clientId,
       torrentName: release.title,
       magnetUri: magnetUri || null,
       mediaType,
@@ -744,6 +682,7 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
     },
     update: {
       requestId, // Update to new request
+      downloadClientId: clientId,
       status: DownloadStatus.DOWNLOADING,
       progress: progress?.progress || 0,
       lastProgressAt: new Date(),
@@ -767,7 +706,9 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
   await logDownloadEvent(download.id, "created", {
     requestId,
     torrentName: release.title,
-    torrentHash,
+    clientHash,
+    clientId,
+    clientName: client.name,
   });
 
   console.log(`[DownloadManager] Created download ${download.id} for ${release.title}`);
@@ -1045,9 +986,33 @@ export async function retryWithAlternative(downloadId: string): Promise<Download
 
   console.log(`[DownloadManager] Retrying download ${downloadId} with: ${nextRelease.title}`);
 
-  // Remove old torrent from qBittorrent
-  const qb = getDownloadService();
-  await qb.deleteTorrent(download.torrentHash, false); // Don't delete files yet
+  // Get the client for this download
+  const clientManager = getDownloadClientManager();
+  let client = download.downloadClientId
+    ? clientManager.getClient(download.downloadClientId)
+    : null;
+
+  // If no client or client unavailable, select new client based on release type
+  if (!client) {
+    const selection = clientManager.selectClientForRelease(nextRelease);
+    if (!selection) {
+      console.error(`[DownloadManager] No compatible client for alternative: ${nextRelease.title}`);
+      await prisma.download.update({
+        where: { id: downloadId },
+        data: {
+          status: DownloadStatus.FAILED,
+          failureReason: "No compatible download client for alternative release",
+        },
+      });
+      return null;
+    }
+    client = selection.client;
+  }
+
+  // Remove old download from client
+  if (download.clientHash) {
+    await client.deleteDownload(download.clientHash, false); // Don't delete files yet
+  }
 
   // Log retry event
   await logDownloadEvent(downloadId, "retried", {
@@ -1056,7 +1021,7 @@ export async function retryWithAlternative(downloadId: string): Promise<Download
     attemptCount: download.attemptCount + 1,
   });
 
-  // Add new torrent
+  // Add new download
   const magnetUri = nextRelease.magnetUri;
   const downloadUrl = nextRelease.downloadUrl;
 
@@ -1073,23 +1038,14 @@ export async function retryWithAlternative(downloadId: string): Promise<Download
   }
 
   const tag = `request:${download.requestId}`;
-  let addResult: { success: boolean; hash?: string; error?: string };
+  // biome-ignore lint/style/noNonNullAssertion: checked above
+  const addResult = await client.addDownload(magnetUri || downloadUrl!, undefined, {
+    category: "annex",
+    tags: [tag],
+  });
 
-  if (magnetUri) {
-    addResult = await qb.addMagnet(magnetUri, {
-      category: "annex",
-      tags: [tag],
-    });
-  } else {
-    // biome-ignore lint/style/noNonNullAssertion: downloadUrl is guaranteed to exist (checked above)
-    addResult = await qb.addTorrentUrl(downloadUrl!, {
-      category: "annex",
-      tags: [tag],
-    });
-  }
-
-  if (!addResult.success) {
-    console.error(`[DownloadManager] Failed to add alternative torrent: ${addResult.error}`);
+  if (!addResult.success || !addResult.clientHash) {
+    console.error(`[DownloadManager] Failed to add alternative: ${addResult.error}`);
     // Try next alternative recursively
     await prisma.download.update({
       where: { id: downloadId },
@@ -1101,22 +1057,14 @@ export async function retryWithAlternative(downloadId: string): Promise<Download
     return retryWithAlternative(downloadId);
   }
 
-  let torrentHash = addResult.hash;
-  if (!torrentHash) {
-    const torrent = await qb.findTorrentByTag(tag, 30000);
-    torrentHash = torrent?.hash;
-  }
-
-  if (!torrentHash) {
-    console.error(`[DownloadManager] Failed to find torrent after adding alternative`);
-    return null;
-  }
+  const clientHash = addResult.clientHash;
 
   // Update download record
   const updated = await prisma.download.update({
     where: { id: downloadId },
     data: {
-      torrentHash,
+      torrentHash: clientHash, // Keep for backward compatibility
+      clientHash,
       torrentName: nextRelease.title,
       magnetUri: magnetUri || null,
       status: DownloadStatus.DOWNLOADING,
@@ -1199,10 +1147,21 @@ export async function cleanupDownload(downloadId: string): Promise<void> {
 
   if (!download) return;
 
-  const qb = getDownloadService();
-  const torrent = await qb.getProgress(download.torrentHash);
+  // Get the client for this download
+  const clientManager = getDownloadClientManager();
+  const client = download.downloadClientId
+    ? clientManager.getClient(download.downloadClientId)
+    : getDownloadService(); // Fallback to legacy qBittorrent
 
-  if (!torrent) {
+  if (!client) {
+    console.error(`[DownloadManager] No client found for download ${downloadId}`);
+    return;
+  }
+
+  const clientHash = download.clientHash || download.torrentHash;
+  const progress = await client.getProgress(clientHash);
+
+  if (!progress) {
     // Already removed
     await prisma.download.update({
       where: { id: downloadId },
@@ -1216,11 +1175,11 @@ export async function cleanupDownload(downloadId: string): Promise<void> {
     download.completedAt &&
     Date.now() - download.completedAt.getTime() > config.minSeedTimeMinutes * 60 * 1000;
 
-  const seedRatioMet = torrent.ratio >= config.minSeedRatio;
+  const seedRatioMet = progress.ratio >= config.minSeedRatio;
 
   if (!seedTimeMet && !seedRatioMet) {
     console.log(
-      `[DownloadManager] Download ${downloadId} still seeding (ratio: ${torrent.ratio.toFixed(2)})`
+      `[DownloadManager] Download ${downloadId} still seeding (ratio: ${progress.ratio.toFixed(2)})`
     );
     return;
   }
@@ -1243,9 +1202,9 @@ export async function cleanupDownload(downloadId: string): Promise<void> {
     }
   }
 
-  // Remove from qBittorrent
+  // Remove from download client
   if (!config.keepInQbittorrent) {
-    await qb.deleteTorrent(download.torrentHash, config.deleteSourceAfterEncode);
+    await client.deleteDownload(clientHash, config.deleteSourceAfterEncode);
   }
 
   // Update database
@@ -1260,7 +1219,7 @@ export async function cleanupDownload(downloadId: string): Promise<void> {
     seedTime: download.completedAt
       ? (Date.now() - download.completedAt.getTime()) / (60 * 1000)
       : 0,
-    ratio: torrent.ratio,
+    ratio: progress.ratio,
   });
 
   console.log(`[DownloadManager] Cleaned up download ${downloadId}`);
