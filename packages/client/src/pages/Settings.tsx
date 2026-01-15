@@ -16,6 +16,7 @@ import {
 import { trpc } from "../trpc";
 import CardigannDefinitions from "./Settings/Cardigann/Definitions";
 import CardigannIndexerForm from "./Settings/Cardigann/IndexerForm";
+import DownloadClientsSettings from "./Settings/DownloadClients";
 import Notifications from "./Settings/Notifications";
 import PipelineEditor from "./Settings/PipelineEditor";
 import Pipelines from "./Settings/Pipelines";
@@ -81,6 +82,7 @@ const settingsNavItems = [
   { to: "/settings", label: "General", end: true },
   { to: "/settings/servers", label: "Storage Servers" },
   { to: "/settings/indexers", label: "Indexers" },
+  { to: "/settings/download-clients", label: "Download Clients" },
   { to: "/settings/encoders", label: "Remote Encoders" },
   { to: "/settings/pipelines", label: "Pipelines" },
   { to: "/settings/notifications", label: "Notifications" },
@@ -3772,6 +3774,7 @@ export default function SettingsPage() {
           <Route path="indexers/cardigann" element={<CardigannDefinitions />} />
           <Route path="indexers/cardigann/new" element={<CardigannIndexerForm />} />
           <Route path="indexers/cardigann/edit" element={<CardigannIndexerForm />} />
+          <Route path="download-clients" element={<DownloadClientsSettings />} />
           <Route path="encoders" element={<EncodersSettings />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="pipelines/:id" element={<PipelineEditor />} />
