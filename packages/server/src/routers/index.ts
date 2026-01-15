@@ -3,6 +3,7 @@ import { approvalsRouter } from "./approvals.js";
 import { authRouter } from "./auth.js";
 import { cardigannRouter } from "./cardigann.js";
 import { discoveryRouter } from "./discovery.js";
+import { downloadClientsRouter } from "./downloadClients.js";
 import { encodersRouter } from "./encoders.js";
 import { indexersRouter } from "./indexers.js";
 import { jobSubscriptionsRouter } from "./jobSubscriptions.js";
@@ -22,6 +23,7 @@ export const appRouter = router({
   requests: requestsRouter,
   servers: serversRouter,
   indexers: indexersRouter,
+  downloadClients: downloadClientsRouter,
   library: libraryRouter,
   system: systemRouter,
   sync: syncRouter,
