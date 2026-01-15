@@ -247,9 +247,121 @@ class IndexerService {
   }
 
   /**
-   * Search a Torznab/Newznab indexer
+   * Search a Torznab/Newznab indexer with fallback strategy
    */
   private async searchTorznab(
+    indexer: {
+      id: string;
+      name: string;
+      type: IndexerType;
+      url: string;
+      apiKey: string;
+      categoriesMovies: number[];
+      categoriesTv: number[];
+    },
+    options: SearchOptions
+  ): Promise<Release[]> {
+    // Try multiple search methods in priority order until we get results
+    // This handles indexers with incomplete IMDB/TMDB coverage
+    const searchStrategies: Array<{
+      name: string;
+      options: SearchOptions;
+    }> = [];
+
+    if (options.type === "movie") {
+      // Movie search strategies in priority order
+      if (options.imdbId) {
+        searchStrategies.push({
+          name: "imdbid",
+          options: { ...options, tmdbId: undefined, query: undefined },
+        });
+      }
+      if (options.tmdbId) {
+        searchStrategies.push({
+          name: "tmdbid",
+          options: { ...options, imdbId: undefined, query: undefined },
+        });
+      }
+      if (options.query) {
+        searchStrategies.push({
+          name: "query",
+          options: { ...options, imdbId: undefined, tmdbId: undefined },
+        });
+      }
+    } else {
+      // TV search strategies in priority order
+      if (options.tvdbId) {
+        searchStrategies.push({
+          name: "tvdbid",
+          options: { ...options, imdbId: undefined, tmdbId: undefined, query: undefined },
+        });
+      }
+      if (options.imdbId) {
+        searchStrategies.push({
+          name: "imdbid",
+          options: { ...options, tvdbId: undefined, tmdbId: undefined, query: undefined },
+        });
+      }
+      if (options.tmdbId) {
+        searchStrategies.push({
+          name: "tmdbid",
+          options: { ...options, tvdbId: undefined, imdbId: undefined, query: undefined },
+        });
+      }
+      if (options.query) {
+        searchStrategies.push({
+          name: "query",
+          options: { ...options, tvdbId: undefined, imdbId: undefined, tmdbId: undefined },
+        });
+      }
+    }
+
+    // Try each strategy until we get results
+    for (let i = 0; i < searchStrategies.length; i++) {
+      const strategy = searchStrategies[i];
+      const isLastStrategy = i === searchStrategies.length - 1;
+
+      console.log(
+        `[Indexer] ${indexer.name} - Trying search strategy: ${strategy.name} (${i + 1}/${searchStrategies.length})`
+      );
+
+      try {
+        const results = await this.executeTorznabSearch(indexer, strategy.options);
+
+        if (results.length > 0) {
+          console.log(
+            `[Indexer] ${indexer.name} - Success with ${strategy.name}: ${results.length} results`
+          );
+          return results;
+        }
+
+        console.log(`[Indexer] ${indexer.name} - ${strategy.name} returned 0 results`);
+
+        // If this is the last strategy, return empty results
+        if (isLastStrategy) {
+          console.log(`[Indexer] ${indexer.name} - All strategies exhausted, returning 0 results`);
+          return results;
+        }
+      } catch (error) {
+        // If a strategy fails and it's not the last one, try the next strategy
+        console.error(
+          `[Indexer] ${indexer.name} - ${strategy.name} strategy failed:`,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (isLastStrategy) {
+          throw error;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Execute a single Torznab search with specific options
+   */
+  private async executeTorznabSearch(
     indexer: {
       id: string;
       name: string;
@@ -506,34 +618,41 @@ class IndexerService {
       if (indexer.categoriesMovies.length > 0) {
         url.searchParams.set("cat", indexer.categoriesMovies.join(","));
       }
-      if (options.tmdbId) {
-        url.searchParams.set("tmdbid", options.tmdbId.toString());
-      }
+
+      // For NEWZNAB/Torznab, use only ONE search parameter to avoid conflicts
+      // Priority: imdbid > tmdbid > query text
+      // Many indexers reject requests with multiple search parameters
       if (options.imdbId) {
         url.searchParams.set("imdbid", options.imdbId);
+      } else if (options.tmdbId) {
+        url.searchParams.set("tmdbid", options.tmdbId.toString());
+      } else if (options.query) {
+        url.searchParams.set("q", options.query);
       }
     } else {
       url.searchParams.set("t", "tvsearch");
       if (indexer.categoriesTv.length > 0) {
         url.searchParams.set("cat", indexer.categoriesTv.join(","));
       }
+
+      // For TV, prioritize external IDs over query text
+      // But always include season/episode if provided
       if (options.tvdbId) {
         url.searchParams.set("tvdbid", options.tvdbId.toString());
-      }
-      if (options.tmdbId) {
+      } else if (options.imdbId) {
+        url.searchParams.set("imdbid", options.imdbId);
+      } else if (options.tmdbId) {
         url.searchParams.set("tmdbid", options.tmdbId.toString());
+      } else if (options.query) {
+        url.searchParams.set("q", options.query);
       }
+
       if (options.season !== undefined) {
         url.searchParams.set("season", options.season.toString());
       }
       if (options.episode !== undefined) {
         url.searchParams.set("ep", options.episode.toString());
       }
-    }
-
-    // Fallback to query search
-    if (options.query) {
-      url.searchParams.set("q", options.query);
     }
 
     // Convert to string and replace + with %20 for NEWZNAB compatibility
