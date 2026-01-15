@@ -1691,7 +1691,7 @@ export const requestsRouter = router({
       // Log activity
       await prisma.activityLog.create({
         data: {
-          type: "DISCOVERY_OVERRIDE",
+          type: "INFO",
           message: `User overrode discovery selection: "${newSelection.title}"`,
           requestId: item.requestId,
         },
