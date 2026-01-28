@@ -177,7 +177,7 @@ describe("SmartRetryStrategy", () => {
       const decision = await strategy.decide(item, "no releases found");
       expect(decision.shouldRetry).toBe(true);
       expect(decision.retryAt).toBeDefined();
-      const hoursAway = (decision.retryAt!.getTime() - Date.now()) / (1000 * 60 * 60);
+      const hoursAway = ((decision.retryAt as Date).getTime() - Date.now()) / (1000 * 60 * 60);
       expect(hoursAway).toBeGreaterThan(11);
       expect(hoursAway).toBeLessThan(13);
     });
@@ -186,7 +186,7 @@ describe("SmartRetryStrategy", () => {
       const item = createItem({ status: "SEARCHING" });
       const decision = await strategy.decide(item, "no releases found");
       expect(decision.shouldRetry).toBe(true);
-      const hoursAway = (decision.retryAt!.getTime() - Date.now()) / (1000 * 60 * 60);
+      const hoursAway = ((decision.retryAt as Date).getTime() - Date.now()) / (1000 * 60 * 60);
       expect(hoursAway).toBeGreaterThan(5);
       expect(hoursAway).toBeLessThan(7);
     });

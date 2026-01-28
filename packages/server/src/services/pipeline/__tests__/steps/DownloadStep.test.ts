@@ -242,51 +242,24 @@ describe("DownloadStep", () => {
   });
 
   describe("Skipped Search with TV", () => {
-    // The mock processingItem.findMany does not handle status: { in: [...] } by default.
-    // Override it to support the `in` operator used by the skippedSearch code path.
-    let originalFindMany: any;
+    // When running in the full suite, mock.module conflicts mean DownloadStep.ts
+    // may use a different prisma instance than our local mockPrisma. We import the
+    // actual prisma that DownloadStep.ts uses and seed data into THAT store.
+    let activePrisma: any;
 
-    beforeEach(() => {
-      originalFindMany = mockPrisma.processingItem.findMany;
-      mockPrisma.processingItem.findMany = mock(
-        async ({ where, select }: { where?: any; select?: any } = {}) => {
-          const store = mockPrisma._stores.processingItem as Map<string, any>;
-          let results = Array.from(store.values());
-          if (!where) return results;
-
-          results = results.filter((v: any) =>
-            Object.keys(where).every((key: string) => {
-              if (key === "requestId") {
-                if (where.requestId?.in) return where.requestId.in.includes(v.requestId);
-                return v.requestId === where.requestId;
-              }
-              if (key === "status") {
-                if (where.status?.in) return where.status.in.includes(v.status);
-                if (where.status?.notIn) return !where.status.notIn.includes(v.status);
-                return v.status === where.status;
-              }
-              if (key === "type") return v.type === where.type;
-              return v[key] === where[key];
-            })
-          );
-
-          if (select) {
-            results = results.map((r: any) => {
-              const selected: any = {};
-              Object.keys(select).forEach((k) => {
-                if (select[k]) selected[k] = r[k];
-              });
-              return selected;
-            });
-          }
-
-          return results;
-        }
-      );
+    beforeEach(async () => {
+      const dbModule = await import("../../../../db/client.js");
+      activePrisma = dbModule.prisma;
+      // Clear only processingItem store to avoid wiping servers/requests from outer beforeEach
+      if (activePrisma._stores?.processingItem) {
+        activePrisma._stores.processingItem.clear();
+      }
     });
 
     afterEach(() => {
-      mockPrisma.processingItem.findMany = originalFindMany;
+      if (activePrisma._stores?.processingItem) {
+        activePrisma._stores.processingItem.clear();
+      }
     });
 
     test("should handle skippedSearch flag with downloaded episodes", async () => {
@@ -301,7 +274,8 @@ describe("DownloadStep", () => {
       });
 
       // Create processingItem records that are already downloaded
-      await mockPrisma.processingItem.create({
+      // Use activePrisma to ensure we write to the same store DownloadStep.ts reads from
+      await activePrisma.processingItem.create({
         data: {
           id: "ep-1",
           requestId: request.id,
@@ -313,7 +287,7 @@ describe("DownloadStep", () => {
         },
       });
 
-      await mockPrisma.processingItem.create({
+      await activePrisma.processingItem.create({
         data: {
           id: "ep-2",
           requestId: request.id,
