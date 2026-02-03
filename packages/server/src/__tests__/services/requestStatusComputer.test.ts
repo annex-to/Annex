@@ -6,6 +6,7 @@ import { createMockPrisma } from "../setup.js";
 const mockPrisma = createMockPrisma();
 mock.module("../../db/client.js", () => ({
   prisma: mockPrisma,
+  db: mockPrisma,
 }));
 
 // Import after mocking

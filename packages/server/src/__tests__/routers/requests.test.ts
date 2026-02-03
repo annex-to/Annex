@@ -206,32 +206,32 @@ mock.module("../../db/client.js", () => ({
   db: mockPrisma,
 }));
 
-// Mock request status computer
-mock.module("../../services/requestStatusComputer.js", () => ({
-  requestStatusComputer: {
-    computeStatus: mock(async () => ({
+// Replace methods on real requestStatusComputer singleton to avoid mock.module
+// pollution (mock.module is process-global and leaks to other test files)
+const { requestStatusComputer: realStatusComputer } = await import(
+  "../../services/requestStatusComputer.js"
+);
+realStatusComputer.computeStatus = mock(async () => ({
+  status: "PENDING",
+  progress: 0,
+  currentStep: null,
+  currentStepStartedAt: null,
+  error: null,
+})) as any;
+realStatusComputer.batchComputeStatus = mock(async (ids: string[]) => {
+  const map = new Map();
+  for (const id of ids) {
+    map.set(id, {
       status: "PENDING",
       progress: 0,
       currentStep: null,
       currentStepStartedAt: null,
       error: null,
-    })),
-    batchComputeStatus: mock(async (ids: string[]) => {
-      const map = new Map();
-      for (const id of ids) {
-        map.set(id, {
-          status: "PENDING",
-          progress: 0,
-          currentStep: null,
-          currentStepStartedAt: null,
-          error: null,
-        });
-      }
-      return map;
-    }),
-    getReleaseMetadata: mock(async () => null),
-  },
-}));
+    });
+  }
+  return map;
+}) as any;
+realStatusComputer.getReleaseMetadata = mock(async () => null) as any;
 
 // Mock trakt service
 const mockTraktService = {
