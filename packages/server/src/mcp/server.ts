@@ -6,6 +6,7 @@ import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerLibraryTools } from "./tools/library.js";
 import { registerRequestTools } from "./tools/requests.js";
 import { registerServerTools } from "./tools/servers.js";
+import { registerWatchHistoryTools } from "./tools/watchHistory.js";
 
 // Active sessions: sessionId -> transport
 const sessions = new Map<string, WebStandardStreamableHTTPServerTransport>();
@@ -27,6 +28,7 @@ function createMcpServer(user: AuthUser): McpServer {
   registerLibraryTools(server);
   registerDiscoveryTools(server);
   registerRequestTools(server, user.id);
+  registerWatchHistoryTools(server);
 
   return server;
 }
