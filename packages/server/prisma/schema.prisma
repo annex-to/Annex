@@ -32,6 +32,7 @@ model User {
   requests            MediaRequest[]
   pipelineTemplates   PipelineTemplate[]
   notificationConfigs NotificationConfig[]
+  mcpTokens           McpToken[]
 }
 
 model PlexAccount {
@@ -81,6 +82,26 @@ model Session {
 
   @@index([token])
   @@index([expiresAt])
+}
+
+// =============================================================================
+// MCP API Tokens
+// =============================================================================
+
+model McpToken {
+  id         String    @id @default(cuid())
+  token      String    @unique // SHA-256 hash of raw token
+  name       String? // Optional label ("Claude Desktop", "Work laptop")
+  userId     String
+  lastUsedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
 }
 
 // =============================================================================

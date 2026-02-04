@@ -8,6 +8,7 @@ import { encodersRouter } from "./encoders.js";
 import { indexersRouter } from "./indexers.js";
 import { jobSubscriptionsRouter } from "./jobSubscriptions.js";
 import { libraryRouter } from "./library.js";
+import { mcpRouter } from "./mcp.js";
 import { notificationsRouter } from "./notifications.js";
 import { pipelinesRouter } from "./pipelines.js";
 import { requestsRouter } from "./requests.js";
@@ -25,6 +26,7 @@ export const appRouter = router({
   indexers: indexersRouter,
   downloadClients: downloadClientsRouter,
   library: libraryRouter,
+  mcp: mcpRouter,
   system: systemRouter,
   sync: syncRouter,
   jobs: jobSubscriptionsRouter,
