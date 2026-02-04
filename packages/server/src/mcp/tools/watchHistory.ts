@@ -5,6 +5,7 @@ import { prisma } from "../../db/client.js";
 import { getCryptoService } from "../../services/crypto.js";
 import { fetchEmbyWatchedItems } from "../../services/emby.js";
 import { fetchPlexWatchedItems } from "../../services/plex.js";
+import type { AuthUser } from "../../trpc.js";
 
 interface WatchedItem {
   tmdbId: number;
@@ -40,10 +41,12 @@ function decryptApiKey(value: string | null | undefined): string | null {
 async function fetchEmbyPlaybackReporting(
   serverUrl: string,
   apiKey: string,
+  embyUserId: string,
   days: number
 ): Promise<WatchedItem[] | null> {
   const baseUrl = serverUrl.replace(/\/$/, "");
   const params = new URLSearchParams({
+    user_id: embyUserId,
     days: String(days),
     aggregate_data: "true",
     filter: "movies,series",
@@ -177,7 +180,7 @@ async function fetchEmbyPlaybackReporting(
   }
 }
 
-export function registerWatchHistoryTools(server: McpServer) {
+export function registerWatchHistoryTools(server: McpServer, user: AuthUser) {
   server.tool(
     "get_watch_history",
     "Get watch history from Plex/Emby media servers. Returns movies and TV shows the user has watched, sorted by most recently viewed. For Emby servers with the playback_reporting plugin, returns richer data including play duration. Useful for understanding viewing preferences and making recommendations.",
@@ -239,8 +242,16 @@ export function registerWatchHistoryTools(server: McpServer) {
               });
             }
           } else if (s.mediaServerType === MediaServerType.EMBY) {
+            const embyUserId = user.embyAccount?.embyId;
+            if (!embyUserId) continue;
+
             // Try playback reporting plugin first for richer data
-            const pluginItems = await fetchEmbyPlaybackReporting(s.mediaServerUrl, apiKey, days);
+            const pluginItems = await fetchEmbyPlaybackReporting(
+              s.mediaServerUrl,
+              apiKey,
+              embyUserId,
+              days
+            );
 
             if (pluginItems) {
               for (const item of pluginItems) {
@@ -249,7 +260,7 @@ export function registerWatchHistoryTools(server: McpServer) {
               }
             } else {
               // Fall back to native Emby watched items API
-              const items = await fetchEmbyWatchedItems(s.mediaServerUrl, apiKey, "");
+              const items = await fetchEmbyWatchedItems(s.mediaServerUrl, apiKey, embyUserId);
               for (const item of items) {
                 allItems.push({
                   tmdbId: item.tmdbId,

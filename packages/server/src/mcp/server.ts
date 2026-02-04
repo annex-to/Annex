@@ -28,7 +28,7 @@ function createMcpServer(user: AuthUser): McpServer {
   registerLibraryTools(server);
   registerDiscoveryTools(server);
   registerRequestTools(server, user.id);
-  registerWatchHistoryTools(server);
+  registerWatchHistoryTools(server, user);
 
   return server;
 }
