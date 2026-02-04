@@ -1,78 +1,44 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Episode, MediaItem, MediaRatings, Season } from "@prisma/client";
-import { MediaType, type Prisma } from "@prisma/client";
+import type { Episode, Season } from "@prisma/client";
+import { MediaType } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../db/client.js";
+import type { TraktDiscoverItem, TraktFilterParams } from "../../services/trakt.js";
+import { getTraktService } from "../../services/trakt.js";
 
-type MediaWithRatings = MediaItem & { ratings: MediaRatings | null };
 type SeasonWithEpisodes = Season & { episodes: Episode[] };
 
-function formatRatings(ratings: MediaRatings | null) {
-  if (!ratings) return null;
+function formatItem(item: TraktDiscoverItem) {
   return {
-    imdb: ratings.imdbScore,
-    tmdb: ratings.tmdbScore,
-    rottenTomatoes: ratings.rtCriticScore,
-    metacritic: ratings.metacriticScore,
+    tmdbId: item.tmdbId,
+    type: item.type,
+    title: item.title,
+    year: item.year,
+    posterUrl: item.posterUrl,
+    fanartUrl: item.fanartUrl,
+    ...(item.statValue != null && { [item.statLabel ?? "stat"]: item.statValue }),
   };
 }
 
 export function registerDiscoveryTools(server: McpServer) {
   server.tool(
     "search_media",
-    "Search for media by title. Returns matching movies/TV shows with their tmdbId, which is needed for creating requests.",
+    "Search for movies or TV shows by title via Trakt. Returns results from the full Trakt catalog with tmdbId for use with create_request.",
     {
       query: z.string().describe("Search query (title)"),
-      type: z.enum(["movie", "tv"]).optional().describe("Filter by media type"),
+      type: z.enum(["movie", "tv"]).describe("Media type"),
       page: z.number().min(1).default(1).describe("Page number"),
       limit: z.number().min(1).max(50).default(20).describe("Items per page"),
     },
     async ({ query, type, page = 1, limit = 20 }) => {
-      const where: Record<string, unknown> = {
-        title: { contains: query, mode: "insensitive" },
-      };
-      if (type) {
-        where.type = type === "movie" ? MediaType.MOVIE : MediaType.TV;
-      }
-
-      const [items, totalCount]: [MediaWithRatings[], number] = await Promise.all([
-        prisma.mediaItem.findMany({
-          where,
-          include: { ratings: true },
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.mediaItem.count({ where }),
-      ]);
-
-      const results = items.map((m: MediaWithRatings) => ({
-        tmdbId: m.tmdbId,
-        type: m.type.toLowerCase(),
-        title: m.title,
-        year: m.year,
-        overview: m.overview,
-        genres: m.genres,
-        runtime: m.runtime,
-        posterPath: m.posterPath,
-        ratings: formatRatings(m.ratings),
-      }));
+      const trakt = getTraktService();
+      const items = await trakt.search(query, type, page, limit);
 
       return {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(
-              {
-                query,
-                page,
-                totalPages: Math.ceil(totalCount / limit),
-                totalItems: totalCount,
-                items: results,
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify({ query, type, page, items: items.map(formatItem) }, null, 2),
           },
         ],
       };
@@ -81,22 +47,26 @@ export function registerDiscoveryTools(server: McpServer) {
 
   server.tool(
     "discover_media",
-    "Browse and filter media from the database. Use excludeServerIds to filter out media already in a server's library. Good for finding recommendations.",
+    "Browse movies or TV shows from the full Trakt catalog. Supports list types (trending, popular, favorited, played, watched, collected), genre/year/rating filters, and server exclusion to find media not already in your library.",
     {
-      type: z.enum(["movie", "tv"]).describe("Media type to discover"),
+      type: z.enum(["movie", "tv"]).describe("Media type"),
+      listType: z
+        .enum(["trending", "popular", "favorited", "played", "watched", "collected"])
+        .default("popular")
+        .describe("Trakt list type"),
+      period: z
+        .enum(["daily", "weekly", "monthly", "yearly", "all"])
+        .optional()
+        .describe("Time period (for played/watched/collected lists)"),
       genres: z
         .array(z.string())
         .optional()
-        .describe("Filter by genres (e.g. ['Action', 'Comedy'])"),
+        .describe("Filter by Trakt genre slugs (e.g. ['action', 'comedy'])"),
       yearMin: z.number().optional().describe("Minimum release year"),
       yearMax: z.number().optional().describe("Maximum release year"),
       ratingMin: z.number().optional().describe("Minimum IMDB rating on 0-10 scale (e.g. 6.5)"),
       language: z.string().optional().describe("Original language (ISO 639-1, e.g. 'en')"),
-      certification: z.string().optional().describe("Content rating (e.g. 'PG-13', 'R')"),
-      sortBy: z
-        .enum(["rating", "year", "title", "popularity"])
-        .default("rating")
-        .describe("Sort field"),
+      certification: z.string().optional().describe("Content rating (e.g. 'pg-13', 'r')"),
       page: z.number().min(1).default(1).describe("Page number"),
       limit: z.number().min(1).max(50).default(20).describe("Items per page"),
       excludeServerIds: z
@@ -106,118 +76,76 @@ export function registerDiscoveryTools(server: McpServer) {
     },
     async ({
       type,
+      listType = "popular",
+      period,
       genres,
       yearMin,
       yearMax,
       ratingMin,
       language,
       certification,
-      sortBy = "rating",
       page = 1,
       limit = 20,
       excludeServerIds,
     }) => {
-      const mediaType = type === "movie" ? MediaType.MOVIE : MediaType.TV;
-
-      const conditions: Prisma.MediaItemWhereInput[] = [{ type: mediaType }];
-
+      const filters: TraktFilterParams = {};
       if (genres && genres.length > 0) {
-        conditions.push({ genres: { hasSome: genres } });
+        filters.genres = genres.join(",");
       }
-      if (yearMin) {
-        conditions.push({ year: { gte: yearMin } });
+      if (yearMin || yearMax) {
+        filters.years = `${yearMin ?? 1900}-${yearMax ?? new Date().getFullYear()}`;
       }
-      if (yearMax) {
-        conditions.push({ year: { lte: yearMax } });
+      if (ratingMin) {
+        const min = Math.round(ratingMin * 10);
+        filters.imdb_ratings = `${min}-100`;
       }
       if (language) {
-        conditions.push({ language });
+        filters.languages = language;
       }
       if (certification) {
-        conditions.push({ certification });
+        filters.certifications = certification;
       }
 
-      let excludeTmdbIds: number[] = [];
+      // Build exclusion set from server libraries
+      let excludeTmdbIds = new Set<number>();
       if (excludeServerIds && excludeServerIds.length > 0) {
+        const mediaType = type === "movie" ? MediaType.MOVIE : MediaType.TV;
         const libraryItems = await prisma.libraryItem.findMany({
-          where: {
-            serverId: { in: excludeServerIds },
-            type: mediaType,
-          },
+          where: { serverId: { in: excludeServerIds }, type: mediaType },
           select: { tmdbId: true },
           distinct: ["tmdbId"],
         });
-        excludeTmdbIds = libraryItems.map((li: { tmdbId: number }) => li.tmdbId);
-        if (excludeTmdbIds.length > 0) {
-          conditions.push({ tmdbId: { notIn: excludeTmdbIds } });
-        }
+        excludeTmdbIds = new Set(libraryItems.map((li: { tmdbId: number }) => li.tmdbId));
       }
 
-      if (ratingMin) {
-        const scaledMin = ratingMin <= 10 ? ratingMin * 10 : ratingMin;
-        conditions.push({
-          ratings: { imdbScore: { gte: scaledMin } },
-        });
-      }
+      // Fetch from Trakt with over-fetch to compensate for exclusions
+      const fetchLimit =
+        excludeTmdbIds.size > 0 ? limit + Math.min(excludeTmdbIds.size, 50) : limit;
+      const trakt = getTraktService();
+      const raw = await trakt.getList(
+        listType,
+        type,
+        page,
+        fetchLimit,
+        period ?? "weekly",
+        filters
+      );
 
-      const where: Prisma.MediaItemWhereInput = { AND: conditions };
-
-      let orderBy: Prisma.MediaItemOrderByWithRelationInput;
-      switch (sortBy) {
-        case "rating":
-          orderBy = { ratings: { imdbScore: { sort: "desc", nulls: "last" } } };
-          break;
-        case "year":
-          orderBy = { year: { sort: "desc", nulls: "last" } };
-          break;
-        case "title":
-          orderBy = { title: "asc" };
-          break;
-        case "popularity":
-          orderBy = { ratings: { tmdbPopularity: { sort: "desc", nulls: "last" } } };
-          break;
-        default:
-          orderBy = { ratings: { imdbScore: { sort: "desc", nulls: "last" } } };
-      }
-
-      const [items, totalCount]: [MediaWithRatings[], number] = await Promise.all([
-        prisma.mediaItem.findMany({
-          where,
-          include: { ratings: true },
-          orderBy,
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        prisma.mediaItem.count({ where }),
-      ]);
-
-      const results = items.map((m: MediaWithRatings) => ({
-        tmdbId: m.tmdbId,
-        type: m.type.toLowerCase(),
-        title: m.title,
-        year: m.year,
-        overview: m.overview,
-        genres: m.genres,
-        runtime: m.runtime,
-        language: m.language,
-        certification: m.certification,
-        posterPath: m.posterPath,
-        ratings: m.ratings
-          ? {
-              ...formatRatings(m.ratings),
-              letterboxd: m.ratings.letterboxdScore,
-            }
-          : null,
-      }));
+      // Filter out excluded items
+      let items =
+        excludeTmdbIds.size > 0
+          ? raw.filter((item: TraktDiscoverItem) => !excludeTmdbIds.has(item.tmdbId))
+          : raw;
+      items = items.slice(0, limit);
 
       const response = {
         type,
+        listType,
         page,
-        totalPages: Math.ceil(totalCount / limit),
-        totalItems: totalCount,
+        itemCount: items.length,
         excludedFromServers: excludeServerIds ?? [],
-        excludedCount: excludeTmdbIds.length,
-        items: results,
+        excludedCount: excludeTmdbIds.size,
+        items: items.map(formatItem),
       };
 
       return {
@@ -261,7 +189,7 @@ export function registerDiscoveryTools(server: McpServer) {
           content: [
             {
               type: "text" as const,
-              text: "Media item not found in database",
+              text: "Media item not found in database. Use search_media or discover_media to find items first.",
             },
           ],
           isError: true,
