@@ -18,14 +18,14 @@ interface WatchedItem {
 }
 
 interface PlaybackReportItem {
-  Date: string;
-  RowId: number;
-  Name: string;
-  ItemId: string;
-  ItemType: string;
-  Duration: number;
-  UserId: string;
-  RemoteAddress: string;
+  date: string;
+  time: string;
+  user_id: string;
+  item_name: string;
+  item_id: string;
+  item_type: string;
+  duration: number;
+  remote_address: string;
 }
 
 function decryptApiKey(value: string | null | undefined): string | null {
@@ -75,20 +75,20 @@ async function fetchEmbyPlaybackReporting(
     >();
 
     for (const entry of data) {
-      const existing = itemMap.get(entry.ItemId);
+      const existing = itemMap.get(entry.item_id);
       if (existing) {
         existing.playCount += 1;
-        existing.totalDuration += entry.Duration;
-        if (entry.Date > existing.lastPlayDate) {
-          existing.lastPlayDate = entry.Date;
+        existing.totalDuration += entry.duration;
+        if (entry.date > existing.lastPlayDate) {
+          existing.lastPlayDate = entry.date;
         }
       } else {
-        itemMap.set(entry.ItemId, {
-          name: entry.Name,
-          itemType: entry.ItemType,
+        itemMap.set(entry.item_id, {
+          name: entry.item_name,
+          itemType: entry.item_type,
           playCount: 1,
-          totalDuration: entry.Duration,
-          lastPlayDate: entry.Date,
+          totalDuration: entry.duration,
+          lastPlayDate: entry.date,
         });
       }
     }
