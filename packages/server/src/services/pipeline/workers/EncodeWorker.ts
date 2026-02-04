@@ -1,3 +1,4 @@
+import { readdir, unlink } from "node:fs/promises";
 import type { ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
 import type { PipelineContext } from "../PipelineContext";
@@ -237,14 +238,16 @@ export class EncodeWorker extends BaseWorker {
     }
 
     // Cleanup: Delete any stale temp files for this item
-    const tempPattern = `encoded_${item.id}_temp_*.mkv`;
-    console.log(`[${this.name}] Cleaning up stale temp files: ${inputDir}/${tempPattern}`);
+    const tempPrefix = `encoded_${item.id}_temp_`;
+    console.log(`[${this.name}] Cleaning up stale temp files: ${inputDir}/${tempPrefix}*.mkv`);
     try {
-      await Bun.$`rm -f ${inputDir}/encoded_${item.id}_temp_*.mkv`.quiet();
-    } catch (err) {
-      console.warn(
-        `[${this.name}] Failed to cleanup temp files: ${err instanceof Error ? err.message : "Unknown"}`
-      );
+      const dirFiles = await readdir(inputDir);
+      const staleFiles = dirFiles.filter((f) => f.startsWith(tempPrefix) && f.endsWith(".mkv"));
+      for (const f of staleFiles) {
+        await unlink(`${inputDir}/${f}`).catch(() => {});
+      }
+    } catch {
+      // Directory doesn't exist or is inaccessible - safe to ignore
     }
 
     // Queue encoding job
