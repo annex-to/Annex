@@ -24,8 +24,10 @@ export function registerDiscoveryTools(server: McpServer) {
     {
       query: z.string().describe("Search query (title)"),
       type: z.enum(["movie", "tv"]).optional().describe("Filter by media type"),
+      page: z.number().min(1).default(1).describe("Page number"),
+      limit: z.number().min(1).max(50).default(20).describe("Items per page"),
     },
-    async ({ query, type }) => {
+    async ({ query, type, page = 1, limit = 20 }) => {
       const where: Record<string, unknown> = {
         title: { contains: query, mode: "insensitive" },
       };
@@ -33,12 +35,16 @@ export function registerDiscoveryTools(server: McpServer) {
         where.type = type === "movie" ? MediaType.MOVIE : MediaType.TV;
       }
 
-      const items: MediaWithRatings[] = await prisma.mediaItem.findMany({
-        where,
-        include: { ratings: true },
-        take: 20,
-        orderBy: { createdAt: "desc" },
-      });
+      const [items, totalCount]: [MediaWithRatings[], number] = await Promise.all([
+        prisma.mediaItem.findMany({
+          where,
+          include: { ratings: true },
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.mediaItem.count({ where }),
+      ]);
 
       const results = items.map((m: MediaWithRatings) => ({
         tmdbId: m.tmdbId,
@@ -56,7 +62,17 @@ export function registerDiscoveryTools(server: McpServer) {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify({ query, resultCount: results.length, results }, null, 2),
+            text: JSON.stringify(
+              {
+                query,
+                page,
+                totalPages: Math.ceil(totalCount / limit),
+                totalItems: totalCount,
+                items: results,
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -74,7 +90,7 @@ export function registerDiscoveryTools(server: McpServer) {
         .describe("Filter by genres (e.g. ['Action', 'Comedy'])"),
       yearMin: z.number().optional().describe("Minimum release year"),
       yearMax: z.number().optional().describe("Maximum release year"),
-      ratingMin: z.number().optional().describe("Minimum IMDB rating (0-10)"),
+      ratingMin: z.number().optional().describe("Minimum IMDB rating on 0-10 scale (e.g. 6.5)"),
       language: z.string().optional().describe("Original language (ISO 639-1, e.g. 'en')"),
       certification: z.string().optional().describe("Content rating (e.g. 'PG-13', 'R')"),
       sortBy: z
@@ -138,8 +154,9 @@ export function registerDiscoveryTools(server: McpServer) {
       }
 
       if (ratingMin) {
+        const scaledMin = ratingMin <= 10 ? ratingMin * 10 : ratingMin;
         conditions.push({
-          ratings: { imdbScore: { gte: ratingMin } },
+          ratings: { imdbScore: { gte: scaledMin } },
         });
       }
 
