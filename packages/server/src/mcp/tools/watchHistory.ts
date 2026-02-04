@@ -12,7 +12,19 @@ interface WatchedItem {
   title: string;
   viewCount: number;
   lastViewedAt?: string;
+  duration?: number;
   serverName: string;
+}
+
+interface PlaybackReportItem {
+  Date: string;
+  RowId: number;
+  Name: string;
+  ItemId: string;
+  ItemType: string;
+  Duration: number;
+  UserId: string;
+  RemoteAddress: string;
 }
 
 function decryptApiKey(value: string | null | undefined): string | null {
@@ -25,16 +37,162 @@ function decryptApiKey(value: string | null | undefined): string | null {
   }
 }
 
+async function fetchEmbyPlaybackReporting(
+  serverUrl: string,
+  apiKey: string,
+  days: number
+): Promise<WatchedItem[] | null> {
+  const baseUrl = serverUrl.replace(/\/$/, "");
+  const params = new URLSearchParams({
+    days: String(days),
+    aggregate_data: "true",
+    filter: "movies,series",
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/user_usage_stats/UserPlaylist?${params}`, {
+      headers: { "X-Emby-Token": apiKey, Accept: "application/json" },
+    });
+
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as PlaybackReportItem[];
+    if (!Array.isArray(data)) return null;
+
+    // Group by ItemId to aggregate plays
+    const itemMap = new Map<
+      string,
+      {
+        name: string;
+        itemType: string;
+        playCount: number;
+        totalDuration: number;
+        lastPlayDate: string;
+      }
+    >();
+
+    for (const entry of data) {
+      const existing = itemMap.get(entry.ItemId);
+      if (existing) {
+        existing.playCount += 1;
+        existing.totalDuration += entry.Duration;
+        if (entry.Date > existing.lastPlayDate) {
+          existing.lastPlayDate = entry.Date;
+        }
+      } else {
+        itemMap.set(entry.ItemId, {
+          name: entry.Name,
+          itemType: entry.ItemType,
+          playCount: 1,
+          totalDuration: entry.Duration,
+          lastPlayDate: entry.Date,
+        });
+      }
+    }
+
+    // Resolve TMDB IDs from Emby item metadata
+    const items: WatchedItem[] = [];
+    for (const [itemId, info] of itemMap) {
+      const isMovie = info.itemType === "Movie";
+      const isEpisode = info.itemType === "Episode" || info.itemType === "Series";
+      if (!isMovie && !isEpisode) continue;
+
+      let tmdbId: number | undefined;
+
+      try {
+        // For episodes, try to get the series-level TMDB ID
+        const lookupUrl = isEpisode
+          ? `${baseUrl}/Items/${itemId}?Fields=ProviderIds,SeriesId`
+          : `${baseUrl}/Items/${itemId}?Fields=ProviderIds`;
+
+        const itemResp = await fetch(lookupUrl, {
+          headers: {
+            "X-Emby-Token": apiKey,
+            Accept: "application/json",
+          },
+        });
+
+        if (itemResp.ok) {
+          const itemData = (await itemResp.json()) as {
+            ProviderIds?: { Tmdb?: string };
+            SeriesId?: string;
+            Type?: string;
+          };
+
+          if (itemData.ProviderIds?.Tmdb) {
+            tmdbId = Number.parseInt(itemData.ProviderIds.Tmdb, 10);
+          } else if (isEpisode && itemData.SeriesId) {
+            // Fetch series to get TMDB ID
+            const seriesResp = await fetch(
+              `${baseUrl}/Items/${itemData.SeriesId}?Fields=ProviderIds`,
+              {
+                headers: {
+                  "X-Emby-Token": apiKey,
+                  Accept: "application/json",
+                },
+              }
+            );
+            if (seriesResp.ok) {
+              const seriesData = (await seriesResp.json()) as {
+                ProviderIds?: { Tmdb?: string };
+              };
+              if (seriesData.ProviderIds?.Tmdb) {
+                tmdbId = Number.parseInt(seriesData.ProviderIds.Tmdb, 10);
+              }
+            }
+          }
+        }
+      } catch {
+        continue;
+      }
+
+      if (!tmdbId || Number.isNaN(tmdbId)) continue;
+
+      // Deduplicate: episodes of the same series should be grouped
+      const existingItem = items.find(
+        (i) => i.tmdbId === tmdbId && i.type === (isMovie ? "movie" : "tv")
+      );
+      if (existingItem) {
+        existingItem.viewCount += info.playCount;
+        existingItem.duration = (existingItem.duration ?? 0) + info.totalDuration;
+        if (info.lastPlayDate > (existingItem.lastViewedAt ?? "")) {
+          existingItem.lastViewedAt = info.lastPlayDate;
+        }
+      } else {
+        items.push({
+          tmdbId,
+          type: isMovie ? "movie" : "tv",
+          title: info.name,
+          viewCount: info.playCount,
+          lastViewedAt: info.lastPlayDate,
+          duration: info.totalDuration,
+          serverName: "",
+        });
+      }
+    }
+
+    return items;
+  } catch {
+    return null;
+  }
+}
+
 export function registerWatchHistoryTools(server: McpServer) {
   server.tool(
     "get_watch_history",
-    "Get watch history from Plex/Emby media servers. Returns movies and TV shows the user has watched, sorted by most recently viewed. Useful for understanding viewing preferences and making recommendations.",
+    "Get watch history from Plex/Emby media servers. Returns movies and TV shows the user has watched, sorted by most recently viewed. For Emby servers with the playback_reporting plugin, returns richer data including play duration. Useful for understanding viewing preferences and making recommendations.",
     {
       type: z.enum(["movie", "tv"]).optional().describe("Filter by media type"),
       serverId: z.string().optional().describe("Limit to a specific server ID"),
+      days: z
+        .number()
+        .min(1)
+        .max(365)
+        .default(90)
+        .describe("Number of days of history to fetch (Emby playback reporting only)"),
       limit: z.number().min(1).max(500).default(50).describe("Maximum items to return"),
     },
-    async ({ type, serverId, limit = 50 }) => {
+    async ({ type, serverId, days = 90, limit = 50 }) => {
       const where: Record<string, unknown> = {
         enabled: true,
         mediaServerType: { not: MediaServerType.NONE },
@@ -81,16 +239,27 @@ export function registerWatchHistoryTools(server: McpServer) {
               });
             }
           } else if (s.mediaServerType === MediaServerType.EMBY) {
-            const items = await fetchEmbyWatchedItems(s.mediaServerUrl, apiKey, "");
-            for (const item of items) {
-              allItems.push({
-                tmdbId: item.tmdbId,
-                type: item.type,
-                title: item.title,
-                viewCount: item.playCount,
-                lastViewedAt: item.lastPlayedAt?.toISOString(),
-                serverName: s.name,
-              });
+            // Try playback reporting plugin first for richer data
+            const pluginItems = await fetchEmbyPlaybackReporting(s.mediaServerUrl, apiKey, days);
+
+            if (pluginItems) {
+              for (const item of pluginItems) {
+                item.serverName = s.name;
+                allItems.push(item);
+              }
+            } else {
+              // Fall back to native Emby watched items API
+              const items = await fetchEmbyWatchedItems(s.mediaServerUrl, apiKey, "");
+              for (const item of items) {
+                allItems.push({
+                  tmdbId: item.tmdbId,
+                  type: item.type,
+                  title: item.title,
+                  viewCount: item.playCount,
+                  lastViewedAt: item.lastPlayedAt?.toISOString(),
+                  serverName: s.name,
+                });
+              }
             }
           }
         } catch (error) {
