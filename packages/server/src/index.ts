@@ -5,6 +5,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { Server, ServerWebSocket } from "bun";
 import { initConfig } from "./config/index.js";
 import { prisma } from "./db/client.js";
+import { handleMcpRequest } from "./mcp/server.js";
 import { appRouter } from "./routers/index.js";
 import { registerAuthTasks, verifySession } from "./services/auth.js";
 import { getCryptoService } from "./services/crypto.js";
@@ -235,6 +236,11 @@ const server = Bun.serve<WebSocketData>({
           { status: 500 }
         );
       }
+    }
+
+    // MCP API handler
+    if (url.pathname === "/mcp") {
+      return handleMcpRequest(req);
     }
 
     // tRPC HTTP handler

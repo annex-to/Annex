@@ -17,6 +17,7 @@ import { trpc } from "../trpc";
 import CardigannDefinitions from "./Settings/Cardigann/Definitions";
 import CardigannIndexerForm from "./Settings/Cardigann/IndexerForm";
 import DownloadClientsSettings from "./Settings/DownloadClients";
+import McpTokens from "./Settings/McpTokens";
 import Notifications from "./Settings/Notifications";
 import PipelineEditor from "./Settings/PipelineEditor";
 import Pipelines from "./Settings/Pipelines";
@@ -87,6 +88,7 @@ const settingsNavItems = [
   { to: "/settings/pipelines", label: "Pipelines" },
   { to: "/settings/notifications", label: "Notifications" },
   { to: "/settings/users", label: "Users" },
+  { to: "/settings/mcp", label: "MCP" },
   { to: "/settings/jobs", label: "Jobs" },
   { to: "/settings/scheduler", label: "Scheduler" },
 ];
@@ -3780,6 +3782,7 @@ export default function SettingsPage() {
           <Route path="pipelines/:id" element={<PipelineEditor />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="users" element={<Users />} />
+          <Route path="mcp" element={<McpTokens />} />
           <Route path="jobs" element={<JobsSettings />} />
           <Route path="scheduler" element={<SchedulerSettings />} />
         </Routes>
