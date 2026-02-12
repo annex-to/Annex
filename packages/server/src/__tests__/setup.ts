@@ -86,6 +86,7 @@ export function createMockPrisma() {
   const cardigannIndexerRateLimitRequestStore = new Map<string, any>();
   const jobStore = new Map<string, any>();
   const encoderAssignmentStore = new Map<string, any>();
+  const circuitBreakerStore = new Map<string, any>();
 
   let idCounter = 1;
   const generateId = () => `test-id-${idCounter++}`;
@@ -349,8 +350,10 @@ export function createMockPrisma() {
               }
               return v.requestId === where.requestId;
             }
-            if (key === "status" && where.status?.notIn) {
-              return !where.status.notIn.includes(v.status);
+            if (key === "status") {
+              if (where.status?.notIn) return !where.status.notIn.includes(v.status);
+              if (where.status?.in) return where.status.in.includes(v.status);
+              return v.status === where.status;
             }
             if (key === "type") return v.type === where.type;
             return v[key] === where[key];
@@ -378,8 +381,10 @@ export function createMockPrisma() {
           Object.keys(where).every((key) => {
             if (key === "requestId") return v.requestId === where.requestId;
             if (key === "type") return v.type === where.type;
-            if (key === "status" && where.status?.notIn) {
-              return !where.status.notIn.includes(v.status);
+            if (key === "status") {
+              if (where.status?.notIn) return !where.status.notIn.includes(v.status);
+              if (where.status?.in) return where.status.in.includes(v.status);
+              return v.status === where.status;
             }
             return v[key] === where[key];
           })
@@ -390,8 +395,10 @@ export function createMockPrisma() {
         for (const [id, record] of processingItemStore.entries()) {
           const matches = Object.keys(where).every((key) => {
             if (key === "requestId") return record.requestId === where.requestId;
-            if (key === "status" && where.status?.notIn) {
-              return !where.status.notIn.includes(record.status);
+            if (key === "status") {
+              if (where.status?.notIn) return !where.status.notIn.includes(record.status);
+              if (where.status?.in) return where.status.in.includes(record.status);
+              return record.status === where.status;
             }
             return record[key] === where[key];
           });
@@ -1059,6 +1066,55 @@ export function createMockPrisma() {
         return { count };
       }),
     },
+    circuitBreaker: {
+      findUnique: mock(async ({ where }: { where: { service?: string; id?: string } }) => {
+        if (where.service) return circuitBreakerStore.get(where.service) || null;
+        if (where.id) {
+          for (const v of circuitBreakerStore.values()) {
+            if (v.id === where.id) return v;
+          }
+        }
+        return null;
+      }),
+      findMany: mock(async ({ where }: { where?: any } = {}) => {
+        const values = Array.from(circuitBreakerStore.values());
+        if (!where) return values;
+        return values.filter((v) => {
+          if (where.state && v.state !== where.state) return false;
+          if (where.service && v.service !== where.service) return false;
+          return true;
+        });
+      }),
+      create: mock(async ({ data }: { data: any }) => {
+        const record = {
+          id: generateId(),
+          state: "CLOSED",
+          failures: 0,
+          lastFailure: null,
+          opensAt: null,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        circuitBreakerStore.set(record.service, record);
+        return record;
+      }),
+      update: mock(
+        async ({ where, data }: { where: { service?: string; id?: string }; data: any }) => {
+          const key = where.service || where.id;
+          const record = key ? circuitBreakerStore.get(key) : null;
+          if (!record) return null;
+          const updated = { ...record, ...data, updatedAt: new Date() };
+          circuitBreakerStore.set(record.service, updated);
+          return updated;
+        }
+      ),
+      deleteMany: mock(async () => {
+        const count = circuitBreakerStore.size;
+        circuitBreakerStore.clear();
+        return { count };
+      }),
+    },
     _stores: {
       setting: settingStore,
       mediaRequest: mediaRequestStore,
@@ -1079,6 +1135,7 @@ export function createMockPrisma() {
       cardigannIndexerRateLimitRequest: cardigannIndexerRateLimitRequestStore,
       job: jobStore,
       encoderAssignment: encoderAssignmentStore,
+      circuitBreaker: circuitBreakerStore,
     },
     _store: settingStore, // Backwards compatibility
     _clear: () => {
@@ -1101,6 +1158,7 @@ export function createMockPrisma() {
       cardigannIndexerRateLimitRequestStore.clear();
       jobStore.clear();
       encoderAssignmentStore.clear();
+      circuitBreakerStore.clear();
     },
   };
 
