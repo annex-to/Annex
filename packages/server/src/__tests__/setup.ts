@@ -86,6 +86,7 @@ export function createMockPrisma() {
   const cardigannIndexerRateLimitRequestStore = new Map<string, any>();
   const jobStore = new Map<string, any>();
   const encoderAssignmentStore = new Map<string, any>();
+  const circuitBreakerStore = new Map<string, any>();
 
   let idCounter = 1;
   const generateId = () => `test-id-${idCounter++}`;
@@ -1059,6 +1060,57 @@ export function createMockPrisma() {
         return { count };
       }),
     },
+    circuitBreaker: {
+      findUnique: mock(async ({ where }: { where: { service: string } }) => {
+        return circuitBreakerStore.get(where.service) || null;
+      }),
+      findMany: mock(async ({ where }: { where?: any } = {}) => {
+        const values = Array.from(circuitBreakerStore.values());
+        if (!where) return values;
+        return values.filter((v) => Object.keys(where).every((key) => v[key] === where[key]));
+      }),
+      create: mock(async ({ data }: { data: any }) => {
+        const record = {
+          ...data,
+          state: data.state ?? "CLOSED",
+          failureCount: data.failureCount ?? 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        circuitBreakerStore.set(data.service, record);
+        return record;
+      }),
+      update: mock(async ({ where, data }: { where: { service: string }; data: any }) => {
+        const existing = circuitBreakerStore.get(where.service);
+        if (!existing) return null;
+        const updated = { ...existing, ...data, updatedAt: new Date() };
+        circuitBreakerStore.set(where.service, updated);
+        return updated;
+      }),
+      upsert: mock(
+        async ({
+          where,
+          create,
+          update,
+        }: {
+          where: { service: string };
+          create: any;
+          update: any;
+        }) => {
+          const existing = circuitBreakerStore.get(where.service);
+          const record = existing
+            ? { ...existing, ...update, updatedAt: new Date() }
+            : {
+                ...create,
+                state: create.state ?? "CLOSED",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              };
+          circuitBreakerStore.set(where.service, record);
+          return record;
+        }
+      ),
+    },
     _stores: {
       setting: settingStore,
       mediaRequest: mediaRequestStore,
@@ -1079,6 +1131,7 @@ export function createMockPrisma() {
       cardigannIndexerRateLimitRequest: cardigannIndexerRateLimitRequestStore,
       job: jobStore,
       encoderAssignment: encoderAssignmentStore,
+      circuitBreaker: circuitBreakerStore,
     },
     _store: settingStore, // Backwards compatibility
     _clear: () => {
@@ -1101,6 +1154,7 @@ export function createMockPrisma() {
       cardigannIndexerRateLimitRequestStore.clear();
       jobStore.clear();
       encoderAssignmentStore.clear();
+      circuitBreakerStore.clear();
     },
   };
 

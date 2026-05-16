@@ -10,6 +10,7 @@ import type {
   IDownloadClient,
   TestConnectionResult,
 } from "./IDownloadClient";
+import { extractInfohashFromMagnet } from "./magnetInfohash.js";
 
 interface TorrentInfo {
   hash: string;
@@ -283,6 +284,11 @@ export class QBittorrentClient implements IDownloadClient {
   }
 
   async addMagnet(magnetUri: string, options?: AddDownloadOptions): Promise<AddDownloadResult> {
+    const infohash = extractInfohashFromMagnet(magnetUri);
+    if (!infohash) {
+      return { success: false, error: "Magnet URI missing or malformed infohash" };
+    }
+
     const params = new URLSearchParams({ urls: magnetUri });
 
     if (options?.savePath) params.append("savepath", options.savePath);
@@ -304,12 +310,7 @@ export class QBittorrentClient implements IDownloadClient {
       return { success: false, error: "Failed to add magnet" };
     }
 
-    const clientHash = await this.findTorrentHash(options?.tags, options?.filename);
-    if (!clientHash) {
-      return { success: false, error: "Torrent added but hash not found" };
-    }
-
-    return { success: true, clientHash };
+    return { success: true, clientHash: infohash };
   }
 
   async addTorrentUrl(
@@ -413,7 +414,9 @@ export class QBittorrentClient implements IDownloadClient {
     return { success: true, clientHash };
   }
 
-  private async findTorrentHash(tags?: string[], filename?: string): Promise<string | null> {
+  private async findTorrentHash(tags?: string[], _filename?: string): Promise<string | null> {
+    if (!tags || tags.length === 0) return null;
+
     const maxAttempts = 10;
     const delayMs = 500;
 
@@ -422,43 +425,29 @@ export class QBittorrentClient implements IDownloadClient {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
 
-      const torrents = await this.getAllDownloads();
+      const response = await this.request("/torrents/info");
+      if (!response.ok) continue;
 
-      if (tags && tags.length > 0) {
-        const response = await this.request("/torrents/info");
-        if (response.ok) {
-          const torrentInfos = (await response.json()) as Array<{ hash: string; tags?: string }>;
-          for (const tag of tags) {
-            const found = torrentInfos.find((t) => t.tags?.split(",").includes(tag));
-            if (found) {
-              return found.hash;
-            }
+      const torrentInfos = (await response.json()) as Array<{ hash: string; tags?: string }>;
+      const matches: string[] = [];
+      for (const tag of tags) {
+        for (const t of torrentInfos) {
+          if (
+            t.tags
+              ?.split(",")
+              .map((s) => s.trim())
+              .includes(tag)
+          ) {
+            matches.push(t.hash);
           }
         }
       }
-
-      if (filename) {
-        const normalizedFilename = filename.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const found = torrents.find((t) => {
-          const normalizedName = t.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-          return normalizedName.includes(normalizedFilename);
-        });
-        if (found) {
-          return found.clientHash;
-        }
-      }
-
-      if (torrents.length > 0 && attempt === 0) {
-        const newest = torrents.sort((a, b) => {
-          const aRecent = a.downloadSpeed > 0 || a.uploadSpeed > 0;
-          const bRecent = b.downloadSpeed > 0 || b.uploadSpeed > 0;
-          if (aRecent && !bRecent) return -1;
-          if (!aRecent && bRecent) return 1;
-          return 0;
-        })[0];
-        if (newest && (newest.downloadSpeed > 0 || newest.uploadSpeed > 0)) {
-          return newest.clientHash;
-        }
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) {
+        console.warn(
+          `[QBittorrent] findTorrentHash: ${matches.length} torrents matched tags ${tags.join(",")}; refusing to guess`
+        );
+        return null;
       }
     }
 
