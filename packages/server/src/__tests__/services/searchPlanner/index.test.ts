@@ -188,6 +188,50 @@ describe("planForRequest", () => {
     expect((ctx.alternativeReleases as any[]).length).toBeGreaterThan(0);
   });
 
+  test("concurrent calls for the same request dedupe to one indexer pass", async () => {
+    const req = await mockPrisma.mediaRequest.create({
+      data: { tmdbId: 99, type: "TV", title: "Show", year: 2020, status: "PROCESSING" },
+    });
+    await mockPrisma.processingItem.create({
+      data: {
+        requestId: req.id,
+        type: "EPISODE",
+        tmdbId: 99,
+        title: "S",
+        season: 1,
+        episode: 1,
+        status: "SEARCHING",
+      },
+    });
+    await mockPrisma.processingItem.create({
+      data: {
+        requestId: req.id,
+        type: "EPISODE",
+        tmdbId: 99,
+        title: "S",
+        season: 1,
+        episode: 2,
+        status: "SEARCHING",
+      },
+    });
+
+    nextReleases = [release({ title: "Show.S01.1080p.Pack" })];
+    queryCount = 0;
+
+    // Three concurrent planner calls (simulating SearchWorker concurrency=3)
+    const results = await Promise.all([
+      planForRequest({ requestId: req.id, requiredResolution: "1080p" as any }),
+      planForRequest({ requestId: req.id, requiredResolution: "1080p" as any }),
+      planForRequest({ requestId: req.id, requiredResolution: "1080p" as any }),
+    ]);
+
+    // Only one season query should have been issued total
+    expect(queryCount).toBe(1);
+    // All callers see the same result object
+    expect(results[0]).toBe(results[1]);
+    expect(results[1]).toBe(results[2]);
+  });
+
   test("year filter drops releases tagged with wrong year", async () => {
     const req = await mockPrisma.mediaRequest.create({
       data: { tmdbId: 5, type: "TV", title: "Show", year: 2005, status: "PROCESSING" },

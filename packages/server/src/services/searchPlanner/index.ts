@@ -12,6 +12,12 @@ export interface PlanForRequestInput {
   minSeeders?: number;
 }
 
+// In-flight planner promises keyed by requestId. Concurrent callers for the
+// same request wait on the same Promise instead of issuing duplicate indexer
+// queries (the SearchWorker processes N PIs in parallel, each calling
+// planForRequest for the same TV request).
+const inFlight = new Map<string, Promise<PlanResult>>();
+
 /**
  * Plan the search for a TV request.
  *
@@ -26,6 +32,17 @@ export interface PlanForRequestInput {
  * Returns a PlanResult describing what was found and what wasn't.
  */
 export async function planForRequest(input: PlanForRequestInput): Promise<PlanResult> {
+  const existing = inFlight.get(input.requestId);
+  if (existing) return existing;
+
+  const promise = doPlan(input).finally(() => {
+    inFlight.delete(input.requestId);
+  });
+  inFlight.set(input.requestId, promise);
+  return promise;
+}
+
+async function doPlan(input: PlanForRequestInput): Promise<PlanResult> {
   const { requestId, requiredResolution, minSeeders = 1 } = input;
 
   const request = await prisma.mediaRequest.findUniqueOrThrow({
