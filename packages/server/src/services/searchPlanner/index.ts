@@ -41,7 +41,7 @@ export async function planForRequest(input: PlanForRequestInput): Promise<PlanRe
     where: {
       requestId,
       type: "EPISODE",
-      status: { in: ["PENDING", "SEARCHING", "FOUND", "DISCOVERED", "QUALITY_UNAVAILABLE"] },
+      status: { in: ["PENDING", "SEARCHING", "FOUND", "DISCOVERED"] },
     },
     select: { id: true, season: true, episode: true, status: true },
   });
