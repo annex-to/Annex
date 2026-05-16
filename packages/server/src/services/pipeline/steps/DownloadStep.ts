@@ -10,10 +10,20 @@ import { prisma } from "../../../db/client.js";
 import { detectRarArchive, extractRar, isSampleFile } from "../../archive.js";
 import { getDownloadService } from "../../download.js";
 import { downloadManager } from "../../downloadManager.js";
+import { mapDownloadFiles } from "../../fileMapping";
+import { fileMappingV2Enabled } from "../../fileMapping/featureFlag";
 import type { Release } from "../../indexer.js";
 import type { PipelineContext } from "../PipelineContext.js";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
+
+export async function runShadowMapping(downloadId: string): Promise<void> {
+  try {
+    await mapDownloadFiles(downloadId);
+  } catch (error) {
+    console.warn(`[DownloadStep] Shadow mapping failed for ${downloadId}:`, error);
+  }
+}
 
 interface DownloadStepConfig {
   pollInterval?: number;
@@ -706,6 +716,10 @@ export class DownloadStep extends BaseStep {
   ): Promise<
     Array<{ season: number; episode: number; path: string; size: number; episodeId: string }>
   > {
+    if (fileMappingV2Enabled()) {
+      return await this.extractEpisodeFilesV2(torrentHash, requestId);
+    }
+
     const qb = getDownloadService();
     const progress = await qb.getProgress(torrentHash);
 
@@ -741,6 +755,9 @@ export class DownloadStep extends BaseStep {
     if (!download) {
       throw new Error(`Download not found for torrent ${torrentHash}`);
     }
+
+    // Shadow: run new mapper in background for comparison; do not block legacy path.
+    void runShadowMapping(download.id);
 
     // Parse each file for S##E## pattern
     const episodeRegex = /S(\d{1,2})E(\d{1,2})/i;
@@ -867,6 +884,58 @@ export class DownloadStep extends BaseStep {
     );
 
     return episodeFiles;
+  }
+
+  private async extractEpisodeFilesV2(
+    torrentHash: string,
+    requestId: string
+  ): Promise<
+    Array<{ season: number; episode: number; path: string; size: number; episodeId: string }>
+  > {
+    const download = await prisma.download.findFirst({
+      where: { torrentHash },
+      select: { id: true },
+    });
+    if (!download) {
+      throw new Error(`Download not found for torrent ${torrentHash}`);
+    }
+
+    await mapDownloadFiles(download.id);
+
+    const rows = await prisma.downloadFile.findMany({
+      where: {
+        downloadId: download.id,
+        kind: "VIDEO_MAIN",
+        rejected: false,
+        processingItemId: { not: null },
+        processingItem: { requestId },
+      },
+      include: { processingItem: { select: { id: true } } },
+    });
+
+    return rows
+      .filter(
+        (r: { season: number | null; episode: number | null; processingItemId: string | null }) =>
+          r.season !== null && r.episode !== null && r.processingItemId !== null
+      )
+      .map(
+        (r: {
+          season: number | null;
+          episode: number | null;
+          absolutePath: string;
+          sizeBytes: bigint;
+          processingItemId: string | null;
+        }) => ({
+          season: r.season as number,
+          episode: r.episode as number,
+          path: r.absolutePath,
+          size: Number(r.sizeBytes),
+          episodeId: r.processingItemId as string,
+        })
+      )
+      .sort((a: { season: number; episode: number }, b: { season: number; episode: number }) =>
+        a.season !== b.season ? a.season - b.season : a.episode - b.episode
+      );
   }
 
   private async logActivity(
