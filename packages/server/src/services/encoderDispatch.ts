@@ -1202,43 +1202,6 @@ class EncoderDispatchService {
       return existingAssignment;
     }
 
-    // Check for existing COMPLETED assignment for same input file (recovery scenario)
-    // This allows pipelines to resume and detect already-encoded files
-    const completedAssignment = await prisma.encoderAssignment.findFirst({
-      where: {
-        inputPath,
-        status: "COMPLETED",
-      },
-      orderBy: { completedAt: "desc" },
-    });
-
-    if (completedAssignment) {
-      // Verify output file still exists before reusing
-      const fileExists = await Bun.file(completedAssignment.outputPath).exists();
-      if (fileExists) {
-        console.log(
-          `[EncoderDispatch] ✓ Reusing completed assignment ${completedAssignment.id} for ${inputPath}`
-        );
-        console.log(`[EncoderDispatch]   Output file: ${completedAssignment.outputPath}`);
-        console.log(
-          `[EncoderDispatch]   Originally completed: ${completedAssignment.completedAt?.toISOString()}`
-        );
-        return completedAssignment;
-      } else {
-        console.log(
-          `[EncoderDispatch] ✗ Completed assignment ${completedAssignment.id} found but output file was deleted`
-        );
-        console.log(`[EncoderDispatch]   Expected file: ${completedAssignment.outputPath}`);
-        console.log(
-          `[EncoderDispatch]   Originally completed: ${completedAssignment.completedAt?.toISOString()}`
-        );
-        console.log(
-          `[EncoderDispatch]   File was likely cleaned up after successful delivery or manual cleanup`
-        );
-        console.log(`[EncoderDispatch]   Starting fresh encode...`);
-      }
-    }
-
     // Get all encoders ordered by current load
     const allEncoders = await prisma.remoteEncoder.findMany({
       where: {
