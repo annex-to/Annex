@@ -87,6 +87,7 @@ export function createMockPrisma() {
   const jobStore = new Map<string, any>();
   const encoderAssignmentStore = new Map<string, any>();
   const circuitBreakerStore = new Map<string, any>();
+  const downloadFileStore = new Map<string, any>();
 
   let idCounter = 1;
   const generateId = () => `test-id-${idCounter++}`;
@@ -344,7 +345,6 @@ export function createMockPrisma() {
         results = results.filter((v) =>
           Object.keys(where).every((key) => {
             if (key === "requestId") {
-              // Handle { in: [...] } syntax
               if (where.requestId?.in) {
                 return where.requestId.in.includes(v.requestId);
               }
@@ -354,6 +354,20 @@ export function createMockPrisma() {
               return !where.status.notIn.includes(v.status);
             }
             if (key === "type") return v.type === where.type;
+            if (
+              typeof where[key] === "object" &&
+              where[key] !== null &&
+              "not" in where[key] &&
+              where[key].not === null
+            ) {
+              return v[key] !== null && v[key] !== undefined;
+            }
+            if (key === "downloadFile" && where.downloadFile?.is === null) {
+              for (const f of downloadFileStore.values()) {
+                if (f.processingItemId === v.id) return false;
+              }
+              return true;
+            }
             return v[key] === where[key];
           })
         );
@@ -690,6 +704,70 @@ export function createMockPrisma() {
           return result;
         }
       ),
+      findUnique: mock(async ({ where, select }: { where: any; select?: any }) => {
+        let record: any = null;
+        if (where.id) record = downloadStore.get(where.id) || null;
+        if (where.torrentHash) {
+          for (const r of downloadStore.values()) {
+            if (r.torrentHash === where.torrentHash) {
+              record = r;
+              break;
+            }
+          }
+        }
+        if (record && select) {
+          const out: any = {};
+          for (const k of Object.keys(select)) if (select[k]) out[k] = record[k];
+          return out;
+        }
+        return record;
+      }),
+      findMany: mock(async ({ where, select }: { where?: any; select?: any } = {}) => {
+        let values = Array.from(downloadStore.values());
+        if (where) {
+          values = values.filter((v) => {
+            for (const key of Object.keys(where)) {
+              const cond = where[key];
+              if (key === "fileMapStatus") {
+                if (v.fileMapStatus !== cond) return false;
+              } else if (key === "processingItems" && cond?.some) {
+                const items = Array.from(processingItemStore.values()).filter(
+                  (pi: any) => pi.downloadId === v.id
+                );
+                const piWhere = cond.some;
+                const has = items.some((pi: any) =>
+                  Object.keys(piWhere).every((pk) => {
+                    if (pk === "status" && piWhere.status?.in) {
+                      return piWhere.status.in.includes(pi.status);
+                    }
+                    return (pi as any)[pk] === (piWhere as any)[pk];
+                  })
+                );
+                if (!has) return false;
+              } else if (v[key] !== cond) {
+                return false;
+              }
+            }
+            return true;
+          });
+        }
+        if (select) {
+          values = values.map((r: any) => {
+            const out: any = {};
+            for (const k of Object.keys(select)) if (select[k]) out[k] = r[k];
+            return out;
+          });
+        }
+        return values;
+      }),
+      update: mock(async ({ where, data }: { where: any; data: any }) => {
+        const id = where.id;
+        const record = downloadStore.get(id);
+        if (!record) return null;
+        const updated = { ...record, ...data, updatedAt: new Date() };
+        downloadStore.set(id, updated);
+        return updated;
+      }),
       deleteMany: mock(async () => {
         const count = downloadStore.size;
         downloadStore.clear();
@@ -1060,6 +1138,113 @@ export function createMockPrisma() {
         return { count };
       }),
     },
+    downloadFile: {
+      findUnique: mock(async ({ where }: { where: any }) => {
+        if (where.downloadId_relativePath) {
+          const key = `${where.downloadId_relativePath.downloadId}::${where.downloadId_relativePath.relativePath}`;
+          return downloadFileStore.get(key) || null;
+        }
+        if (where.processingItemId) {
+          for (const f of downloadFileStore.values()) {
+            if (f.processingItemId === where.processingItemId) return f;
+          }
+          return null;
+        }
+        if (where.id) {
+          for (const f of downloadFileStore.values()) {
+            if (f.id === where.id) return f;
+          }
+          return null;
+        }
+        return null;
+      }),
+      findMany: mock(async ({ where }: { where?: any } = {}) => {
+        const values = Array.from(downloadFileStore.values());
+        if (!where) return values;
+        return values.filter((v) => {
+          for (const [key, condition] of Object.entries(where)) {
+            if (key === "downloadId" && v.downloadId !== condition) return false;
+            if (key === "kind" && v.kind !== condition) return false;
+            if (key === "rejected" && v.rejected !== condition) return false;
+            if (key === "processingItemId") {
+              if (
+                typeof condition === "object" &&
+                condition !== null &&
+                "not" in (condition as any)
+              ) {
+                if (v.processingItemId === null || v.processingItemId === undefined) return false;
+              } else if (v.processingItemId !== condition) {
+                return false;
+              }
+            }
+          }
+          return true;
+        });
+      }),
+      create: mock(async ({ data }: { data: any }) => {
+        const id = data.id || generateId();
+        const record = {
+          id,
+          ...data,
+          rejected: data.rejected ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        const key = `${data.downloadId}::${data.relativePath}`;
+        downloadFileStore.set(key, record);
+        return record;
+      }),
+      update: mock(async ({ where, data }: { where: any; data: any }) => {
+        const key = where.downloadId_relativePath
+          ? `${where.downloadId_relativePath.downloadId}::${where.downloadId_relativePath.relativePath}`
+          : null;
+        const existing = key ? downloadFileStore.get(key) : null;
+        if (!existing) return null;
+        const updated = { ...existing, ...data, updatedAt: new Date() };
+        if (key) downloadFileStore.set(key, updated);
+        return updated;
+      }),
+      upsert: mock(async ({ where, create, update }: { where: any; create: any; update: any }) => {
+        const key = where.downloadId_relativePath
+          ? `${where.downloadId_relativePath.downloadId}::${where.downloadId_relativePath.relativePath}`
+          : null;
+        if (!key) throw new Error("downloadFile.upsert requires composite key");
+        const existing = downloadFileStore.get(key);
+        const record = existing
+          ? { ...existing, ...update, updatedAt: new Date() }
+          : {
+              id: generateId(),
+              ...create,
+              rejected: create.rejected ?? false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+        downloadFileStore.set(key, record);
+        return record;
+      }),
+      deleteMany: mock(async ({ where }: { where?: any } = {}) => {
+        if (!where) {
+          const count = downloadFileStore.size;
+          downloadFileStore.clear();
+          return { count };
+        }
+        let count = 0;
+        for (const [key, f] of downloadFileStore.entries()) {
+          if (Object.keys(where).every((k) => (f as any)[k] === where[k])) {
+            downloadFileStore.delete(key);
+            count++;
+          }
+        }
+        return { count };
+      }),
+      count: mock(async ({ where }: { where?: any } = {}) => {
+        const all = Array.from(downloadFileStore.values());
+        if (!where) return all.length;
+        return all.filter((v) =>
+          Object.keys(where).every((k) => (v as any)[k] === (where as any)[k])
+        ).length;
+      }),
+    },
     circuitBreaker: {
       findUnique: mock(async ({ where }: { where: { service: string } }) => {
         return circuitBreakerStore.get(where.service) || null;
@@ -1132,6 +1317,7 @@ export function createMockPrisma() {
       job: jobStore,
       encoderAssignment: encoderAssignmentStore,
       circuitBreaker: circuitBreakerStore,
+      downloadFile: downloadFileStore,
     },
     _store: settingStore, // Backwards compatibility
     _clear: () => {
@@ -1155,6 +1341,7 @@ export function createMockPrisma() {
       jobStore.clear();
       encoderAssignmentStore.clear();
       circuitBreakerStore.clear();
+      downloadFileStore.clear();
     },
   };
 

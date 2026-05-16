@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { extractInfohashFromMagnet } from "../../../services/downloadClients/magnetInfohash.js";
+import { extractInfohashFromMagnet } from "../../../services/downloadClients/magnetInfohash";
 
 describe("extractInfohashFromMagnet", () => {
   it("extracts a v1 40-char hex infohash", () => {

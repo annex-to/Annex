@@ -10,7 +10,7 @@ import type {
   IDownloadClient,
   TestConnectionResult,
 } from "./IDownloadClient";
-import { extractInfohashFromMagnet } from "./magnetInfohash.js";
+import { extractInfohashFromMagnet } from "./magnetInfohash";
 
 interface TorrentInfo {
   hash: string;
