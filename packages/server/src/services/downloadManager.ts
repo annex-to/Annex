@@ -61,6 +61,10 @@ function normalizeTitle(title: string): string {
     .trim();
 }
 
+export function normalizedTitlesMatch(a: string, b: string): boolean {
+  return normalizeTitle(a) === normalizeTitle(b);
+}
+
 /**
  * Parse a torrent name using parse-torrent-title
  */
@@ -744,7 +748,7 @@ export async function createDownloadFromExisting(
     episodeIds?: string[];
     isComplete?: boolean;
   } = {}
-): Promise<Download> {
+): Promise<Download | null> {
   const { isSeasonPack, season, episodeIds, isComplete = false } = options;
 
   // Check if we already have a Download record for this hash
@@ -753,6 +757,23 @@ export async function createDownloadFromExisting(
   });
 
   if (existing) {
+    // Guard: never silently attach a request to an existing download whose
+    // torrent title doesn't match this request's title. That's the failure
+    // mode behind the cross-titled deliveries (Encanto/Shelter/Goat all
+    // inheriting another torrent).
+    const request = await prisma.mediaRequest.findUnique({
+      where: { id: requestId },
+      select: { title: true },
+    });
+    if (request?.title && existing.torrentName) {
+      if (!normalizedTitlesMatch(request.title, existing.torrentName)) {
+        console.warn(
+          `[DownloadManager] Refusing to attach request ${requestId} (title="${request.title}") to existing download ${existing.id} (torrent="${existing.torrentName}") — titles do not match`
+        );
+        return null;
+      }
+    }
+
     // Link episodes to existing download
     if (episodeIds && episodeIds.length > 0) {
       await prisma.processingItem.updateMany({

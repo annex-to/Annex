@@ -260,6 +260,14 @@ export class DownloadStep extends BaseStep {
         { torrent: { hash: torrentHash } } as never,
         { isComplete: existingDownload.isComplete as boolean }
       );
+      if (!download) {
+        return {
+          success: false,
+          shouldRetry: false,
+          nextStep: null,
+          error: "Existing torrent title does not match request; refusing to reuse",
+        };
+      }
       downloadId = download.id;
 
       // Notify that download record is created (set downloadId on ProcessingItem immediately)
