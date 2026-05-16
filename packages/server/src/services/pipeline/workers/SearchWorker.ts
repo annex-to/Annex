@@ -1,5 +1,7 @@
 import type { MediaType, ProcessingItem } from "@prisma/client";
 import { prisma } from "../../../db/client.js";
+import { deriveRequiredResolution, type RequestTarget } from "../../qualityService";
+import { planForRequest } from "../../searchPlanner";
 import type { PipelineContext } from "../PipelineContext";
 import { SearchStep } from "../steps/SearchStep";
 import { BaseWorker } from "./BaseWorker";
@@ -81,23 +83,64 @@ export class SearchWorker extends BaseWorker {
       throw new Error(`Request ${item.requestId} not found`);
     }
 
-    // Build pipeline context
+    // TV path: delegate to the request-level SearchPlanner. It plans the whole
+    // request in one call (one indexer query per season, pack-first selection,
+    // infohash dedupe, year disambiguation), writes selectedRelease into each
+    // PI's stepContext, and is idempotent if another PI in the same request
+    // already ran it.
+    if (item.type === "EPISODE") {
+      const requiredResolution = await deriveRequiredResolution(
+        (request.targets as RequestTarget[]) ?? []
+      );
+      await planForRequest({ requestId: item.requestId, requiredResolution });
+
+      const reloaded = await prisma.processingItem.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { stepContext: true, cooldownEndsAt: true, discoveredAt: true },
+      });
+      const ctx = (reloaded.stepContext as Record<string, unknown> | null) ?? {};
+
+      if (ctx.selectedRelease) {
+        // Pack or per-episode selection — go through DISCOVERED cooldown.
+        const cooldownSetting = await prisma.setting.findUnique({
+          where: { key: "discovery.cooldownMinutes" },
+        });
+        const cooldownMinutes = cooldownSetting ? (JSON.parse(cooldownSetting.value) as number) : 5;
+        const now = new Date();
+        const cooldownEndsAt = new Date(now.getTime() + cooldownMinutes * 60 * 1000);
+
+        await pipelineOrchestrator.transitionStatus(item.id, "DISCOVERED", {
+          currentStep: "discovery_cooldown",
+          stepContext: ctx,
+          discoveredAt: now,
+          cooldownEndsAt,
+          allSearchResults: (ctx.alternativeReleases as unknown[]) || [],
+        });
+        return;
+      }
+
+      if (ctx.qualityMet === false) {
+        await pipelineOrchestrator.transitionStatus(item.id, "FOUND", {
+          currentStep: "search_quality_unavailable",
+          stepContext: ctx,
+        });
+        return;
+      }
+
+      throw new Error(`SearchPlanner returned no release for ${item.title}`);
+    }
+
+    // Movie path: build context and run legacy SearchStep.
     const context: PipelineContext = {
       requestId: item.requestId,
       mediaType: request.type as MediaType,
       tmdbId: item.tmdbId,
-      // Use request.title (show title) for TV, item.title (movie title) for movies
-      title: item.type === "EPISODE" ? request.title : item.title,
+      title: item.title,
       year: item.year || new Date().getFullYear(),
       targets: request.targets
         ? (request.targets as Array<{ serverId: string; encodingProfileId?: string }>)
         : [],
     };
-
-    // For TV episodes, add episode context
-    if (item.type === "EPISODE" && item.season !== null && item.episode !== null) {
-      context.requestedEpisodes = [{ season: item.season, episode: item.episode }];
-    }
 
     // Create fresh SearchStep instance per item to avoid race conditions with parallel processing
     const searchStep = new SearchStep();

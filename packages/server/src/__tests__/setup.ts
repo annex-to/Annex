@@ -180,9 +180,27 @@ export function createMockPrisma() {
         mediaRequestStore.set(id, record);
         return record;
       }),
-      findUnique: mock(async ({ where }: { where: { id: string } }) => {
-        return mediaRequestStore.get(where.id) || null;
+      findUnique: mock(async ({ where, select }: { where: { id: string }; select?: any }) => {
+        const record = mediaRequestStore.get(where.id) || null;
+        if (record && select) {
+          const out: any = {};
+          for (const k of Object.keys(select)) if (select[k]) out[k] = record[k];
+          return out;
+        }
+        return record;
       }),
+      findUniqueOrThrow: mock(
+        async ({ where, select }: { where: { id: string }; select?: any }) => {
+          const record = mediaRequestStore.get(where.id);
+          if (!record) throw new Error(`MediaRequest not found: ${where.id}`);
+          if (select) {
+            const out: any = {};
+            for (const k of Object.keys(select)) if (select[k]) out[k] = record[k];
+            return out;
+          }
+          return record;
+        }
+      ),
       findFirst: mock(async ({ where }: { where: any }) => {
         const values = Array.from(mediaRequestStore.values());
         return (
@@ -353,6 +371,9 @@ export function createMockPrisma() {
             if (key === "status" && where.status?.notIn) {
               return !where.status.notIn.includes(v.status);
             }
+            if (key === "status" && where.status?.in) {
+              return where.status.in.includes(v.status);
+            }
             if (key === "type") return v.type === where.type;
             if (
               typeof where[key] === "object" &&
@@ -396,6 +417,9 @@ export function createMockPrisma() {
             if (key === "status" && where.status?.notIn) {
               return !where.status.notIn.includes(v.status);
             }
+            if (key === "status" && where.status?.in) {
+              return where.status.in.includes(v.status);
+            }
             return v[key] === where[key];
           })
         ).length;
@@ -408,6 +432,9 @@ export function createMockPrisma() {
             if (key === "status" && where.status?.notIn) {
               return !where.status.notIn.includes(record.status);
             }
+            if (key === "id" && where.id?.in) {
+              return where.id.in.includes(record.id);
+            }
             return record[key] === where[key];
           });
           if (matches) {
@@ -417,6 +444,13 @@ export function createMockPrisma() {
           }
         }
         return { count };
+      }),
+      update: mock(async ({ where, data }: { where: { id: string }; data: any }) => {
+        const record = processingItemStore.get(where.id);
+        if (!record) throw new Error(`ProcessingItem ${where.id} not found`);
+        const updated = { ...record, ...data, updatedAt: new Date() };
+        processingItemStore.set(where.id, updated);
+        return updated;
       }),
     },
     stepExecution: {
