@@ -4,6 +4,119 @@ import { getApprovalService } from "../../approvals/ApprovalService.js";
 import type { PipelineContext } from "../PipelineContext.js";
 import { BaseStep, type StepOutput } from "./BaseStep.js";
 
+interface ReleaseSummary {
+  title: string;
+  resolution?: string;
+  source?: string;
+  codec?: string;
+  sizeBytes?: number;
+  seeders?: number;
+  indexerName?: string;
+}
+
+interface EpisodeEntry {
+  episode: number;
+  episodeTitle?: string;
+  release: ReleaseSummary | null;
+  qualityMet: boolean;
+}
+
+interface SeasonEntry {
+  season: number;
+  pack: ReleaseSummary | null;
+  episodes: EpisodeEntry[];
+  totalEpisodes: number;
+  matchedEpisodes: number;
+}
+
+interface TvApprovalContext {
+  totalSeasons: number;
+  totalEpisodes: number;
+  matchedEpisodes: number;
+  totalSizeBytes: number;
+  seasons: SeasonEntry[];
+}
+
+async function buildTvApprovalContext(requestId: string): Promise<TvApprovalContext> {
+  const items = await prisma.processingItem.findMany({
+    where: { requestId, type: "EPISODE" },
+    select: { id: true, season: true, episode: true, title: true, stepContext: true },
+    orderBy: [{ season: "asc" }, { episode: "asc" }],
+  });
+
+  const seasonMap = new Map<number, EpisodeEntry[]>();
+  let totalSizeBytes = 0;
+  let matchedEpisodes = 0;
+  const packPerSeason = new Map<number, ReleaseSummary>();
+  const seenPackTitles = new Set<string>();
+
+  for (const item of items) {
+    if (item.season === null || item.episode === null) continue;
+    const ctx = (item.stepContext as Record<string, unknown> | null) ?? {};
+    const release = (ctx.selectedRelease as Record<string, unknown> | undefined) ?? null;
+    const qualityMet = ctx.qualityMet !== false;
+
+    const summary = release ? releaseToSummary(release) : null;
+    if (summary && qualityMet) {
+      matchedEpisodes += 1;
+      if (summary.sizeBytes) totalSizeBytes += summary.sizeBytes;
+
+      // Detect season pack: same release shared across multiple episodes in the season
+      if (summary.title && !seenPackTitles.has(`${item.season}::${summary.title}`)) {
+        const sharedInSeason = items.filter(
+          (other: { season: number | null; stepContext: unknown }) => {
+            const oc = (other.stepContext as Record<string, unknown> | null) ?? {};
+            const or = oc.selectedRelease as Record<string, unknown> | undefined;
+            return other.season === item.season && or?.title === summary.title;
+          }
+        );
+        if (sharedInSeason.length > 1) {
+          packPerSeason.set(item.season, summary);
+        }
+        seenPackTitles.add(`${item.season}::${summary.title}`);
+      }
+    }
+
+    if (!seasonMap.has(item.season)) seasonMap.set(item.season, []);
+    seasonMap.get(item.season)?.push({
+      episode: item.episode,
+      episodeTitle: item.title || undefined,
+      release: summary,
+      qualityMet,
+    });
+  }
+
+  const seasons: SeasonEntry[] = Array.from(seasonMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([season, episodes]) => ({
+      season,
+      pack: packPerSeason.get(season) ?? null,
+      episodes,
+      totalEpisodes: episodes.length,
+      matchedEpisodes: episodes.filter((e) => e.release !== null && e.qualityMet).length,
+    }));
+
+  return {
+    totalSeasons: seasons.length,
+    totalEpisodes: items.filter((i: { season: number | null }) => i.season !== null).length,
+    matchedEpisodes,
+    totalSizeBytes,
+    seasons,
+  };
+}
+
+function releaseToSummary(release: Record<string, unknown>): ReleaseSummary {
+  return {
+    title: String(release.title ?? ""),
+    resolution: release.resolution ? String(release.resolution) : undefined,
+    source: release.source ? String(release.source) : undefined,
+    codec: release.codec ? String(release.codec) : undefined,
+    sizeBytes: typeof release.size === "number" ? release.size : undefined,
+    seeders: typeof release.seeders === "number" ? release.seeders : undefined,
+    indexerName: release.indexerName ? String(release.indexerName) : undefined,
+  };
+}
+
 interface ApprovalStepConfig {
   reason?: string;
   requiredRole?: "admin" | "moderator" | "any";
@@ -78,21 +191,34 @@ export class ApprovalStep extends BaseStep {
 
     const approvalService = getApprovalService();
 
-    // Prepare context for approval
-    const approvalContext = cfg.includeContext
-      ? {
-          mediaType: context.mediaType,
-          title: context.title,
-          year: context.year,
-          search: context.search,
-          download: context.download,
-          encode: context.encode,
-        }
-      : {
-          mediaType: context.mediaType,
-          title: context.title,
-          year: context.year,
-        };
+    // Prepare context for approval. For TV, build a per-season + per-episode
+    // breakdown from the ProcessingItems so the UI can render what's being
+    // approved.
+    const baseContext = {
+      mediaType: context.mediaType,
+      title: context.title,
+      year: context.year,
+    };
+
+    let approvalContext: Record<string, unknown>;
+    if (context.mediaType === "TV") {
+      approvalContext = {
+        ...baseContext,
+        tv: await buildTvApprovalContext(context.requestId),
+        ...(cfg.includeContext
+          ? { search: context.search, download: context.download, encode: context.encode }
+          : {}),
+      };
+    } else {
+      approvalContext = cfg.includeContext
+        ? {
+            ...baseContext,
+            search: context.search,
+            download: context.download,
+            encode: context.encode,
+          }
+        : baseContext;
+    }
 
     // Create approval request
     const approvalId = await approvalService.createApproval({

@@ -559,6 +559,19 @@ export function createMockPrisma() {
       findUnique: mock(async ({ where }: { where: { id: string } }) => {
         return approvalQueueStore.get(where.id) || null;
       }),
+      findFirst: mock(async ({ where }: { where?: any } = {}) => {
+        let results = Array.from(approvalQueueStore.values());
+        if (where) {
+          results = results.filter((r) => {
+            if (where.requestId && r.requestId !== where.requestId) return false;
+            if (where.status?.in && !where.status.in.includes(r.status)) return false;
+            if (where.status && typeof where.status === "string" && r.status !== where.status)
+              return false;
+            return true;
+          });
+        }
+        return results[0] || null;
+      }),
       findMany: mock(async ({ where, include }: { where?: any; include?: any } = {}) => {
         let results = Array.from(approvalQueueStore.values());
         if (where) {

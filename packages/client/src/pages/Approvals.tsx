@@ -2,6 +2,47 @@ import { useState } from "react";
 import { Badge, Button, Card, EmptyState } from "../components/ui";
 import { trpc } from "../trpc";
 
+interface ReleaseSummary {
+  title: string;
+  resolution?: string;
+  source?: string;
+  codec?: string;
+  sizeBytes?: number;
+  seeders?: number;
+  indexerName?: string;
+}
+
+interface EpisodeEntry {
+  episode: number;
+  episodeTitle?: string;
+  release: ReleaseSummary | null;
+  qualityMet: boolean;
+}
+
+interface SeasonEntry {
+  season: number;
+  pack: ReleaseSummary | null;
+  episodes: EpisodeEntry[];
+  totalEpisodes: number;
+  matchedEpisodes: number;
+}
+
+interface TvApprovalContext {
+  totalSeasons: number;
+  totalEpisodes: number;
+  matchedEpisodes: number;
+  totalSizeBytes: number;
+  seasons: SeasonEntry[];
+}
+
+interface ApprovalContext {
+  mediaType?: string;
+  title?: string;
+  year?: number;
+  tv?: TvApprovalContext;
+  [k: string]: unknown;
+}
+
 interface Approval {
   id: string;
   request: {
@@ -9,6 +50,7 @@ interface Approval {
     year: number;
     type: string;
   };
+  context: ApprovalContext | null;
   status: string;
   reason: string | null;
   requiredRole: string;
@@ -18,6 +60,138 @@ interface Approval {
   processedBy: string | null;
   processedAt: Date | null;
   comment: string | null;
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function ReleaseLine({ release }: { release: ReleaseSummary }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/60">
+      <span className="text-white/80 truncate max-w-md" title={release.title}>
+        {release.title}
+      </span>
+      {release.resolution && (
+        <Badge className="bg-white/5 text-white/60 border-white/10">{release.resolution}</Badge>
+      )}
+      {release.source && (
+        <Badge className="bg-white/5 text-white/60 border-white/10">{release.source}</Badge>
+      )}
+      {release.codec && (
+        <Badge className="bg-white/5 text-white/60 border-white/10">{release.codec}</Badge>
+      )}
+      {release.sizeBytes !== undefined && <span>{formatBytes(release.sizeBytes)}</span>}
+      {release.seeders !== undefined && <span>{release.seeders} seeders</span>}
+      {release.indexerName && <span className="text-white/40">{release.indexerName}</span>}
+    </div>
+  );
+}
+
+function SeasonBlock({ season }: { season: SeasonEntry }) {
+  const [expanded, setExpanded] = useState(true);
+  const isPack = season.pack !== null;
+  const incomplete = season.matchedEpisodes < season.totalEpisodes;
+
+  return (
+    <div className="rounded border border-white/10 bg-white/5">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-white/5 transition-all duration-150"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-white/40">{expanded ? "▾" : "▸"}</span>
+          <span className="text-white font-medium">Season {pad2(season.season)}</span>
+          {isPack && (
+            <Badge className="bg-annex-500/20 text-annex-400 border-annex-500/30">
+              Season Pack
+            </Badge>
+          )}
+          <span className="text-white/40 text-xs">
+            {season.matchedEpisodes}/{season.totalEpisodes} matched
+          </span>
+          {incomplete && (
+            <Badge className="bg-gold-500/20 text-gold-400 border-gold-500/30">Incomplete</Badge>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2">
+          {isPack && season.pack && (
+            <div className="pl-6 py-2 border-l-2 border-annex-500/40">
+              <div className="text-xs text-white/40 mb-1">Pack covers all matched episodes</div>
+              <ReleaseLine release={season.pack} />
+            </div>
+          )}
+          {!isPack &&
+            season.episodes.map((ep) => (
+              <div
+                key={ep.episode}
+                className="pl-6 py-1 border-l border-white/10 grid grid-cols-[80px_1fr] gap-3 items-start"
+              >
+                <span className="text-white/60 text-xs pt-0.5">
+                  S{pad2(season.season)}E{pad2(ep.episode)}
+                </span>
+                <div className="space-y-0.5">
+                  {ep.episodeTitle && ep.episodeTitle !== `S${season.season}E${ep.episode}` && (
+                    <div className="text-white/80 text-sm">{ep.episodeTitle}</div>
+                  )}
+                  {ep.release ? (
+                    <ReleaseLine release={ep.release} />
+                  ) : (
+                    <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
+                      No release
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TvApprovalDetails({ tv }: { tv: TvApprovalContext }) {
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-4 text-sm text-white/70">
+        <span>
+          <span className="font-medium text-white/80">{tv.totalSeasons}</span> season
+          {tv.totalSeasons !== 1 ? "s" : ""}
+        </span>
+        <span>
+          <span className="font-medium text-white/80">
+            {tv.matchedEpisodes}/{tv.totalEpisodes}
+          </span>{" "}
+          episodes matched
+        </span>
+        <span>
+          Total size:{" "}
+          <span className="font-medium text-white/80">{formatBytes(tv.totalSizeBytes)}</span>
+        </span>
+      </div>
+      <div className="space-y-2">
+        {tv.seasons.map((season) => (
+          <SeasonBlock key={season.season} season={season} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function Approvals() {
@@ -177,6 +351,8 @@ export default function Approvals() {
                       </div>
                     )}
                   </div>
+
+                  {approval.context?.tv && <TvApprovalDetails tv={approval.context.tv} />}
 
                   {processingId === approval.id && (
                     <div className="mt-3 space-y-2">
