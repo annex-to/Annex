@@ -722,6 +722,25 @@ export function createMockPrisma() {
         }
         return record;
       }),
+      findUniqueOrThrow: mock(async ({ where, select }: { where: any; select?: any }) => {
+        let record: any = null;
+        if (where.id) record = downloadStore.get(where.id) || null;
+        if (where.torrentHash) {
+          for (const r of downloadStore.values()) {
+            if (r.torrentHash === where.torrentHash) {
+              record = r;
+              break;
+            }
+          }
+        }
+        if (!record) throw new Error(`Download not found: ${JSON.stringify(where)}`);
+        if (select) {
+          const out: any = {};
+          for (const k of Object.keys(select)) if (select[k]) out[k] = record[k];
+          return out;
+        }
+        return record;
+      }),
       findMany: mock(async ({ where, select }: { where?: any; select?: any } = {}) => {
         let values = Array.from(downloadStore.values());
         if (where) {
