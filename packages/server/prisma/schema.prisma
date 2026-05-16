@@ -518,14 +518,67 @@ model Download {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // File mapping state
+  fileMapStatus DownloadFileMapStatus @default(PENDING)
+  mapAttempts   Int                   @default(0)
+
   // Relations
   processingItems ProcessingItem[] // Processing items using this download
   events          DownloadEvent[]
+  files           DownloadFile[]
 
   @@index([requestId])
   @@index([status])
   @@index([mediaType, status])
   @@index([downloadClientId])
+}
+
+model DownloadFile {
+  id         String   @id @default(cuid())
+  downloadId String
+  download   Download @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+
+  relativePath String
+  absolutePath String
+  sizeBytes    BigInt
+  fileHash     String?
+
+  kind           DownloadFileKind @default(UNKNOWN)
+  season         Int?
+  episode        Int?
+  episodeEnd     Int?
+  airDate        DateTime?
+  absoluteNumber Int?
+
+  parserVersion String
+  confidence    Float
+  rejected      Boolean @default(false)
+  rejectReason  String?
+
+  processingItemId String?         @unique
+  processingItem   ProcessingItem? @relation(fields: [processingItemId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([downloadId, relativePath])
+  @@index([downloadId, kind])
+  @@index([processingItemId])
+}
+
+enum DownloadFileKind {
+  VIDEO_MAIN
+  VIDEO_SAMPLE
+  SUBTITLE
+  EXTRA
+  UNKNOWN
+}
+
+enum DownloadFileMapStatus {
+  PENDING
+  MAPPING
+  MAPPED
+  FAILED
 }
 
 enum DownloadStatus {
@@ -622,6 +675,7 @@ model ProcessingItem {
   // Relations
   request                 MediaRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
   download                Download?            @relation(fields: [downloadId], references: [id], onDelete: SetNull)
+  downloadFile            DownloadFile?
   alternativeReleasesList AlternativeRelease[] // Replaces availableReleases JSONB
 
   createdAt DateTime @default(now())
