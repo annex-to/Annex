@@ -5,6 +5,17 @@ import type { PipelineContext } from "../PipelineContext";
 import { pipelineOrchestrator } from "../PipelineOrchestrator.js";
 import { BaseWorker } from "./BaseWorker";
 
+export async function resolveSourceFilePath(item: ProcessingItem): Promise<string | null> {
+  const file = await prisma.downloadFile.findUnique({
+    where: { processingItemId: item.id },
+    select: { absolutePath: true },
+  });
+  if (file) return file.absolutePath;
+  const ctx = (item.stepContext as Record<string, unknown> | null) ?? {};
+  const dl = ctx.download as { sourceFilePath?: string } | undefined;
+  return dl?.sourceFilePath ?? null;
+}
+
 /**
  * Encoding configuration from pipeline template
  */
@@ -159,24 +170,31 @@ export class EncodeWorker extends BaseWorker {
       throw new Error(`No ENCODE step found in pipeline template for request ${item.requestId}`);
     }
 
-    // Extract previous step contexts
-    const stepContext = item.stepContext as Record<string, unknown>;
-    const downloadData = stepContext.download as PipelineContext["download"];
-
-    if (!downloadData?.sourceFilePath) {
-      throw new Error("No download data found in item context");
+    // Resolve source path — prefer DownloadFile row (SourceDownload model),
+    // fall back to legacy stepContext.download.sourceFilePath.
+    let sourceFilePath = await resolveSourceFilePath(item);
+    if (!sourceFilePath) {
+      throw new Error("No source file path resolved for item");
     }
+
+    const stepContext = item.stepContext as Record<string, unknown>;
 
     // If sourceFilePath is a directory (from old cached data), find the main video file
     if (item.type === "MOVIE") {
       const { findMainVideoFile } = await import("./fileUtils.js");
-      const videoFile = await findMainVideoFile(downloadData.sourceFilePath as string);
-      if (videoFile && videoFile !== downloadData.sourceFilePath) {
+      const videoFile = await findMainVideoFile(sourceFilePath);
+      if (videoFile && videoFile !== sourceFilePath) {
         console.log(
           `[${this.name}] sourceFilePath was a directory, found video file: ${videoFile}`
         );
-        downloadData.sourceFilePath = videoFile;
+        sourceFilePath = videoFile;
       }
+    }
+    // Keep stepContext.download.sourceFilePath in sync for any legacy readers downstream
+    const downloadData =
+      (stepContext.download as PipelineContext["download"] | undefined) ?? undefined;
+    if (downloadData) {
+      downloadData.sourceFilePath = sourceFilePath;
     }
 
     // Build encoding configuration
@@ -203,7 +221,7 @@ export class EncodeWorker extends BaseWorker {
         payload: {
           requestId: item.requestId,
           mediaType: request.type,
-          inputPath: downloadData.sourceFilePath,
+          inputPath: sourceFilePath,
           season: item.season,
           episode: item.episode,
           processingItemId: item.id,
@@ -214,10 +232,7 @@ export class EncodeWorker extends BaseWorker {
     });
 
     // Determine output paths using processingItemId
-    const inputDir = (downloadData.sourceFilePath as string).substring(
-      0,
-      (downloadData.sourceFilePath as string).lastIndexOf("/")
-    );
+    const inputDir = sourceFilePath.substring(0, sourceFilePath.lastIndexOf("/"));
     const finalOutputPath = `${inputDir}/encoded_${item.id}.mkv`;
     const tempOutputPath = `${inputDir}/encoded_${item.id}_temp_${Date.now()}.mkv`;
 
@@ -252,13 +267,13 @@ export class EncodeWorker extends BaseWorker {
 
     // Queue encoding job
     console.log(`[${this.name}] Queueing encoding job ${job.id} for ${item.title}`);
-    console.log(`[${this.name}]   inputPath: ${downloadData.sourceFilePath as string}`);
+    console.log(`[${this.name}]   inputPath: ${sourceFilePath}`);
     console.log(`[${this.name}]   tempOutputPath: ${tempOutputPath}`);
     console.log(`[${this.name}]   finalOutputPath: ${finalOutputPath}`);
 
     const assignment = await encoderService.queueEncodingJob(
       job.id,
-      downloadData.sourceFilePath as string,
+      sourceFilePath,
       tempOutputPath,
       encodingConfig
     );
