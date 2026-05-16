@@ -651,12 +651,25 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
   // Get initial download info
   const progress = await client.getProgress(clientHash);
 
-  // Create or update Download record (upsert for reused downloads)
+  // Guard: never silently re-attribute an existing Download to a different requestId.
+  // If the hash already belongs to a different request, refuse and surface the collision.
+  const existing = await prisma.download.findUnique({
+    where: { torrentHash: clientHash },
+    select: { id: true, requestId: true, torrentName: true },
+  });
+
+  if (existing && existing.requestId !== requestId) {
+    console.error(
+      `[DownloadManager] Hash collision: torrent ${clientHash} (${existing.torrentName}) already attributed to request ${existing.requestId}; refusing to overwrite for request ${requestId}`
+    );
+    return null;
+  }
+
   const download = await prisma.download.upsert({
     where: { torrentHash: clientHash },
     create: {
       requestId,
-      torrentHash: clientHash, // Keep for backward compatibility
+      torrentHash: clientHash,
       clientHash,
       downloadClientId: clientId,
       torrentName: release.title,
@@ -676,7 +689,6 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
       alternativeReleases: alternativeReleases
         ? JSON.parse(JSON.stringify(alternativeReleases))
         : undefined,
-      // Release metadata (migrated from MediaRequest)
       indexerName: release.indexerName || release.indexer || null,
       resolution: release.resolution || null,
       source: release.source || null,
@@ -685,7 +697,7 @@ export async function createDownload(params: CreateDownloadParams): Promise<Down
       publishDate: release.publishDate || null,
     },
     update: {
-      requestId, // Update to new request
+      // requestId intentionally not updated — see collision guard above
       downloadClientId: clientId,
       status: DownloadStatus.DOWNLOADING,
       progress: progress?.progress || 0,
