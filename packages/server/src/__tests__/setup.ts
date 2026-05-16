@@ -741,51 +741,81 @@ export function createMockPrisma() {
         }
         return record;
       }),
-      findMany: mock(async ({ where, select }: { where?: any; select?: any } = {}) => {
-        let values = Array.from(downloadStore.values());
-        if (where) {
-          values = values.filter((v) => {
-            for (const key of Object.keys(where)) {
-              const cond = where[key];
-              if (key === "fileMapStatus") {
-                if (v.fileMapStatus !== cond) return false;
-              } else if (key === "processingItems" && cond?.some) {
-                const items = Array.from(processingItemStore.values()).filter(
-                  (pi: any) => pi.downloadId === v.id
-                );
-                const piWhere = cond.some;
-                const has = items.some((pi: any) =>
-                  Object.keys(piWhere).every((pk) => {
-                    if (pk === "status" && piWhere.status?.in) {
-                      return piWhere.status.in.includes(pi.status);
-                    }
-                    return (pi as any)[pk] === (piWhere as any)[pk];
-                  })
-                );
-                if (!has) return false;
-              } else if (v[key] !== cond) {
-                return false;
+      findMany: mock(
+        async ({
+          where,
+          select,
+          orderBy,
+          take,
+        }: {
+          where?: any;
+          select?: any;
+          orderBy?: any;
+          take?: number;
+        } = {}) => {
+          let values = Array.from(downloadStore.values());
+          if (where) {
+            values = values.filter((v) => {
+              for (const key of Object.keys(where)) {
+                const cond = where[key];
+                if (key === "fileMapStatus") {
+                  if (v.fileMapStatus !== cond) return false;
+                } else if (key === "mapAttempts" && cond && typeof cond === "object") {
+                  if ("lt" in cond && !((v.mapAttempts ?? 0) < cond.lt)) return false;
+                  if ("gte" in cond && !((v.mapAttempts ?? 0) >= cond.gte)) return false;
+                } else if (key === "processingItems" && cond?.some) {
+                  const items = Array.from(processingItemStore.values()).filter(
+                    (pi: any) => pi.downloadId === v.id
+                  );
+                  const piWhere = cond.some;
+                  const has = items.some((pi: any) =>
+                    Object.keys(piWhere).every((pk) => {
+                      if (pk === "status" && piWhere.status?.in) {
+                        return piWhere.status.in.includes(pi.status);
+                      }
+                      return (pi as any)[pk] === (piWhere as any)[pk];
+                    })
+                  );
+                  if (!has) return false;
+                } else if (v[key] !== cond) {
+                  return false;
+                }
               }
-            }
-            return true;
-          });
+              return true;
+            });
+          }
+          if (orderBy?.updatedAt === "asc") {
+            values.sort(
+              (a, b) => new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime()
+            );
+          }
+          if (typeof take === "number") {
+            values = values.slice(0, take);
+          }
+          if (select) {
+            values = values.map((r: any) => {
+              const out: any = {};
+              for (const k of Object.keys(select)) if (select[k]) out[k] = r[k];
+              return out;
+            });
+          }
+          return values;
         }
-        if (select) {
-          values = values.map((r: any) => {
-            const out: any = {};
-            for (const k of Object.keys(select)) if (select[k]) out[k] = r[k];
-            return out;
-          });
-        }
-        return values;
-      }),
+      ),
       update: mock(async ({ where, data }: { where: any; data: any }) => {
         const id = where.id;
         const record = downloadStore.get(id);
         if (!record) return null;
-        const updated = { ...record, ...data, updatedAt: new Date() };
-        downloadStore.set(id, updated);
-        return updated;
+        const merged: any = { ...record, updatedAt: new Date() };
+        for (const [k, v] of Object.entries(data)) {
+          if (v && typeof v === "object" && "increment" in (v as any)) {
+            merged[k] = (record[k] ?? 0) + (v as any).increment;
+          } else {
+            merged[k] = v;
+          }
+        }
+        downloadStore.set(id, merged);
+        return merged;
       }),
       deleteMany: mock(async () => {
         const count = downloadStore.size;

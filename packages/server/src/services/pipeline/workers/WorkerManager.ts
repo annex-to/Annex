@@ -4,6 +4,7 @@ import { deliverWorker } from "./DeliverWorker";
 import { discoveredWorker } from "./DiscoveredWorker";
 import { downloadWorker } from "./DownloadWorker";
 import { encodeWorker } from "./EncodeWorker";
+import { fileMapWorker } from "./FileMapWorker";
 import { searchWorker } from "./SearchWorker";
 
 /**
@@ -79,8 +80,12 @@ export class WorkerManager {
       );
     }
 
+    scheduler.register("worker-filemapworker", `Worker: ${fileMapWorker.name}`, 10_000, () =>
+      fileMapWorker.processBatch()
+    );
+
     this.isRegistered = true;
-    console.log(`[WorkerManager] Registered ${this.workers.length} workers with scheduler`);
+    console.log(`[WorkerManager] Registered ${this.workers.length + 1} workers with scheduler`);
   }
 
   /**
